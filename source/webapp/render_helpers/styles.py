@@ -26,9 +26,9 @@ PAGE_CSS = """
   h3 { color: var(--ink); }
   .muted { color: var(--ink-muted); font-size: 12px; }
   nav { display: flex; gap: 2px; flex-wrap: wrap; margin: 18px 0 28px 0; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: var(--shadow-sm); }
-  nav a { padding: 8px 14px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 13px;
-    font-weight: 500; transition: background 0.15s ease, color 0.15s ease; }
+    border: 1px solid var(--border); border-radius: 12px; padding: 5px; box-shadow: var(--shadow-sm); }
+  nav a { padding: 7px 10px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 12px;
+    font-weight: 500; transition: background 0.15s ease, color 0.15s ease; white-space: nowrap; }
   nav a.active { background: var(--brand); color: #fff; }
   nav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
