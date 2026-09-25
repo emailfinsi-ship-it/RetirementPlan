@@ -1,12 +1,16 @@
-"""Pulls current balances (every linked account, any type) and investment
-holdings (Items that requested the "investments" product) directly from
-Plaid, writes them into this program's own database, and regenerates
-account_balances.csv/.html + portfolio_positions.csv/.html.
+"""Pulls current balances (every linked account, any type), investment
+holdings (Items that requested the "investments" product), and spend
+transactions (Items that requested the "transactions" product) directly
+from Plaid, writes them into this program's own database, and
+regenerates account_balances.csv/.html + portfolio_positions.csv/.html.
 
-This is the entire "sync" for this program -- unlike FamilyFinanceTracker,
-there's no transaction history to pull (Retirement Plan only ever needs a
-current-balance snapshot, not spend history), so this is one pass over
-every linked Item rather than three separate collector jobs.
+This is the entire "sync" for this program: one pass over every linked
+Item, pulling whichever of balances/holdings/transactions that Item's
+own `products` list requested. Transactions use Plaid's cursor-based
+transactions_sync endpoint (see _sync_transactions_for_item) -- an
+incremental pull after the first one, using each Item's own stored
+transactions_cursor, rather than re-asking Plaid for that Item's entire
+history on every sync.
 
 Usage:
     python3 -m source.collector.sync
@@ -20,10 +24,12 @@ from datetime import datetime, timezone
 from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 from plaid.model.auth_get_request import AuthGetRequest
 from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
+from plaid.model.transactions_sync_request import TransactionsSyncRequest
 
 from source.collector import export_account_files, sync_industries
 from source.collector.plaid_client import build_client
 from source.common import config, db, secrets_store
+from source.common.plaid_categorize import default_category, default_excluded_from_expense
 
 
 def _utc_now_iso() -> str:
@@ -38,8 +44,68 @@ def _item_products(item_row: dict) -> set:
     return {p.strip() for p in (item_row.get("products") or "").split(",") if p.strip()}
 
 
+def _transaction_to_dict(t: dict) -> dict:
+    """Flattens one Plaid Transaction (already .to_dict()'d) into the
+    plain dict source.common.db.transactions.upsert_plaid_transaction
+    expects -- Plaid's own fields plus this row's *default*
+    category/excluded_from_expense, computed fresh from Plaid's
+    personal_finance_category every time (upsert_plaid_transaction is
+    what actually decides whether to keep a manual override instead --
+    this function never knows or cares whether one exists)."""
+    pfc = t.get("personal_finance_category") or {}
+    primary = pfc.get("primary")
+    detailed = pfc.get("detailed")
+    return {
+        "transaction_id": t["transaction_id"],
+        "account_id": t["account_id"],
+        "date": str(t["date"]),
+        "amount": t["amount"],
+        "iso_currency_code": t.get("iso_currency_code"),
+        "name": t.get("name"),
+        "merchant_name": t.get("merchant_name"),
+        "pending": bool(t.get("pending")),
+        "plaid_category_primary": primary,
+        "plaid_category_detailed": detailed,
+        "category": default_category(primary, detailed),
+        "excluded_from_expense": default_excluded_from_expense(primary, detailed),
+    }
+
+
+def _sync_transactions_for_item(item_row: dict, client, access_token: str) -> int:
+    """Pulls every added/modified transaction for this Item via Plaid's
+    cursor-based transactions_sync -- incremental after the first call
+    (only ever asks Plaid for what changed since item_row's own stored
+    transactions_cursor, never the whole history again), and removes any
+    transaction Plaid itself reports gone (a voided pending charge,
+    since-reversed transaction, etc). Returns how many transactions were
+    added/updated. Only called when "transactions" is in this Item's own
+    products -- see _sync_one_item below, same gating _item_products
+    already does for "auth"/"investments"."""
+    item_key = item_row["item_key"]
+    cursor = db.get_transactions_cursor(item_key)
+    count = 0
+    has_more = True
+    while has_more:
+        request = (
+            TransactionsSyncRequest(access_token=access_token, cursor=cursor)
+            if cursor else TransactionsSyncRequest(access_token=access_token)
+        )
+        response = client.transactions_sync(request).to_dict()
+        for t in response.get("added", []) + response.get("modified", []):
+            db.upsert_plaid_transaction(item_key=item_key, transaction=_transaction_to_dict(t))
+            count += 1
+        removed_ids = [r["transaction_id"] for r in response.get("removed", [])]
+        if removed_ids:
+            db.delete_plaid_transactions(removed_ids)
+        cursor = response.get("next_cursor")
+        has_more = bool(response.get("has_more"))
+    db.set_transactions_cursor(item_key, cursor)
+    return count
+
+
 def _sync_one_item(item_row: dict) -> tuple:
-    """Returns (account_count, holding_count, numbers_count) for this Item."""
+    """Returns (account_count, holding_count, numbers_count,
+    transaction_count) for this Item."""
     item_key = item_row["item_key"]
     access_token = secrets_store.get_item_access_token(item_key)
     # credential_profile picks which of the two saved Plaid apps to
@@ -96,8 +162,19 @@ def _sync_one_item(item_row: dict) -> tuple:
             db.upsert_plaid_holding(item_key=item_key, holding=merged)
             holding_count += 1
 
+    transaction_count = 0
+    if "transactions" in _item_products(item_row):
+        # Wrapped the same way Auth is above -- a Transactions failure
+        # (e.g. this Item hasn't actually been re-consented for it yet,
+        # or Plaid returns PRODUCT_NOT_READY right after linking) doesn't
+        # block the balance/holdings sync that already succeeded.
+        try:
+            transaction_count = _sync_transactions_for_item(item_row, client, access_token)
+        except Exception as exc:
+            print(f"[{item_key}] Transactions sync failed: {exc}", file=sys.stderr)
+
     db.mark_plaid_item_synced(item_key, _utc_now_iso())
-    return account_count, holding_count, numbers_count
+    return account_count, holding_count, numbers_count, transaction_count
 
 
 def sync_all() -> dict:
@@ -113,12 +190,14 @@ def sync_all() -> dict:
     total_accounts = 0
     total_holdings = 0
     total_numbers = 0
+    total_transactions = 0
     for item_row in items:
         try:
-            accounts, holdings, numbers = _sync_one_item(item_row)
+            accounts, holdings, numbers, transactions = _sync_one_item(item_row)
             total_accounts += accounts
             total_holdings += holdings
             total_numbers += numbers
+            total_transactions += transactions
             succeeded.append(item_row["item_key"])
         except Exception as exc:
             errors.append({"item_key": item_row["item_key"], "error": str(exc)})
@@ -140,6 +219,7 @@ def sync_all() -> dict:
         "accounts": total_accounts,
         "holdings": total_holdings,
         "account_numbers": total_numbers,
+        "transactions": total_transactions,
         "industries_classified": industry_result.get("classified", 0),
         "synced_at": downloaded_at,
     }
@@ -147,7 +227,10 @@ def sync_all() -> dict:
 
 if __name__ == "__main__":
     result = sync_all()
-    print(f"Synced {len(result['items_synced'])} item(s): {result['accounts']} account(s), {result['holdings']} holding(s).")
+    print(
+        f"Synced {len(result['items_synced'])} item(s): {result['accounts']} account(s), "
+        f"{result['holdings']} holding(s), {result['transactions']} transaction(s)."
+    )
     if result["errors"]:
         for err in result["errors"]:
             print(f"  {err['item_key']}: {err['error']}", file=sys.stderr)

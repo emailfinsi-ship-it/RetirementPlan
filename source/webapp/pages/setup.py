@@ -24,6 +24,19 @@ def _render_setup_page() -> str:
         synced = item["last_synced_at"] or "never"
         profile = (item.get("credential_profile") or "primary").strip().lower()
         profile_label = secrets_store.PROFILE_LABELS.get(profile, profile)
+        products = {p.strip() for p in (item["products"] or "").split(",") if p.strip()}
+        # An Item only ever gets the products it was originally linked
+        # with -- one linked before Real Expenditure existed (or linked
+        # without explicitly requesting "transactions") needs this
+        # one-time re-consent via Plaid "update mode" Link before it has
+        # anything to sync there; see source.collector.link_item.
+        # enable_transactions_for_item. Once granted, "transactions" shows
+        # up in the Products column like any other product and this
+        # button is gone -- nothing left to enable.
+        enable_transactions_button = (
+            "" if "transactions" in products else
+            f'<button onclick="enableTransactionsForItem({item["item_key"]!r})">Enable Transactions</button>'
+        )
         return (
             f'<tr><td>{html.escape(item["item_key"])}</td>'
             f'<td>{html.escape(item["institution_name"] or "")}</td>'
@@ -31,7 +44,8 @@ def _render_setup_page() -> str:
             f'<td>{html.escape(item["environment"])}</td>'
             f'<td>{html.escape(profile_label)}</td>'
             f'<td>{html.escape(synced)}</td>'
-            f'<td><button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button></td></tr>'
+            f'<td>{enable_transactions_button}'
+            f'<button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button></td></tr>'
         )
 
     items_rows_html = "".join(item_row(i) for i in items) or (
@@ -110,7 +124,7 @@ def _render_setup_page() -> str:
 <thead><tr><th>Item key</th><th>Institution</th><th>Products</th><th>Env</th><th>Plaid app</th><th>Last synced</th><th></th></tr></thead>
 <tbody>{items_rows_html}</tbody>
 </table>
-<p class="muted">"Sync now" (pulls current balances/holdings from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, and <a href="/linked-positions.html">Linked Positions</a> pages now, next to the data it actually refreshes.</p>
+<p class="muted">"Sync now" (pulls current balances/holdings/transactions from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, <a href="/linked-positions.html">Linked Positions</a>, and <a href="/real-expenditure.html">Real Expenditure</a> pages now, next to the data it actually refreshes. An Item's "Enable Transactions" button above (shown until its Products column already includes "transactions") opens Plaid Link once more so it can start syncing spend history for <a href="/real-expenditure.html">Real Expenditure</a> -- no need to unlink and relink it from scratch.</p>
 
 <h2>Data &amp; output locations</h2>
 <p class="status-line">Data (retirement_plan.db): {html.escape(data_status['current'])}</p>

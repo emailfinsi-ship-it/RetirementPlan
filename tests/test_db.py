@@ -487,6 +487,11 @@ class TestPlaidItems(TempConfigTestCase):
         # A row that predates the column gets the "primary" default, same
         # as every Item this program has ever linked before Secondary existed.
         self.assertEqual(db.get_plaid_item("pre_existing")["credential_profile"], "primary")
+        # This manually-built legacy table also predates transactions_cursor
+        # (added alongside the Real Expenditure feature) -- same migration
+        # pass backfills it too, as NULL (nothing to sync from yet).
+        self.assertIn("transactions_cursor", columns)
+        self.assertIsNone(db.get_plaid_item("pre_existing")["transactions_cursor"])
 
     def test_mark_synced(self):
         db.upsert_plaid_item(
@@ -511,6 +516,120 @@ class TestPlaidItems(TempConfigTestCase):
         self.assertIsNone(db.get_plaid_item("k"))
         self.assertEqual(db.list_plaid_accounts(), [])
         self.assertEqual(db.list_plaid_holdings(), [])
+
+
+def _fake_transaction_row(transaction_id, *, account_id="acc-1", amount=42.50, date="2026-09-01",
+                           name="Coffee Shop", primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE",
+                           category=None, excluded_from_expense=False):
+    return {
+        "transaction_id": transaction_id, "account_id": account_id, "date": date, "amount": amount,
+        "iso_currency_code": "USD", "name": name, "merchant_name": name, "pending": False,
+        "plaid_category_primary": primary, "plaid_category_detailed": detailed,
+        "category": category if category is not None else "Food And Drink Coffee",
+        "excluded_from_expense": excluded_from_expense,
+    }
+
+
+class TestPlaidTransactions(TempConfigTestCase):
+    def setUp(self):
+        super().setUp()
+        db.upsert_plaid_item(
+            item_key="wells_fargo_checking", plaid_item_id="item-1", institution_id=None,
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+
+    def test_upsert_and_list_transaction(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        rows = db.list_plaid_transactions()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["transaction_id"], "txn-1")
+        self.assertEqual(rows[0]["category"], "Food And Drink Coffee")
+        self.assertEqual(rows[0]["category_edited_by_user"], 0)
+        self.assertEqual(rows[0]["excluded_from_expense"], 0)
+        self.assertEqual(rows[0]["excluded_edited_by_user"], 0)
+
+    def test_upsert_is_idempotent_on_transaction_id_and_refreshes_plaid_fields(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", amount=10.0))
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", amount=12.5))
+        rows = db.list_plaid_transactions()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["amount"], 12.5)
+
+    def test_upsert_preserves_a_manually_edited_category_on_resync(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_category(["txn-1"], "My Own Label")
+        # A later sync re-sends the same transaction (e.g. pending -> posted) --
+        # Plaid's own classification is unchanged, but even if it weren't,
+        # the manual edit should survive.
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", amount=99.0))
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "My Own Label")
+        self.assertEqual(row["category_edited_by_user"], 1)
+        self.assertEqual(row["amount"], 99.0)  # Plaid-sourced field still refreshes
+
+    def test_upsert_preserves_a_manually_edited_excluded_flag_on_resync(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_excluded(["txn-1"], True)
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["excluded_from_expense"], 1)
+        self.assertEqual(row["excluded_edited_by_user"], 1)
+
+    def test_delete_plaid_transactions(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-2"))
+        count = db.delete_plaid_transactions(["txn-1"])
+        self.assertEqual(count, 1)
+        remaining = {r["transaction_id"] for r in db.list_plaid_transactions()}
+        self.assertEqual(remaining, {"txn-2"})
+
+    def test_delete_plaid_transactions_with_empty_list_is_a_no_op(self):
+        self.assertEqual(db.delete_plaid_transactions([]), 0)
+
+    def test_update_plaid_transaction_category_marks_edited_by_user(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        count = db.update_plaid_transaction_category(["txn-1"], "Groceries")
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Groceries")
+        self.assertEqual(row["category_edited_by_user"], 1)
+
+    def test_clear_plaid_transaction_category_overrides_recomputes_from_plaid_fields(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_category(["txn-1"], "My Own Label")
+        count = db.clear_plaid_transaction_category_overrides(["txn-1"])
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Food And Drink Coffee")
+        self.assertEqual(row["category_edited_by_user"], 0)
+
+    def test_update_plaid_transaction_excluded(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        count = db.update_plaid_transaction_excluded(["txn-1"], True)
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["excluded_from_expense"], 1)
+        self.assertEqual(row["excluded_edited_by_user"], 1)
+
+    def test_clear_plaid_transaction_excluded_overrides_recomputes_from_plaid_fields(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", primary="TRANSFER_OUT", detailed="TRANSFER_OUT_ACCOUNT_TRANSFER",
+                                                excluded_from_expense=True),
+        )
+        db.update_plaid_transaction_excluded(["txn-1"], False)  # manually marked "include"
+        count = db.clear_plaid_transaction_excluded_overrides(["txn-1"])
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        # Back to the automatic heuristic -- a TRANSFER_OUT is excluded again.
+        self.assertEqual(row["excluded_from_expense"], 1)
+        self.assertEqual(row["excluded_edited_by_user"], 0)
+
+    def test_get_and_set_transactions_cursor(self):
+        self.assertIsNone(db.get_transactions_cursor("wells_fargo_checking"))
+        db.set_transactions_cursor("wells_fargo_checking", "cursor-abc")
+        self.assertEqual(db.get_transactions_cursor("wells_fargo_checking"), "cursor-abc")
 
 
 class TestPlaidAccountsAndHoldings(TempConfigTestCase):

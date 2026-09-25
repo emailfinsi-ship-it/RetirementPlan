@@ -3687,5 +3687,240 @@ class TestSummaryInsightCard(DashboardTestCase):
         self.assertIn('<div class="label">2028 income covers expenses</div><div class="value">25%</div>', body)
 
 
+def _seed_transaction_item(item_key="wells_fargo_checking", *, account_id="acc-checking"):
+    db.upsert_plaid_item(
+        item_key=item_key, plaid_item_id=f"item-{item_key}", institution_id="ins_1",
+        institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+        linked_at="2026-09-01T00:00:00+00:00",
+    )
+    db.upsert_plaid_account(item_key=item_key, account={
+        "account_id": account_id, "name": "Checking", "official_name": "Everyday Checking",
+        "type": "depository", "subtype": "checking", "mask": "6789",
+        "balances": {"current": 5_000.0, "available": None, "iso_currency_code": "USD"},
+    })
+
+
+def _seed_transaction(transaction_id, *, item_key="wells_fargo_checking", account_id="acc-checking",
+                       amount=42.50, date="2026-09-01", name="Coffee Shop",
+                       primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE"):
+    from source.common.plaid_categorize import default_category, default_excluded_from_expense
+    db.upsert_plaid_transaction(item_key=item_key, transaction={
+        "transaction_id": transaction_id, "account_id": account_id, "date": date, "amount": amount,
+        "iso_currency_code": "USD", "name": name, "merchant_name": name, "pending": False,
+        "plaid_category_primary": primary, "plaid_category_detailed": detailed,
+        "category": default_category(primary, detailed),
+        "excluded_from_expense": default_excluded_from_expense(primary, detailed),
+    })
+
+
+class TestRealExpenditurePage(DashboardTestCase):
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+        db.delete_plaid_item("wells_fargo_checking")
+
+    def test_nav_includes_real_expenditure(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('href="/real-expenditure.html"', body)
+        self.assertIn("Real Expenditure", body)
+
+    def test_empty_state(self):
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("No transactions synced yet", body)
+
+    def test_a_transaction_renders_with_institution_account_and_category(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("Wells Fargo", body)
+        self.assertIn("Everyday Checking", body)
+        self.assertIn("Coffee Shop", body)
+        self.assertIn("Food And Drink Coffee", body)
+        self.assertIn("42.50", body)
+
+    def test_monthly_and_annual_summaries_total_included_transactions(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=40.0, date="2026-09-05")
+        _seed_transaction("txn-2", amount=60.0, date="2026-09-20")
+        _seed_transaction("txn-3", amount=25.0, date="2026-08-01")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("<td>2026-09</td>", body)
+        self.assertIn("100.00", body)  # September total: 40 + 60
+        self.assertIn("<td>2026</td>", body)
+        self.assertIn("125.00", body)  # annual total: 40 + 60 + 25
+
+    def test_excluded_transactions_are_shown_but_not_counted_in_the_total(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-spend", amount=50.0)
+        _seed_transaction("txn-transfer", amount=200.0, primary="TRANSFER_OUT", detailed="TRANSFER_OUT_ACCOUNT_TRANSFER")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        # The transfer still shows up in the full list...
+        self.assertIn("excluded", body)
+        # ...but the "Total real expenditure" tile only counts the spend.
+        self.assertIn("50.00", body)
+        self.assertIn("Across 1 counted transaction", body)
+        self.assertIn("1 more excluded", body)
+
+    def test_manually_edited_category_is_marked_with_an_asterisk(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        db.update_plaid_transaction_category(["txn-1"], "My Own Label")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("My Own Label *", body)
+
+    def test_bulk_classify_bar_and_datalist_are_present(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn('id="transaction-bulk-bar"', body)
+        self.assertIn('list="transaction-categories"', body)
+        self.assertIn("classifySelectedTransactions()", body)
+        self.assertIn("setSelectedTransactionsExcluded(true)", body)
+        self.assertIn("setSelectedTransactionsExcluded(false)", body)
+        self.assertIn("resetSelectedTransactionsExpenseFlag()", body)
+        self.assertIn('class="transaction-check"', body)
+
+
+class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):
+    def setUp(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+        db.delete_plaid_item("wells_fargo_checking")
+
+    def test_setting_a_category_classifies_every_requested_item(self):
+        status, payload = self._post("/api/classify-transaction-category", {
+            "items": [{"transaction_id": "txn-1"}], "category": "Groceries",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Groceries")
+        self.assertEqual(row["category_edited_by_user"], 1)
+
+    def test_blank_category_resets_to_the_plaid_default_instead_of_blanking_it(self):
+        db.update_plaid_transaction_category(["txn-1"], "My Own Label")
+        status, payload = self._post("/api/classify-transaction-category", {
+            "items": [{"transaction_id": "txn-1"}], "category": None,
+        })
+        self.assertTrue(payload["ok"])
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Food And Drink Coffee")
+        self.assertEqual(row["category_edited_by_user"], 0)
+
+    def test_skips_items_missing_a_transaction_id_but_still_classifies_the_rest(self):
+        status, payload = self._post("/api/classify-transaction-category", {
+            "items": [{"transaction_id": "txn-1"}, {}],
+            "category": "Groceries",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+
+
+class TestClassifyTransactionExpenseFlagEndpoint(DashboardTestCase):
+    def setUp(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+        db.delete_plaid_item("wells_fargo_checking")
+
+    def test_exclude_action_marks_it_excluded_and_edited_by_user(self):
+        status, payload = self._post("/api/classify-transaction-expense-flag", {
+            "items": [{"transaction_id": "txn-1"}], "action": "exclude",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["excluded_from_expense"], 1)
+        self.assertEqual(row["excluded_edited_by_user"], 1)
+
+    def test_include_action_marks_it_included_and_edited_by_user(self):
+        db.update_plaid_transaction_excluded(["txn-1"], True)
+        status, payload = self._post("/api/classify-transaction-expense-flag", {
+            "items": [{"transaction_id": "txn-1"}], "action": "include",
+        })
+        self.assertTrue(payload["ok"])
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["excluded_from_expense"], 0)
+        self.assertEqual(row["excluded_edited_by_user"], 1)
+
+    def test_reset_action_goes_back_to_the_automatic_heuristic(self):
+        db.update_plaid_transaction_excluded(["txn-1"], True)
+        status, payload = self._post("/api/classify-transaction-expense-flag", {
+            "items": [{"transaction_id": "txn-1"}], "action": "reset",
+        })
+        self.assertTrue(payload["ok"])
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["excluded_from_expense"], 0)  # a coffee purchase isn't a transfer
+        self.assertEqual(row["excluded_edited_by_user"], 0)
+
+    def test_unknown_action_returns_400(self):
+        status, payload = self._post("/api/classify-transaction-expense-flag", {
+            "items": [{"transaction_id": "txn-1"}], "action": "bogus",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+
+class TestPlaidConnectTransactionsEndpoint(DashboardTestCase):
+    def tearDown(self):
+        db.delete_plaid_item("test_item")
+        secrets_store.clear_vault_cache()
+        self.fake_keyring._store.clear()
+
+    def test_calls_enable_transactions_for_item_and_reports_ok(self):
+        with patch("source.webapp.dashboard.plaid_link_item.enable_transactions_for_item") as mock_enable:
+            status, payload = self._post("/api/plaid-connect-transactions", {"item_key": "test_item"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        mock_enable.assert_called_once_with("test_item")
+
+    def test_without_item_key_returns_400(self):
+        status, payload = self._post("/api/plaid-connect-transactions", {})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_failure_surfaces_error_message(self):
+        with patch(
+            "source.webapp.dashboard.plaid_link_item.enable_transactions_for_item",
+            side_effect=TimeoutError("Timed out waiting for Link to complete in the browser."),
+        ):
+            status, payload = self._post("/api/plaid-connect-transactions", {"item_key": "test_item"})
+        self.assertEqual(status, 500)
+        self.assertFalse(payload["ok"])
+        self.assertIn("Timed out", payload["error"])
+
+
+class TestSetupPageEnableTransactionsButton(DashboardTestCase):
+    def tearDown(self):
+        db.delete_plaid_item("investments_only")
+        db.delete_plaid_item("has_transactions")
+
+    def test_item_without_transactions_shows_the_enable_button(self):
+        db.upsert_plaid_item(
+            item_key="investments_only", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("enableTransactionsForItem('investments_only')", body)
+
+    def test_item_with_transactions_does_not_show_the_enable_button(self):
+        db.upsert_plaid_item(
+            item_key="has_transactions", plaid_item_id="item-2", institution_id="ins_2",
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertNotIn("enableTransactionsForItem('has_transactions')", body)
+
+
 if __name__ == "__main__":
     unittest.main()

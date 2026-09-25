@@ -138,6 +138,40 @@ def read_linked_portfolio_positions() -> list:
     return result
 
 
+def read_transactions() -> list:
+    """Every synced Plaid transaction (source.collector.sync._sync_
+    transactions_for_item), joined with its account/institution for
+    display -- powers the Real Expenditure tab (source.webapp.pages.
+    real_expenditure). Plaid's own amount convention is kept as-is
+    (positive = money out, negative = money in/refund) rather than
+    flipped to a "spend is positive" convention here, so a category or
+    monthly total that simply sums `amount` already nets a refund
+    against the spending it partially or fully reverses."""
+    accounts_by_id = {a["account_id"]: a for a in db.list_plaid_accounts()}
+    items_by_key = {i["item_key"]: i for i in db.list_plaid_items()}
+    result = []
+    for t in db.list_plaid_transactions():
+        account = accounts_by_id.get(t["account_id"], {})
+        item = items_by_key.get(t["item_key"], {})
+        result.append({
+            "transaction_id": t["transaction_id"],
+            "date": t["date"],
+            "amount": t["amount"] or 0.0,
+            "iso_currency_code": t["iso_currency_code"] or "",
+            "name": t["name"] or "",
+            "merchant_name": t["merchant_name"] or "",
+            "pending": bool(t["pending"]),
+            "category": t["category"] or "Uncategorized",
+            "category_edited_by_user": bool(t["category_edited_by_user"]),
+            "excluded_from_expense": bool(t["excluded_from_expense"]),
+            "excluded_edited_by_user": bool(t["excluded_edited_by_user"]),
+            "institution": item.get("institution_name") or "",
+            "account_name": account.get("official_name") or account.get("name") or "",
+            "account_type": (account.get("subtype") or account.get("type") or "").replace("_", " ").title(),
+        })
+    return result
+
+
 def linked_totals() -> dict:
     balances = read_linked_account_balances()
     positions = read_linked_portfolio_positions()

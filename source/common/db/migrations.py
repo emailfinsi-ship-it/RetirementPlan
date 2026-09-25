@@ -76,3 +76,11 @@ def _migrate_schema(conn) -> None:
         # included unless the user unchecks it -- no silent change in
         # anyone's projected numbers.
         conn.execute("ALTER TABLE income ADD COLUMN include_in_monte_carlo INTEGER NOT NULL DEFAULT 1")
+    if "transactions_cursor" not in existing_pi:
+        # NULL for every pre-existing Item -- source.collector.sync's
+        # transactions_sync call treats a NULL/missing cursor as "give me
+        # this Item's whole history from the start," exactly the same as
+        # a brand-new Item that just requested the "transactions" product
+        # for the first time (see plaid_items.transactions_cursor's own
+        # column comment in schema.py).
+        conn.execute("ALTER TABLE plaid_items ADD COLUMN transactions_cursor TEXT")

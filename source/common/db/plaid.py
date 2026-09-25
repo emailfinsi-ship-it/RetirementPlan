@@ -1,11 +1,12 @@
 """Plaid-linked items/accounts/holdings -- this program's own direct
 Plaid integration (source.plaid.*), independent of FamilyFinanceTracker.
-Schema deliberately mirrors FamilyFinanceTracker's own items/accounts/
-holdings tables (trimmed: no transactions_cursor, no transactions table
-at all -- this program only ever needs balances and holdings, never
-spend history) so the two apps' data shapes stay easy to reason about
-side by side, even though nothing here reads FamilyFinanceTracker's
-database directly.
+Schema mirrors FamilyFinanceTracker's own items/accounts/holdings tables
+so the two apps' data shapes stay easy to reason about side by side,
+even though nothing here reads FamilyFinanceTracker's database directly.
+Transaction-level spend history (the Real Expenditure tab) is a separate
+table/module, source.common.db.transactions -- plaid_items itself just
+carries that table's transactions_cursor column (see schema.py) for
+whichever Items have requested the "transactions" product.
 """
 
 from __future__ import annotations

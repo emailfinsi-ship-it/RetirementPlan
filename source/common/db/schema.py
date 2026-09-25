@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS plaid_items (
                                       -- "primary" so every Item linked before this column
                                       -- existed keeps working with the one Plaid app this
                                       -- program has always used.
+    transactions_cursor TEXT,        -- Plaid transactions_sync's own opaque cursor -- NULL until
+                                      -- the first transactions pull for this Item, then always the
+                                      -- last response's next_cursor, so every later sync only asks
+                                      -- Plaid for what changed since then rather than the Item's
+                                      -- whole transaction history again. Only meaningful for an
+                                      -- Item whose products include "transactions" -- see
+                                      -- source.collector.sync._sync_transactions_for_item.
     linked_at TEXT NOT NULL,
     last_synced_at TEXT
 );
@@ -196,6 +203,48 @@ CREATE TABLE IF NOT EXISTS security_industries (
     sector TEXT,
     updated_at TEXT NOT NULL
 );
+
+-- Individual spend transactions pulled from Plaid for whichever linked
+-- Items requested the "transactions" product (credit card, checking,
+-- and investment-account cash activity alike -- Plaid returns all of
+-- it through the same transactions_sync endpoint regardless of account
+-- type) -- powers the Real Expenditure tab (source.webapp.pages.
+-- real_expenditure). See source.common.plaid_categorize for exactly how
+-- `category`/`excluded_from_expense` get their starting values from
+-- Plaid's own personal_finance_category, and source.collector.sync.
+-- _sync_transactions_for_item for the cursor-based incremental pull
+-- that populates this table.
+CREATE TABLE IF NOT EXISTS plaid_transactions (
+    transaction_id TEXT PRIMARY KEY,   -- Plaid's own id -- stable across syncs, so re-pulling the
+                                        -- same transaction (e.g. pending -> posted) upserts in place
+    item_key TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    date TEXT NOT NULL,                -- "YYYY-MM-DD"
+    amount REAL NOT NULL,              -- Plaid convention: positive = money out, negative = money in
+    iso_currency_code TEXT,
+    name TEXT NOT NULL DEFAULT '',     -- Plaid's raw transaction description
+    merchant_name TEXT,
+    pending INTEGER NOT NULL DEFAULT 0,
+    plaid_category_primary TEXT,       -- Plaid's own personal_finance_category.primary, unedited --
+    plaid_category_detailed TEXT,      -- ...and .detailed -- kept around so a "Reset to automatic"
+                                        -- action can always recompute category/excluded_from_expense
+                                        -- from Plaid's own classification, not just from whatever this
+                                        -- row's `category` happened to already say.
+    category TEXT NOT NULL DEFAULT '', -- editable; starts as plaid_category_detailed/primary
+                                        -- prettified (source.common.plaid_categorize.default_category)
+    category_edited_by_user INTEGER NOT NULL DEFAULT 0, -- 1 once a person has bulk-set this row's
+                                        -- category by hand -- a later resync (Plaid re-sending this
+                                        -- transaction_id as "modified") then leaves `category` alone
+                                        -- instead of recomputing it from Plaid's classification again.
+    excluded_from_expense INTEGER NOT NULL DEFAULT 0, -- 1 = left out of the Real Expenditure total
+                                        -- (still shown in the full transaction list, never hidden) --
+                                        -- starts from plaid_categorize.default_excluded_from_expense
+                                        -- (an internal transfer or credit card bill payment), editable
+    excluded_edited_by_user INTEGER NOT NULL DEFAULT 0, -- same "don't clobber a manual edit on
+                                        -- resync" guard as category_edited_by_user, for the flag above
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(date);
 """
 
 

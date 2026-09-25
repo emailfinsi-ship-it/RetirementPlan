@@ -65,6 +65,7 @@ from source.webapp.pages.linked_positions import _render_linked_positions_page, 
 from source.webapp.pages.login import _render_login_page
 from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
 from source.webapp.pages.real_estate import _render_real_estate_page
+from source.webapp.pages.real_expenditure import _render_real_expenditure_page
 from source.webapp.pages.setup import _render_setup_page
 from source.webapp.pages.summary import _render_summary_page
 
@@ -324,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_linked_positions_page())
             elif path == "/expense.html":
                 self._send_html(_render_expense_page())
+            elif path == "/real-expenditure.html":
+                self._send_html(_render_real_expenditure_page())
             elif path == "/real-estate.html":
                 self._send_html(_render_real_estate_page())
             elif path == "/monte-carlo.html":
@@ -640,6 +643,60 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     security_ids = [item["security_id"] for item in items if item.get("security_id")]
                     count = db.clear_security_sectors(security_ids)
+                self._send_json({"ok": True, "count": count})
+            elif path == "/api/plaid-connect-transactions":
+                # Backs the Setup page's per-Item "Enable Transactions"
+                # button -- an Item linked before this feature existed
+                # (or linked without explicitly requesting "transactions")
+                # needs this one-time re-consent (Plaid "update mode"
+                # Link) before Real Expenditure has anything to sync for
+                # it; see source.collector.link_item.
+                # enable_transactions_for_item's own docstring for why a
+                # plain resync alone can't grant a new product. Same
+                # synchronous "waits in this request for you to finish in
+                # the new browser tab" shape as /api/plaid-connect above.
+                item_key = (payload.get("item_key") or "").strip()
+                if not item_key:
+                    raise ValueError("Item key is required.")
+                plaid_link_item.enable_transactions_for_item(item_key)
+                self._send_json({"ok": True})
+            elif path == "/api/classify-transaction-category":
+                # Backs the Real Expenditure page's multi-select "Set
+                # category"/"Reset category" bar -- same tolerant-per-item
+                # pattern as /api/classify-industry above, just keyed by
+                # transaction_id instead of security_id. An empty/missing
+                # category resets the selected rows back to Plaid's own
+                # classification (db.clear_plaid_transaction_category_
+                # overrides) instead of blanking them -- unlike a
+                # security's industry, a transaction always has SOME
+                # starting category from Plaid, so "clear" means "go back
+                # to that," not "make this blank."
+                items = payload.get("items") or []
+                transaction_ids = [item["transaction_id"] for item in items if item.get("transaction_id")]
+                category = (payload.get("category") or "").strip()
+                if category:
+                    count = db.update_plaid_transaction_category(transaction_ids, category)
+                else:
+                    count = db.clear_plaid_transaction_category_overrides(transaction_ids)
+                self._send_json({"ok": True, "count": count})
+            elif path == "/api/classify-transaction-expense-flag":
+                # Backs the Real Expenditure page's "Exclude from total"/
+                # "Include in total"/"Reset to automatic" buttons -- lets a
+                # person correct Plaid's own transfer/credit-card-payment
+                # auto-tagging (source.common.plaid_categorize.default_
+                # excluded_from_expense) by hand in either direction, or
+                # put a row back under that automatic tagging.
+                items = payload.get("items") or []
+                transaction_ids = [item["transaction_id"] for item in items if item.get("transaction_id")]
+                action = (payload.get("action") or "").strip().lower()
+                if action == "exclude":
+                    count = db.update_plaid_transaction_excluded(transaction_ids, True)
+                elif action == "include":
+                    count = db.update_plaid_transaction_excluded(transaction_ids, False)
+                elif action == "reset":
+                    count = db.clear_plaid_transaction_excluded_overrides(transaction_ids)
+                else:
+                    raise ValueError(f"Unknown action {action!r} -- expected 'exclude', 'include', or 'reset'.")
                 self._send_json({"ok": True, "count": count})
             else:
                 self._send_json({"ok": False, "error": "Not found"}, status=404)

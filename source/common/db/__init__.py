@@ -20,8 +20,8 @@ by concern -- schema/defaults (schema.py), the connection context
 manager (connection.py), startup migrations (migrations.py), the
 generic line-item CRUD every editable tab shares (line_items.py),
 Monte Carlo assumptions (assumptions.py), import/export bookkeeping
-(meta.py), and the two Plaid-integration areas (plaid.py,
-securities.py). Every caller in this codebase does
+(meta.py), and the three Plaid-integration areas (plaid.py,
+securities.py, transactions.py). Every caller in this codebase does
 `from source.common import db` and then calls `db.something(...)`, so
 nothing outside this package needs to change: every name is re-exported
 here, from the same place, including init_db() itself (the one function
@@ -87,6 +87,17 @@ from source.common.db.securities import (
     set_security_industry,
     set_security_sector,
 )
+from source.common.db.transactions import (
+    clear_plaid_transaction_category_overrides,
+    clear_plaid_transaction_excluded_overrides,
+    delete_plaid_transactions,
+    get_transactions_cursor,
+    list_plaid_transactions,
+    set_transactions_cursor,
+    update_plaid_transaction_category,
+    update_plaid_transaction_excluded,
+    upsert_plaid_transaction,
+)
 
 __all__ = [
     "SCHEMA",
@@ -129,4 +140,13 @@ __all__ = [
     "clear_security_sectors",
     "clear_security_industries",
     "list_unclassified_equity_tickers",
+    "upsert_plaid_transaction",
+    "delete_plaid_transactions",
+    "list_plaid_transactions",
+    "update_plaid_transaction_category",
+    "clear_plaid_transaction_category_overrides",
+    "update_plaid_transaction_excluded",
+    "clear_plaid_transaction_excluded_overrides",
+    "get_transactions_cursor",
+    "set_transactions_cursor",
 ]

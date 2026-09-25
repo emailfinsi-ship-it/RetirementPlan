@@ -135,6 +135,30 @@ def _create_link_token(client, products: list[str]) -> str:
     return response["link_token"]
 
 
+def _create_update_mode_link_token(client, access_token: str, additional_products: list[str]) -> str:
+    """Link token for adding a product to an ALREADY-linked Item (see
+    enable_transactions_for_item below) -- Plaid only ever asks a bank
+    for the products requested the first time an Item was linked;
+    getting a new one (Transactions, for an Item that was originally
+    linked with just "investments", say) needs this "update mode" Link
+    flow instead of a plain resync: pass the Item's own access_token
+    (not `products`) plus `additional_consented_products`, and Plaid
+    reopens Link for that one specific Item/institution so the person
+    can explicitly re-consent to the new product. No new Item or access
+    token comes out of this -- see enable_transactions_for_item's own
+    docstring for what happens after Link succeeds."""
+    request = LinkTokenCreateRequest(
+        user=LinkTokenCreateRequestUser(client_user_id=LOCAL_USER_ID),
+        client_name=CLIENT_NAME,
+        country_codes=[CountryCode("US")],
+        language="en",
+        access_token=access_token,
+        additional_consented_products=[Products(p) for p in additional_products],
+    )
+    response = client.link_token_create(request)
+    return response["link_token"]
+
+
 def _run_local_link(link_token: str, *, port: int, timeout_seconds: int) -> _LinkResult:
     result = _LinkResult()
     server = HTTPServer(("127.0.0.1", port), _make_handler(link_token, result))
@@ -205,6 +229,54 @@ def link_real_item(
         linked_at=linked_at,
     )
     return plaid_item_id
+
+
+def enable_transactions_for_item(
+    item_key: str, *, port: int = DEFAULT_PORT, timeout_seconds: int = 300,
+) -> None:
+    """Re-opens Plaid Link in "update mode" for an already-linked Item to
+    grant it the Transactions product, without creating a new Item or
+    access token -- see _create_update_mode_link_token's own docstring
+    for why this is needed at all (an Item only gets the products it was
+    originally linked with; expanding that set later needs explicit
+    re-consent). Backs the Setup page's "Enable Transactions" button --
+    each linked Item whose own `products` doesn't already include
+    "transactions" gets this button instead of just "Sync now" being
+    expected to somehow pull spend history it was never authorized for.
+
+    Update mode never mints a new access token -- the Item's existing
+    one keeps working, now with the extra product already authorized on
+    Plaid's side the moment Link's onSuccess fires (same _run_local_link
+    flow link_real_item uses above, just started from a token built with
+    access_token= instead of a fresh `products` list). There's nothing
+    to exchange, so this only needs to (a) wait for Link to finish
+    without erroring -- _run_local_link already raises on a timeout,
+    on Link exiting with an error, or on a missing public_token, any of
+    which means the extra consent never actually happened -- and then
+    (b) record locally that this Item's products now include
+    "transactions", so the very next "Sync now" starts pulling its
+    transaction history instead of silently doing nothing."""
+    item_row = db.get_plaid_item(item_key)
+    if not item_row:
+        raise ValueError(f"No linked item '{item_key}'.")
+    access_token = secrets_store.get_item_access_token(item_key)
+    profile = item_row.get("credential_profile") or "primary"
+    client = build_client(item_row["environment"], profile=profile)
+    link_token = _create_update_mode_link_token(client, access_token, ["transactions"])
+    _run_local_link(link_token, port=port, timeout_seconds=timeout_seconds)
+
+    existing_products = {p.strip() for p in (item_row.get("products") or "").split(",") if p.strip()}
+    existing_products.add("transactions")
+    db.upsert_plaid_item(
+        item_key=item_key,
+        plaid_item_id=item_row["plaid_item_id"],
+        institution_id=item_row.get("institution_id"),
+        institution_name=item_row.get("institution_name"),
+        products=sorted(existing_products),
+        environment=item_row["environment"],
+        credential_profile=profile,
+        linked_at=item_row["linked_at"],
+    )
 
 
 def main() -> None:

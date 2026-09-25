@@ -19,6 +19,7 @@ NAV_ITEMS = (
     ("linked-accounts.html", "Linked Accounts"),
     ("linked-positions.html", "Linked Positions"),
     ("expense.html", "Income/Expense"),
+    ("real-expenditure.html", "Real Expenditure"),
     ("real-estate.html", "Real Estate Analysis"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
     ("setup.html", "Setup"),
@@ -485,6 +486,89 @@ document.addEventListener('change', function(e) {{
   }}
 }});
 document.addEventListener('DOMContentLoaded', refreshIndustryBulkBar);
+// Real Expenditure tab's own checkbox + bulk-classify bars (category,
+// and the excluded-from-total flag) -- same shape as the industry/
+// sector bars just above, deliberately kept as its own, distinctly-
+// named set of functions/listener rather than reusing
+// refreshIndustryBulkBar/toggleAllPositionChecks (which hardcode the
+// .position-check/.position-select-all classes): giving every bulk-bar
+// family its own name is what actually prevents the kind of silent
+// same-name collision the row-checkbox "Delete selected" bar once hit
+// here (two different `function refreshBulkBar(...)` in this same
+// shared script, the later one quietly winning) -- see
+// tests.test_dashboard.test_shared_page_script_has_no_duplicate_top_level_function_names.
+function refreshTransactionBulkBar() {{
+  var boxes = document.querySelectorAll('.transaction-check:checked');
+  var bar = document.getElementById('transaction-bulk-bar');
+  if (!bar) return;
+  var n = boxes.length;
+  bar.querySelector('.bulk-count').textContent = n + (n === 1 ? ' selected' : ' selected');
+  var input = document.getElementById('transaction-category-input');
+  if (input) input.disabled = n === 0;
+  bar.querySelectorAll('button').forEach(function(btn) {{ btn.disabled = n === 0; }});
+  bar.style.display = n > 0 ? 'flex' : 'none';
+}}
+function toggleAllTransactionChecks(masterCheckbox, tableEl) {{
+  var boxes = tableEl.querySelectorAll('tbody .transaction-check');
+  boxes.forEach(function(cb) {{ cb.checked = masterCheckbox.checked; }});
+  refreshTransactionBulkBar();
+}}
+function clearTransactionSelection() {{
+  document.querySelectorAll('.transaction-check, .transaction-select-all').forEach(function(cb) {{ cb.checked = false; }});
+  refreshTransactionBulkBar();
+}}
+function _selectedTransactionItems() {{
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.transaction-check:checked'));
+  return boxes.map(function(cb) {{ return {{transaction_id: cb.dataset.transactionId}}; }});
+}}
+function classifySelectedTransactions() {{
+  var items = _selectedTransactionItems();
+  if (!items.length) return;
+  var input = document.getElementById('transaction-category-input');
+  var category = (input.value || '').trim();
+  if (!category) {{ alert('Enter a category to set, or use "Reset category" to go back to the automatic one.'); return; }}
+  postJSON('/api/classify-transaction-category', {{items: items, category: category}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function resetSelectedTransactionCategories() {{
+  var items = _selectedTransactionItems();
+  if (!items.length) return;
+  postJSON('/api/classify-transaction-category', {{items: items, category: ''}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function setSelectedTransactionsExcluded(excluded) {{
+  var items = _selectedTransactionItems();
+  if (!items.length) return;
+  postJSON('/api/classify-transaction-expense-flag', {{items: items, action: excluded ? 'exclude' : 'include'}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function resetSelectedTransactionsExpenseFlag() {{
+  var items = _selectedTransactionItems();
+  if (!items.length) return;
+  postJSON('/api/classify-transaction-expense-flag', {{items: items, action: 'reset'}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+document.addEventListener('change', function(e) {{
+  if (e.target.classList.contains('transaction-check')) refreshTransactionBulkBar();
+  if (e.target.classList.contains('transaction-select-all')) {{
+    var table = e.target.closest('table');
+    if (table) toggleAllTransactionChecks(e.target, table);
+  }}
+}});
+document.addEventListener('DOMContentLoaded', refreshTransactionBulkBar);
+function enableTransactionsForItem(itemKey) {{
+  if (!confirm('This opens Plaid Link in a new browser tab so you can re-authorize ' + itemKey + ' for transaction history. Continue?')) return;
+  var btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Waiting for Plaid Link in the new tab...';
+  postJSON('/api/plaid-connect-transactions', {{item_key: itemKey}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); btn.disabled = false; btn.textContent = 'Enable Transactions'; }});
+}}
 // One consolidated "+ Add" entry point (see the fab button + modal above)
 // for every kind of line item -- Asset/Liability/Expense/Income/Real
 // estate -- instead of a separate add-form duplicated on each tab. All
