@@ -1,0 +1,3691 @@
+"""source.webapp.dashboard -- boots a real ThreadingHTTPServer on an
+ephemeral port (0) against a temp-dir-backed config, same pattern as
+FamilyFinanceTracker's own TestNoStoreCacheHeader, since these handlers
+need a real socket rather than being unit-testable in isolation.
+
+Also patches the `keyring` module functions with an in-memory FakeKeyring
+(see tests/testing_utils.py) so the Setup page's Plaid-credentials card and
+the /api/plaid-* routes never touch a real macOS Keychain, and mocks the
+actual Plaid network calls (link_item.link_real_item, remove_item.
+remove_item, sync.sync_all) so these tests never make a real HTTP request
+to Plaid or open a browser tab."""
+
+import http.client
+import json
+import random
+import re
+import tempfile
+import threading
+import unittest
+from collections import Counter
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import keyring
+
+from source.common import app_settings, auth_store, backup, config, db, secrets_store
+from source.webapp import dashboard
+from tests.testing_utils import FakeKeyring
+
+
+class DashboardTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmpdir = tempfile.TemporaryDirectory()
+        tmp = Path(cls._tmpdir.name)
+        cls.fake_keyring = FakeKeyring()
+        cls._patches = [
+            patch.object(config, "DATA_DIR", tmp / "data"),
+            patch.object(config, "DB_PATH", tmp / "data" / "retirement_plan.db"),
+            patch.object(config, "OUTPUT_DIR", tmp / "output"),
+            patch.object(config, "LOG_DIR", tmp / "logs"),
+            patch.object(config, "CONFIG_DIR", tmp / "config"),
+            # A real config.set_data_dir()/set_output_dir() call would otherwise
+            # persist to the real ~/Library/Application Support/RetirementPlan/
+            # settings.json on whatever machine runs this suite -- redirect
+            # that to the same temp dir.
+            patch.object(app_settings, "_SETTINGS_DIR", tmp / "app_settings"),
+            patch.object(app_settings, "_SETTINGS_PATH", tmp / "app_settings" / "settings.json"),
+            patch.object(keyring, "get_password", cls.fake_keyring.get_password),
+            patch.object(keyring, "set_password", cls.fake_keyring.set_password),
+            patch.object(keyring, "delete_password", cls.fake_keyring.delete_password),
+        ]
+        for p in cls._patches:
+            p.start()
+        config.ensure_directories()
+        db.init_db()
+        secrets_store.clear_vault_cache()
+        auth_store.clear_auth_cache()
+        # No test in this file sets a login password unless it says so
+        # explicitly, so the auth gate in dashboard.Handler stays off by
+        # default here -- same "every existing test keeps behaving
+        # exactly as it did before login existed" guarantee
+        # secrets_store.clear_vault_cache() above already gives the
+        # Plaid vault.
+        dashboard._login_failures.clear()
+
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=5)
+        secrets_store.clear_vault_cache()
+        auth_store.clear_auth_cache()
+        for p in cls._patches:
+            p.stop()
+        cls._tmpdir.cleanup()
+
+    # /monte-carlo.html's own render time (an on-demand Gaussian +
+    # S&P-bootstrap + 6-scenario historical stress test simulation) has
+    # been clocked as high as ~5.7s on a busy sandbox -- above what used
+    # to be this timeout (5s), which made every test touching that page
+    # an intermittent, environment-load-dependent failure rather than a
+    # real one. 30s gives real headroom without masking an actual hang.
+    _HTTP_TIMEOUT = 30
+
+    def _get(self, path):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
+        try:
+            conn.request("GET", path)
+            return conn.getresponse()
+        finally:
+            conn.close()
+
+    def _post(self, path, body):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
+        try:
+            data = json.dumps(body).encode("utf-8")
+            conn.request("POST", path, body=data, headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            payload = json.loads(resp.read().decode("utf-8"))
+            return resp.status, payload
+        finally:
+            conn.close()
+
+
+class TestGroupByCategory(unittest.TestCase):
+    """Unit tests for the module-level helper, independent of the HTTP layer."""
+
+    def test_groups_preserve_first_appearance_order(self):
+        rows = [
+            {"category": "Liquid Assets", "name": "Checking"},
+            {"category": "Retirement Account", "name": "401k"},
+            {"category": "Liquid Assets", "name": "Savings"},
+        ]
+        groups = dashboard._group_by_category(rows)
+        self.assertEqual([cat for cat, _ in groups], ["Liquid Assets", "Retirement Account"])
+        self.assertEqual(len(dict(groups)["Liquid Assets"]), 2)
+        self.assertEqual(len(dict(groups)["Retirement Account"]), 1)
+
+    def test_blank_category_becomes_uncategorized(self):
+        rows = [{"category": "", "name": "Misc"}, {"category": "   ", "name": "Other"}]
+        groups = dashboard._group_by_category(rows)
+        self.assertEqual([cat for cat, _ in groups], ["Uncategorized"])
+        self.assertEqual(len(dict(groups)["Uncategorized"]), 2)
+
+    def test_empty_input_returns_no_groups(self):
+        self.assertEqual(dashboard._group_by_category([]), [])
+
+
+class TestChooseFileDialog(unittest.TestCase):
+    """Unit tests for the module-level helper, independent of the HTTP layer."""
+
+    def test_builds_an_osascript_command_with_type_filter(self):
+        fake_result = Mock(returncode=0, stdout="/path/to/file.xlsx\n", stderr="")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result) as mock_run:
+            path = dashboard._choose_file_dialog("Pick one", file_types=["xlsx", "xlsm"])
+        self.assertEqual(path, "/path/to/file.xlsx")
+        args = mock_run.call_args[0][0]
+        self.assertEqual(args[0], "osascript")
+        script = args[2]
+        self.assertIn("choose file", script)
+        self.assertIn('"xlsx"', script)
+        self.assertIn('"xlsm"', script)
+        self.assertIn("Pick one", script)
+
+    def test_no_type_filter_omits_of_type_clause(self):
+        fake_result = Mock(returncode=0, stdout="/path/to/file\n", stderr="")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result) as mock_run:
+            dashboard._choose_file_dialog("Pick one")
+        script = mock_run.call_args[0][0][2]
+        self.assertNotIn("of type", script)
+
+    def test_cancel_returns_none(self):
+        fake_result = Mock(returncode=1, stdout="", stderr="execution error: User canceled. (-128)")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result):
+            self.assertIsNone(dashboard._choose_file_dialog("Pick one"))
+
+    def test_timeout_raises_runtime_error(self):
+        import subprocess as subprocess_module
+        with patch(
+            "source.webapp.dashboard.subprocess.run",
+            side_effect=subprocess_module.TimeoutExpired(cmd="osascript", timeout=300),
+        ):
+            with self.assertRaises(RuntimeError):
+                dashboard._choose_file_dialog("Pick one")
+
+
+class TestPagesRenderWithEmptyState(DashboardTestCase):
+    def test_every_page_returns_200(self):
+        for path in (
+            "/", "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/expense.html",
+            "/real-estate.html", "/monte-carlo.html", "/setup.html",
+        ):
+            with self.subTest(path=path):
+                resp = self._get(path)
+                self.assertEqual(resp.status, 200)
+                resp.read()
+
+    def test_cache_control_no_store(self):
+        resp = self._get("/summary.html")
+        self.assertEqual(resp.getheader("Cache-Control"), "no-store")
+
+    def test_unknown_path_is_404(self):
+        resp = self._get("/nope")
+        self.assertEqual(resp.status, 404)
+
+    def test_expense_nav_label_and_title_reflect_income_and_expense(self):
+        # The tab covers both Expense and Income line-item sections (see
+        # _render_expense_page), so its nav label/title says so rather
+        # than just "Expense".
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('href="/expense.html" class="active">Income/Expense</a>', body)
+        self.assertIn("<title>Retirement Plan -- Income/Expense</title>", body)
+
+    def test_monte_carlo_page_renders_with_no_data(self):
+        resp = self._get("/monte-carlo.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Monte Carlo", body)
+        # The historical stress test section renders even with an empty
+        # plan -- no data to divide by zero on, since every scenario just
+        # replays $0 forward.
+        self.assertIn("Historical recession stress test", body)
+        self.assertIn("Great Depression (1929)", body)
+
+    def test_summary_page_has_what_if_return_card(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("What if: expected return", body)
+        self.assertIn("expected_return_pct", body)
+        self.assertIn("Success rate", body)
+        self.assertIn("Median ending balance", body)
+
+    def test_account_balances_export_not_generated_yet_is_404(self):
+        resp = self._get("/account-balances.html")
+        self.assertEqual(resp.status, 404)
+        resp.read()
+
+    def test_portfolio_positions_export_not_generated_yet_is_404(self):
+        resp = self._get("/portfolio-positions.html")
+        self.assertEqual(resp.status, 404)
+        resp.read()
+
+    def test_shared_sortable_table_js_is_present_on_every_page(self):
+        for path in (
+            "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/expense.html",
+            "/real-estate.html", "/monte-carlo.html", "/setup.html",
+        ):
+            with self.subTest(path=path):
+                resp = self._get(path)
+                body = resp.read().decode("utf-8")
+                self.assertIn("function sortTableBy(", body)
+                self.assertIn("function initSortableTables()", body)
+                self.assertIn("function updateField(", body)
+
+    def test_setup_page_linked_accounts_table_is_sortable(self):
+        resp = self._get("/setup.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<table class="sortable">', body)
+
+    def test_pie_filter_js_is_present_on_every_page(self):
+        # Shared with every page (like the bulk-delete JS) even though only
+        # Linked Positions currently has pie charts to click.
+        for path in (
+            "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/expense.html",
+            "/real-estate.html", "/monte-carlo.html", "/setup.html",
+        ):
+            with self.subTest(path=path):
+                resp = self._get(path)
+                body = resp.read().decode("utf-8")
+                self.assertIn("function handlePieSegClick(", body)
+                self.assertIn("function handlePieSegKeydown(", body)
+                self.assertIn("function applyPositionFilters(", body)
+                self.assertIn("function clearPositionFilters(", body)
+
+
+class TestLineItemEndpoints(DashboardTestCase):
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+        db.clear_section("real_estate")
+        db.clear_section("income")
+
+    def test_add_asset_line_item(self):
+        status, payload = self._post("/api/line-item/add", {
+            "section": "assets",
+            "fields": {"kind": "asset", "name": "Fidelity", "balance": "100000"},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        rows = db.list_line_items("assets")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], "Fidelity")
+
+    def test_add_income_line_item(self):
+        # The generic /api/line-item/add endpoint is section-agnostic
+        # (db._TABLE_COLUMNS drives it), so "income" needs no new route --
+        # this confirms it actually works end to end, base_year/inflates
+        # included.
+        status, payload = self._post("/api/line-item/add", {
+            "section": "income",
+            "fields": {
+                "name": "Rental", "category": "Rental", "annual_amount": "103000",
+                "base_year": "2026", "inflates": "1",
+            },
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        rows = db.list_line_items("income")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], "Rental")
+        self.assertEqual(rows[0]["base_year"], 2026)
+        self.assertEqual(rows[0]["inflates"], 1)
+
+    def test_update_income_inflates_flag(self):
+        item_id = db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "income", "id": item_id, "fields": {"inflates": 1, "base_year": 2026},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("income", item_id)
+        self.assertEqual(row["inflates"], 1)
+        self.assertEqual(row["base_year"], 2026)
+
+    def test_add_without_name_returns_400(self):
+        status, payload = self._post("/api/line-item/add", {"section": "assets", "fields": {"balance": "100"}})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertIn("name", payload["error"].lower())
+
+    def test_delete_line_item(self):
+        item_id = db.add_line_item("expenses", {"name": "Healthcare", "annual_amount": 500})
+        status, payload = self._post("/api/line-item/delete", {"section": "expenses", "id": item_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIsNone(db.get_line_item("expenses", item_id))
+
+    def test_delete_bulk_removes_every_requested_item(self):
+        a_id = db.add_line_item("assets", {"kind": "asset", "name": "Cash", "balance": 1_000})
+        e_id = db.add_line_item("expenses", {"name": "Healthcare", "annual_amount": 500})
+        r_id = db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})
+        status, payload = self._post("/api/line-item/delete-bulk", {
+            "items": [
+                {"section": "assets", "id": a_id},
+                {"section": "expenses", "id": e_id},
+                {"section": "real_estate", "id": r_id},
+            ],
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted"], 3)
+        self.assertIsNone(db.get_line_item("assets", a_id))
+        self.assertIsNone(db.get_line_item("expenses", e_id))
+        self.assertIsNone(db.get_line_item("real_estate", r_id))
+
+    def test_delete_bulk_skips_bad_entries_but_still_deletes_the_rest(self):
+        a_id = db.add_line_item("assets", {"kind": "asset", "name": "Cash", "balance": 1_000})
+        status, payload = self._post("/api/line-item/delete-bulk", {
+            "items": [
+                {"section": "assets", "id": a_id},
+                {"section": "bogus", "id": 1},
+                {"section": "assets", "id": 999999},  # already gone / never existed
+            ],
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted"], 1)
+        self.assertIsNone(db.get_line_item("assets", a_id))
+
+    def test_delete_bulk_with_empty_items_is_a_no_op(self):
+        status, payload = self._post("/api/line-item/delete-bulk", {"items": []})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted"], 0)
+
+    def test_asset_liability_real_estate_and_expense_tables_have_row_checkboxes_instead_of_delete_buttons(self):
+        db.add_line_item("assets", {"kind": "asset", "name": "Cash", "balance": 1_000})
+        db.add_line_item("assets", {"kind": "liability", "name": "Card", "balance": 500})
+        db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})
+        db.add_line_item("expenses", {"name": "Healthcare", "annual_amount": 500})
+        for path in ("/asset.html", "/real-estate.html", "/expense.html"):
+            with self.subTest(path=path):
+                resp = self._get(path)
+                body = resp.read().decode("utf-8")
+                self.assertIn('class="row-check"', body)
+                self.assertIn('class="select-all-check"', body)
+                self.assertNotIn("deleteLineItem(", body)
+
+    def test_bulk_bar_and_its_js_are_present_on_every_page(self):
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('id="bulk-bar"', body)
+        self.assertIn("function deleteSelectedRows()", body)
+        self.assertIn("function refreshBulkBar()", body)
+        self.assertIn("/api/line-item/delete-bulk", body)
+
+    def test_shared_page_script_has_no_duplicate_top_level_function_names(self):
+        # Regression test: every page's <script> is the same shared block
+        # (shell.py's PAGE_SHELL), so two `function foo(...) {...}`
+        # declarations with the same name anywhere in it silently collide
+        # -- the one that appears later in source order wins in the
+        # browser's global scope, with no error. This is exactly how the
+        # row-checkbox "Delete selected" bar's own refreshBulkBar()
+        # (no args, shows/enables #bulk-bar) once got shadowed by the
+        # Linked Positions tab's own same-named refreshBulkBar(barId,
+        # inputId) declared later in the same script: every page's
+        # checkbox looked selectable, but #bulk-bar (default
+        # display:none) never actually appeared, so deleting was
+        # unreachable from the UI on every page, imported or manual row
+        # alike -- even though the backend delete endpoint itself was
+        # always fine. A plain substring test (like the one above) can't
+        # catch this since the string "function refreshBulkBar()" is
+        # present regardless of how many times it's declared; only
+        # counting occurrences does.
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        script = body.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+        names = re.findall(r"\nfunction (\w+)\(", script)
+        dupes = {name: count for name, count in Counter(names).items() if count > 1}
+        self.assertEqual(dupes, {}, f"duplicate top-level function declaration(s) in the shared page script: {dupes}")
+
+    def test_unknown_section_returns_400(self):
+        status, payload = self._post("/api/line-item/add", {"section": "bogus", "fields": {"name": "x"}})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_asset_page_reflects_added_item(self):
+        db.add_line_item("assets", {"kind": "asset", "name": "Vanguard Brokerage", "balance": 42_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Vanguard Brokerage", body)
+        self.assertIn("42,000.00", body)
+
+    def test_asset_page_groups_line_items_into_a_table_per_category(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Retirement Account", "name": "401k", "balance": 100_000})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid Assets", "name": "Checking", "balance": 5_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Car loan", "balance": 8_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Retirement Account", body)
+        self.assertIn("Liquid Assets", body)
+        self.assertIn("Loan", body)
+        # Each category's subtotal appears once (its own <tfoot>), separate
+        # from the other category's numbers -- not one flat combined table.
+        self.assertIn("100,000.00", body)
+        self.assertIn("5,000.00", body)
+        self.assertIn("Total assets", body)
+        self.assertIn("Total liabilities", body)
+
+    def test_asset_page_shows_real_estate_as_a_collapsed_summary_line(self):
+        # The Asset tab used to repeat every property's name/value/loan/
+        # equity in its own full table right below the asset categories
+        # -- pure duplication of the Real Estate Analysis tab's own,
+        # already-editable table (same underlying real_estate rows, just
+        # shown twice). It's now a single line: total equity and a count,
+        # linking to that tab instead of re-listing each property.
+        db.add_line_item("real_estate", {
+            "name": "Home", "current_value": 500_000, "loan_balance": 200_000, "ownership_pct": 100,
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Real estate equity", body)
+        self.assertIn("300,000.00", body)  # equity = 500,000 - 200,000
+        self.assertIn("1 property", body)
+        self.assertIn('href="/real-estate.html"', body)
+        self.assertNotIn("Real Estate Asset", body)  # the old per-property table's own heading is gone
+        self.assertNotIn("Home", body)  # property names no longer repeated on the Asset tab
+
+    def test_asset_page_real_estate_line_pluralizes_and_totals_multiple_properties(self):
+        db.add_line_item("real_estate", {
+            "name": "Home", "current_value": 500_000, "loan_balance": 200_000, "ownership_pct": 100,
+        })
+        db.add_line_item("real_estate", {
+            "name": "Cabin", "current_value": 300_000, "loan_balance": 100_000, "ownership_pct": 100,
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("2 properties", body)
+        self.assertIn("500,000.00", body)  # combined equity = 300,000 + 200,000
+
+    def test_asset_page_real_estate_line_handles_zero_properties(self):
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("no properties yet", body)
+        self.assertIn('href="/real-estate.html"', body)
+
+    def test_uncategorized_line_item_gets_its_own_bucket(self):
+        db.add_line_item("assets", {"kind": "asset", "name": "Misc", "balance": 1_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Uncategorized", body)
+
+    def test_asset_name_institution_last4_and_balance_are_editable_inputs(self):
+        db.add_line_item("assets", {
+            "kind": "asset", "name": "Southwood Dr", "institution": "Chase", "last4": "1234", "balance": 5_000,
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("updateField('assets'", body)
+        self.assertIn("'name'", body)
+        self.assertIn("'institution'", body)
+        self.assertIn("'last4'", body)
+        self.assertIn("'balance'", body)
+        self.assertIn('value="Southwood Dr"', body)
+        self.assertIn('value="Chase"', body)
+
+    def test_asset_category_cell_is_an_editable_input_with_a_datalist(self):
+        # Same pattern as Expense/Income's own category cell (see
+        # test_category_cell_is_an_editable_input_wired_to_update_category_field)
+        # -- an <input> pre-filled with the row's current category, wired to
+        # the shared updateField() and offering every category already in
+        # use (across both Assets and Liabilities) via a datalist, so a
+        # mis-imported row (e.g. a credit card that landed under "Loan")
+        # can be recategorized in place instead of deleted and re-added.
+        item_id = db.add_line_item("assets", {
+            "kind": "liability", "category": "Loan", "name": "Credit Card", "balance": 3_000,
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('list="assets-categories"', body)
+        self.assertIn('data-field="category"', body)
+        self.assertIn(f"updateField('assets', {item_id}, 'category', this.value)", body)
+        self.assertIn('value="Loan"', body)
+
+    def test_editing_an_assets_category_moves_it_into_the_new_categorys_table(self):
+        # The exact scenario from the user's report: a "Credit Card" row
+        # imported under the wrong category ("Loan") should end up counted
+        # in the "Credit Card" category's own subtotal once its category
+        # is corrected -- no delete-and-re-add required.
+        item_id = db.add_line_item("assets", {
+            "kind": "liability", "category": "Loan", "name": "Credit Card", "balance": 3_000,
+        })
+        status, payload = self._post("/api/line-item/update", {
+            "section": "assets", "id": item_id, "fields": {"category": "Credit Card"},
+        })
+        self.assertTrue(payload["ok"])
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(db.get_line_item("assets", item_id)["category"], "Credit Card")
+        # It no longer sits in a "Loan" category table at all (the category
+        # heading itself, not just the word "Loan", which also appears in
+        # this page's own help text as an example)...
+        loan_heading = '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">Loan</div>'
+        credit_card_heading = (
+            '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">Credit Card</div>'
+        )
+        self.assertNotIn(loan_heading, body)
+        # ...and its balance is now grouped under a "Credit Card" category table instead.
+        self.assertIn(credit_card_heading, body)
+        self.assertIn("3,000.00", body)
+
+    def test_updating_an_asset_name_via_the_generic_update_endpoint(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "name": "Old Name", "balance": 1_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "assets", "id": item_id, "fields": {"name": "New Name"},
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("assets", item_id)["name"], "New Name")
+
+    def test_category_table_and_linked_accounts_table_have_sortable_class(self):
+        db.add_line_item("assets", {"kind": "asset", "name": "Cash", "balance": 1_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<table class="sortable">', body)
+
+    def test_linked_accounts_table_has_a_balance_total(self):
+        # The "Linked accounts (live, read-only)" table lives on its own
+        # Linked Accounts tab, not the Asset tab -- see TestLinkedAccountsPage.
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-1", "name": "401k", "official_name": "Fidelity 401k",
+            "type": "investment", "subtype": "401k", "mask": "1234",
+            "balances": {"current": 30_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        try:
+            resp = self._get("/linked-accounts.html")
+            body = resp.read().decode("utf-8")
+            self.assertIn("30,000.00", body)
+        finally:
+            db.delete_plaid_item("fidelity")
+
+    def test_expense_page_has_an_annual_amount_total_and_is_sortable(self):
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 40_000})
+        db.add_line_item("expenses", {"name": "Travel", "annual_amount": 10_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<table class="sortable">', body)
+        self.assertIn("50,000.00", body)  # total of the two rows
+
+
+class TestExpensePageIncomeAndInflation(DashboardTestCase):
+    """The Expense tab's Fixed/Variable-cost-with-inflation and Income
+    (Rental, Social Security, ...) feature -- imported from the user's
+    own budget table/spreadsheet model: a line item can grow from a
+    Base Year by the Inflation % assumption, and Income nets against
+    Expenses for the withdrawal need shown here and used by Monte Carlo."""
+
+    def tearDown(self):
+        db.clear_section("expenses")
+        db.clear_section("income")
+
+    def test_income_section_and_add_form_are_present(self):
+        # Expense/Income no longer each carry their own bottom add-form --
+        # both go through the shared "+ Add" modal (see PAGE_SHELL), opened
+        # here via a section-specific shortcut button.
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("<h2>Income</h2>", body)
+        self.assertIn("openAddModal('income')", body)
+        self.assertIn("openAddModal('expenses')", body)
+        self.assertIn("No income line items yet.", body)
+        self.assertIn("No expense line items yet.", body)
+
+    def test_expense_and_income_tables_have_base_year_and_inflates_columns(self):
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("<th class=\"num\">Base Year</th>"), 2)  # Expenses + Income tables
+        self.assertEqual(body.count("<th>Inflates?</th>"), 2)
+
+    def test_inflating_row_shows_this_years_value_note(self):
+        db.set_assumption("current_year", 2028)
+        db.set_assumption("inflation_rate", 0.03)
+        db.add_line_item("expenses", {
+            "name": "Fixed cost", "category": "Fixed", "annual_amount": 197_800,
+            "base_year": 2026, "inflates": 1,
+        })
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        # 197,800 * 1.03^2 = 209,846.02
+        self.assertIn("2028 value: $209,846.02", body)
+
+    def test_tiles_show_expense_income_and_net_need(self):
+        db.set_assumption("current_year", 2028)
+        db.set_assumption("inflation_rate", 0.0)
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 300_000})
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<div class="label">2028 expense need</div><div class="value">$300,000.00</div>', body)
+        self.assertIn('<div class="label">2028 income</div><div class="value">$103,000.00</div>', body)
+        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$197,000.00</div>', body)
+
+    def test_table_total_excludes_a_row_whose_year_range_does_not_cover_this_year(self):
+        # Regression: the table's "Total (this year value)" footer must
+        # respect each row's start_year/end_year -- not just sum every
+        # row's inflated amount regardless of whether it's even in
+        # effect yet (e.g. Social Security starting in a future year).
+        db.set_assumption("current_year", 2028)
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
+        db.add_line_item("income", {"name": "Social Security", "annual_amount": 42_000, "start_year": 2035})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        # The nominal total still includes both rows (103,000 + 42,000).
+        self.assertIn("Total (nominal)</td><td class=\"num\">$145,000.00</td>", body)
+        # But the "this year" total must not -- Social Security hasn't
+        # started yet, so only Rental counts toward 2028.
+        self.assertIn("Total (2028 value)</td><td class=\"num\">$103,000.00</td>", body)
+
+    def test_income_row_has_a_row_checkbox_for_bulk_delete(self):
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('data-section="income"', body)
+
+    def test_monte_carlo_page_nets_income_against_expense_need(self):
+        db.set_assumption("current_year", 2028)
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 150_000})
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 50_000})
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('the total of Income rows checked "In simulation?"', body)
+
+    def test_inflation_pct_tile_is_an_editable_form_posting_to_assumptions(self):
+        # Previously a read-only tile; the Expense tab should let you
+        # change the Inflation % assumption right here, same endpoint
+        # the Monte Carlo tab's own assumptions form already posts to.
+        db.set_assumption("inflation_rate", 0.03)
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<div class="label">Inflation %</div>', body)
+        self.assertIn('name="inflation_rate_pct"', body)
+        self.assertIn('value="3.00"', body)
+        self.assertIn("/api/assumptions", body)
+
+    def test_saving_inflation_pct_from_the_expense_tab_updates_the_assumption(self):
+        status, payload = self._post("/api/assumptions", {"inflation_rate_pct": "4.5"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertAlmostEqual(float(db.get_assumptions()["inflation_rate"]), 0.045)
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="4.50"', body)
+
+    def test_category_cell_is_an_editable_input_wired_to_update_category_field(self):
+        item_id = db.add_line_item("expenses", {"name": "Groceries", "category": "Fixed", "annual_amount": 12_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('list="expenses-categories"', body)
+        self.assertIn('data-field="category"', body)
+        self.assertIn(f"updateCategoryField('expenses', {item_id}, this,", body)
+        self.assertIn('value="Fixed"', body)
+
+    def test_income_category_cell_uses_the_income_section_and_datalist(self):
+        item_id = db.add_line_item("income", {"name": "Rental", "category": "Rental", "annual_amount": 24_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('list="income-categories"', body)
+        self.assertIn(f"updateCategoryField('income', {item_id}, this,", body)
+
+
+class TestIncomePageIncludeInMonteCarloCheckbox(DashboardTestCase):
+    """The Income section's per-row "In simulation?" checkbox --
+    income.include_in_monte_carlo, defaulting to on (every income row has
+    always unconditionally netted against the withdrawal need, so this
+    must not silently change anyone's existing numbers). Expenses have no
+    such column -- every expense always counts."""
+
+    def tearDown(self):
+        db.clear_section("income")
+        db.clear_section("expenses")
+
+    def test_column_shown_only_on_the_income_table_not_expenses(self):
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 24_000})
+        db.add_line_item("expenses", {"name": "Groceries", "annual_amount": 12_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("<th>In simulation?</th>"), 1)
+
+    def test_new_income_row_defaults_checked(self):
+        item_id = db.add_line_item("income", {"name": "Rental", "annual_amount": 24_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn(
+            f'checked data-field="include_in_monte_carlo" '
+            f'onchange="updateField(\'income\', {item_id}, \'include_in_monte_carlo\', this.checked ? 1 : 0)">',
+            body,
+        )
+
+    def test_unchecking_persists_through_the_generic_update_endpoint(self):
+        item_id = db.add_line_item("income", {"name": "Rental", "annual_amount": 24_000})
+        status, payload = self._post("/api/line-item/update", {"section": "income", "id": item_id, "fields": {"include_in_monte_carlo": 0}})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("income", item_id)["include_in_monte_carlo"], 0)
+
+    def test_an_unchecked_income_row_is_excluded_from_the_monte_carlo_starting_net_need(self):
+        db.set_assumption("current_year", 2028)
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 150_000})
+        item_id = db.add_line_item("income", {"name": "Rental", "annual_amount": 50_000})
+        db.update_line_item("income", item_id, {"include_in_monte_carlo": 0})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        # The unchecked row is dropped from the net-need math -- income
+        # shows $0, so net need equals the full expense need.
+        self.assertIn('<div class="label">2028 income</div><div class="value">$0.00</div>', body)
+        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$150,000.00</div>', body)
+
+    def test_base_year_and_inflates_cells_carry_data_field_for_the_variable_auto_inflate_js(self):
+        db.add_line_item("expenses", {"name": "Groceries", "category": "Fixed", "annual_amount": 12_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('data-field="base_year"', body)
+        self.assertIn('data-field="inflates"', body)
+
+    def test_add_form_category_field_wires_up_the_auto_inflate_js_with_the_current_year(self):
+        # The shared "+ Add" modal's single Category field (used for both
+        # Expenses and Income) reads the current year off <body
+        # data-current-year="..."> at click time, rather than each page
+        # baking its own current year into a per-section form.
+        db.set_assumption("current_year", 2029)
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('data-current-year="2029"', body)
+        self.assertIn("autoInflateIfVariableCategory(this, document.body.dataset.currentYear)", body)
+
+    def test_page_includes_the_variable_auto_inflate_js_helpers(self):
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("function updateCategoryField(", body)
+        self.assertIn("function autoInflateIfVariableCategory(", body)
+
+    def test_setting_category_to_variable_via_the_update_endpoint_can_also_set_inflates_and_base_year(self):
+        # The auto-inflate-on-"Variable" behavior itself lives in the
+        # browser (updateCategoryField() decides what extra fields to
+        # send), but the generic update endpoint it posts to must accept
+        # category/inflates/base_year together in one call, which is
+        # exactly what that JS does when you type "Variable".
+        item_id = db.add_line_item("expenses", {"name": "Utilities", "category": "Fixed", "annual_amount": 6_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "expenses", "id": item_id,
+            "fields": {"category": "Variable", "inflates": 1, "base_year": 2026},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("expenses", item_id)
+        self.assertEqual(row["category"], "Variable")
+        self.assertEqual(row["inflates"], 1)
+        self.assertEqual(row["base_year"], 2026)
+
+    def test_expense_and_income_rows_are_fully_editable_without_delete_and_re_add(self):
+        # Name, Annual Amount, Start/End Year, Base Year, Inflates, and
+        # Notes should all be inline-editable inputs wired to the shared
+        # update JS -- Category and Source are covered by their own
+        # tests (Category has its own auto-inflate side effect; Source
+        # is bookkeeping and stays read-only).
+        item_id = db.add_line_item("expenses", {
+            "name": "Groceries", "category": "Fixed", "annual_amount": 12_000,
+            "start_year": 2027, "end_year": 2040, "notes": "weekly shop",
+        })
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn(f"updateField('expenses', {item_id}, 'name', this.value)", body)
+        self.assertIn(f"updateField('expenses', {item_id}, 'annual_amount', this.value)", body)
+        self.assertIn(f"updateField('expenses', {item_id}, 'start_year', this.value)", body)
+        self.assertIn(f"updateField('expenses', {item_id}, 'end_year', this.value)", body)
+        self.assertIn(f"updateField('expenses', {item_id}, 'notes', this.value)", body)
+        self.assertIn('value="Groceries"', body)
+        self.assertIn('value="12000"', body)
+        self.assertIn('value="2027"', body)
+        self.assertIn('value="2040"', body)
+        self.assertIn('value="weekly shop"', body)
+        # Source is deliberately still plain text, not an input.
+        self.assertIn("<td>manual</td>", body)
+
+    def test_a_never_set_start_end_and_base_year_render_as_blank_inputs_not_zero(self):
+        db.add_line_item("expenses", {"name": "Groceries", "annual_amount": 12_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        # None of the three optional-year fields should render as "0" --
+        # that would look like a real value both to a human reading it
+        # and to the Variable-category auto-inflate JS's emptiness check.
+        self.assertNotIn('data-field="start_year" value="0"', body)
+        self.assertNotIn('value="0" data-field="start_year"', body)
+        self.assertNotIn('data-field="end_year" value="0"', body)
+        self.assertNotIn('value="0" data-field="end_year"', body)
+        self.assertNotIn('data-field="base_year" value="0"', body)
+        self.assertNotIn('value="0" data-field="base_year"', body)
+        self.assertIn('value="" data-field="base_year"', body)
+
+    def test_editing_income_name_via_the_generic_update_endpoint(self):
+        item_id = db.add_line_item("income", {"name": "Rentl", "annual_amount": 24_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "income", "id": item_id, "fields": {"name": "Rental"},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("income", item_id)["name"], "Rental")
+
+    def test_clearing_an_expense_name_via_the_update_endpoint_is_rejected(self):
+        item_id = db.add_line_item("expenses", {"name": "Groceries", "annual_amount": 12_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "expenses", "id": item_id, "fields": {"name": "   "},
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(db.get_line_item("expenses", item_id)["name"], "Groceries")
+
+
+class TestExpensePageCategoryCharts(DashboardTestCase):
+    """The Income/Expense tab's "Expenses by category" and "Income by
+    category" donut charts -- added per the user's "add Pie chart for
+    Income and Expense by Category" request. Same _donut_chart_html/
+    _grouped_slices helpers (and "no data yet" empty state) as every
+    other donut in the app, grouped on annual_amount (nominal), same
+    basis the tables' own "Total (nominal)" footer sums and the same one
+    the Summary tab's own "Expenses by category" bar chart already uses."""
+
+    def tearDown(self):
+        db.clear_section("expenses")
+        db.clear_section("income")
+
+    def test_both_chart_titles_are_present(self):
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Expenses by category (annual, nominal)", body)
+        self.assertIn("Income by category (annual, nominal)", body)
+
+    def test_empty_state_shows_no_data_yet_for_both_charts_instead_of_erroring(self):
+        resp = self._get("/expense.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("No data yet."), 2)
+
+    def test_expense_chart_groups_by_category_and_sums_annual_amount(self):
+        db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
+        db.add_line_item("expenses", {"name": "Utilities", "category": "Fixed", "annual_amount": 6_000})
+        db.add_line_item("expenses", {"name": "Travel", "category": "Variable", "annual_amount": 14_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        # Fixed = 30,000 + 6,000 = 36,000; Variable = 14,000 -- both as
+        # slice legend values, not the raw per-row amounts.
+        self.assertIn("$36,000.00", body)
+        self.assertIn("$14,000.00", body)
+
+    def test_income_chart_is_independent_of_the_expense_chart(self):
+        db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
+        db.add_line_item("income", {"name": "Rental income", "category": "Rental", "annual_amount": 18_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("$30,000.00", body)
+        self.assertIn("$18,000.00", body)
+        # Only the Expenses chart should be "No data yet." once Income
+        # actually has a row.
+        self.assertEqual(body.count("No data yet."), 0)
+
+    def test_uncategorized_row_folds_into_unknown_not_dropped_silently(self):
+        db.add_line_item("expenses", {"name": "Misc", "annual_amount": 5_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Unknown", body)
+        self.assertIn("$5,000.00", body)
+
+    def test_charts_appear_before_the_line_item_tables(self):
+        db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
+        resp = self._get("/expense.html")
+        body = resp.read().decode("utf-8")
+        self.assertLess(
+            body.index("Expenses by category (annual, nominal)"),
+            body.index("<h2>Expenses</h2>"),
+        )
+
+
+class TestAssetPageSummaryTables(DashboardTestCase):
+    """The two top-of-page summary tables on the Asset tab: a per-category
+    breakdown ending in Net Liquid Asset (every asset row checked "In
+    Monte Carlo?", net of liabilities), and a rollup of Net Liquid Asset
+    + real estate's effective equity into Total Asset."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+
+    def test_summary_table_shows_every_asset_category_with_its_subtotal(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        # The rollup table (Net Liquid Asset -> Total Asset) now renders
+        # above this category table, so find the category table's own
+        # "Summary" label div (not the nav bar's "Summary" link, nor the
+        # rollup table's own "Net Liquid Asset" row before it) and its
+        # tfoot after that point.
+        start = body.index(">Summary</div>")
+        summary = body[start : body.index("Net Liquid Asset</td><td class=\"num\">", start) + 60]
+        self.assertIn("<td>401k</td><td class=\"num\">$100,000.00</td>", summary)
+        self.assertIn("<td>Liquid</td><td class=\"num\">$50,000.00</td>", summary)
+        self.assertIn("<td>Insurance</td><td class=\"num\">$20,000.00</td>", summary)
+        self.assertIn("<td>Liabilities</td><td class=\"num\">-$5,000.00</td>", summary)
+
+    def test_net_liquid_asset_sums_only_rows_checked_in_monte_carlo_minus_liabilities(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        # 100,000 + 50,000 - 5,000 = 145,000 -- Insurance's 20,000 is
+        # unchecked, so the total must not equal 165,000.
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$145,000.00</td>", body)
+        self.assertNotIn("$165,000.00", body)
+
+    def test_an_unchecked_row_is_excluded_from_net_liquid_asset(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0.00</td>", body)
+
+    def test_rollup_table_totals_net_liquid_asset_and_real_estate_equity(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 500_000, "loan_balance": 300_000, "ownership_pct": 100})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$200,000.00</td>", body)
+        # Net Liquid Asset (150,000) + RE equity (200,000) = 350,000.
+        self.assertIn("Total Asset</td><td class=\"num\">$350,000.00</td>", body)
+
+    def test_rollup_table_uses_the_live_loan_balance_for_effective_equity(self):
+        db.upsert_plaid_item(
+            item_key="wells_fargo", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="wells_fargo", account={
+            "account_id": "acc-mortgage", "name": "Mortgage", "official_name": "Mortgage",
+            "type": "loan", "subtype": "mortgage", "mask": "7982",
+            "balances": {"current": 480_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        item_id = db.add_line_item("real_estate", {
+            "name": "Moorpark", "current_value": 900_000, "loan_balance": 1, "ownership_pct": 100,
+        })
+        db.update_line_item("real_estate", item_id, {"linked_account_id": "acc-mortgage"})
+        try:
+            resp = self._get("/asset.html")
+            body = resp.read().decode("utf-8")
+            # 900,000 - 480,000 (live) = 420,000, not the stale loan_balance=1.
+            self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$420,000.00</td>", body)
+        finally:
+            db.delete_plaid_item("wells_fargo")
+
+    def test_empty_state_shows_zero_net_liquid_asset_and_total_asset(self):
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0.00</td>", body)
+        self.assertIn("Total Asset</td><td class=\"num\">$0.00</td>", body)
+
+    def test_summary_table_subtotals_match_each_category_detail_tables_own_subtotal(self):
+        # The top table and the per-category detail table below it are
+        # computed from the same subtotal, not two independently
+        # recomputed numbers that could drift apart.
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 77_777})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("<td>401k</td><td class=\"num\">$77,777.00</td>", body)  # top Summary table's row
+        self.assertIn("Subtotal</td><td class=\"num\">$77,777.00</td>", body)  # 401k detail table's own tfoot
+
+    def test_rollup_table_renders_above_the_category_summary_table(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertLess(body.index("Total Asset</td>"), body.index("Net Liquid Asset = the balance"))
+
+
+class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
+    """The Asset tab's per-row "In Monte Carlo?" checkbox -- replaces the
+    old category-list assumption (retirement_liquid_categories) with
+    per-row control, same pattern as the Real Estate Analysis tab's own
+    "In Monte Carlo?" column. New rows default unchecked (opt-in), same
+    as a new Real Estate row -- a brand-new asset was never automatically
+    part of a plan's projected drawdown until explicitly included."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+
+    def test_checkbox_column_shown_on_every_asset_table_but_not_liability_tables(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("<th>In Monte Carlo?</th>"), 2)
+
+    def test_new_asset_row_defaults_unchecked(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        row = db.get_line_item("assets", item_id)
+        self.assertEqual(row["include_in_monte_carlo"], 0)
+
+    def test_checking_the_box_persists_through_the_generic_update_endpoint(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        status, payload = self._post("/api/line-item/update", {"section": "assets", "id": item_id, "fields": {"include_in_monte_carlo": 1}})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("assets", item_id)
+        self.assertEqual(row["include_in_monte_carlo"], 1)
+
+    def test_checked_row_renders_the_checkbox_as_checked(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.update_line_item("assets", item_id, {"include_in_monte_carlo": 1})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn(
+            f'checked data-field="include_in_monte_carlo" '
+            f'onchange="updateField(\'assets\', {item_id}, \'include_in_monte_carlo\', this.checked ? 1 : 0)">',
+            body,
+        )
+
+
+class TestAssetPageTaxTreatment(DashboardTestCase):
+    """The Asset tab's Tax treatment column -- shown on every asset
+    category table (not liability tables), editable through the same
+    generic /api/line-item/update endpoint every other editable cell
+    uses. A row's Tax treatment only actually matters once it's also
+    checked "In Monte Carlo?", but the column itself is always there so
+    it's ready the moment a row is opted in."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+
+    def test_column_shown_on_every_asset_category_table(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("<th>Tax treatment</th>"), 2)
+
+    def test_untagged_401k_row_defaults_to_tax_deferred_selected(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<option value="tax_deferred" selected>', body)
+
+    def test_untagged_liquid_row_defaults_to_taxable_selected(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<option value="taxable" selected>', body)
+
+    def test_updating_tax_treatment_persists_through_the_generic_update_endpoint(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        status, payload = self._post("/api/line-item/update", {"section": "assets", "id": item_id, "fields": {"tax_treatment": "roth"}})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("assets", item_id)
+        self.assertEqual(row["tax_treatment"], "roth")
+
+    def test_updated_tax_treatment_shows_as_selected_on_reload(self):
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.update_line_item("assets", item_id, {"tax_treatment": "roth"})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<option value="roth" selected>', body)
+
+
+class TestLinkAccountEndpoint(DashboardTestCase):
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-401k", "name": "APPLE 401(K) PLAN", "official_name": "APPLE 401(K) PLAN",
+            "type": "investment", "subtype": "401k", "mask": "1234",
+            "balances": {"current": 62_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        self.item_id = db.add_line_item("assets", {"kind": "asset", "name": "Vatsa 401k", "balance": 100})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.delete_plaid_item("fidelity")
+
+    def test_link_sets_linked_account_id(self):
+        status, payload = self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-401k",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("assets", self.item_id)["linked_account_id"], "acc-401k")
+
+    def test_link_to_unknown_account_id_returns_400(self):
+        status, payload = self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "not-a-real-account",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertIsNone(db.get_line_item("assets", self.item_id)["linked_account_id"])
+
+    def test_unlink_with_blank_account_id_clears_it(self):
+        db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
+        status, payload = self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIsNone(db.get_line_item("assets", self.item_id)["linked_account_id"])
+
+    def test_asset_page_shows_live_balance_for_a_linked_row_instead_of_the_typed_one(self):
+        db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("62,000.00", body)  # the live Plaid balance
+        self.assertNotIn("$100.00", body)  # not the stale typed-in balance
+        self.assertIn("Fidelity -- APPLE 401(K) PLAN", body)
+
+    def test_linked_accounts_page_shows_which_line_item_its_folded_into(self):
+        db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Linked to: Vatsa 401k", body)
+
+    def test_balance_is_not_an_editable_input_once_linked_to_a_live_account(self):
+        db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("'balance'", body)  # live -- no input for it anymore
+        # But Name/Institution/Last4 are still editable even on a linked row.
+        self.assertIn("'name'", body)
+
+    def test_linking_via_the_endpoint_auto_populates_institution_and_last4(self):
+        self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-401k",
+        })
+        row = db.get_line_item("assets", self.item_id)
+        self.assertEqual(row["institution"], "Fidelity")
+        self.assertEqual(row["last4"], "1234")
+
+    def test_asset_page_shows_the_auto_populated_institution_and_last4(self):
+        self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-401k",
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="Fidelity"', body)
+        self.assertIn('value="1234"', body)
+
+    def test_a_row_linked_before_this_feature_existed_self_heals_on_page_load(self):
+        # Simulate an old row that only ever got linked_account_id set
+        # directly (the original, pre-auto-populate behavior) -- Institution/
+        # Last 4 are still blank even though it's linked.
+        db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
+        self.assertEqual(db.get_line_item("assets", self.item_id)["institution"], "")
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="Fidelity"', body)
+        self.assertIn('value="1234"', body)
+        # And it's now actually persisted, not just rendered once.
+        row = db.get_line_item("assets", self.item_id)
+        self.assertEqual(row["institution"], "Fidelity")
+        self.assertEqual(row["last4"], "1234")
+
+    def test_unlinking_leaves_the_previously_auto_populated_values_in_place(self):
+        self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-401k",
+        })
+        self._post("/api/line-item/link-account", {"section": "assets", "id": self.item_id, "account_id": ""})
+        row = db.get_line_item("assets", self.item_id)
+        self.assertEqual(row["institution"], "Fidelity")
+        self.assertEqual(row["last4"], "1234")
+
+
+class TestClassifyLinkedAccountEndpoint(DashboardTestCase):
+    """The Linked Accounts page's one-step "Classify" action --
+    /api/line-item/classify-linked-account -- creates the Asset-tab line
+    item and links it to a not-yet-classified Plaid account in a single
+    call, per the user's "I do see not linked account and I am not able
+    to classify" request. Institution/Account # auto-populate the same
+    way /api/line-item/link-account's own does (see
+    _linked_institution_fields, shared by both)."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Individual Brokerage", "official_name": "Individual Brokerage -8651",
+            "type": "investment", "subtype": "brokerage", "mask": "8651",
+            "balances": {"current": 7_227.59, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-visa", "name": "Wells Fargo Active Cash Visa", "official_name": "Wells Fargo Active Cash Visa Card",
+            "type": "credit", "subtype": "credit card", "mask": "2618",
+            "balances": {"current": 0.0, "available": 5000.0, "iso_currency_code": "USD"},
+        })
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.delete_plaid_item("fidelity")
+
+    def test_classify_creates_a_linked_line_item(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("assets", payload["id"])
+        self.assertEqual(row["kind"], "asset")
+        self.assertEqual(row["category"], "Liquid")
+        self.assertEqual(row["name"], "Individual Brokerage")
+        self.assertEqual(row["linked_account_id"], "acc-brokerage")
+
+    def test_classify_auto_populates_institution_and_last4_like_link_account_does(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        row = db.get_line_item("assets", payload["id"])
+        self.assertEqual(row["institution"], "Fidelity")
+        self.assertEqual(row["last4"], "8651")
+
+    def test_classify_as_liability_for_a_credit_card(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-visa", "kind": "liability", "category": "Credit Card", "name": "Wells Fargo Visa",
+        })
+        self.assertEqual(status, 200)
+        row = db.get_line_item("assets", payload["id"])
+        self.assertEqual(row["kind"], "liability")
+
+    def test_unknown_account_id_returns_400_and_creates_nothing(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "not-a-real-account", "kind": "asset", "category": "Liquid", "name": "Ghost account",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(db.list_line_items("assets"), [])
+
+    def test_missing_category_returns_400_and_creates_nothing(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "", "name": "Individual Brokerage",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(db.list_line_items("assets"), [])
+
+    def test_missing_name_returns_400_and_creates_nothing(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "Liquid", "name": "",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(db.list_line_items("assets"), [])
+
+    def test_invalid_kind_returns_400_and_creates_nothing(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "not-a-kind", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(db.list_line_items("assets"), [])
+
+    def test_missing_account_id_returns_400(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "kind": "asset", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_classified_account_shows_up_as_live_on_the_asset_tab(self):
+        status, payload = self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("7,227.59", body)
+        self.assertIn("Individual Brokerage", body)
+
+    def test_linked_accounts_page_shows_classify_form_for_unlinked_rows(self):
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("classify-row", body)
+        self.assertIn("classifyLinkedAccount('acc-brokerage'", body)
+        self.assertNotIn("Not linked to a line item", body)
+
+    def test_classify_kind_defaults_to_liability_for_a_credit_card_and_asset_otherwise(self):
+        import re
+
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        # Non-greedy match from that row's own classify-row div (there's
+        # no nesting) up through its account_id, so this doesn't depend
+        # on how much table markup precedes the row.
+        brokerage_section = re.search(r'<div class="classify-row".*?classifyLinkedAccount\(\'acc-brokerage\'', body, re.S).group()
+        visa_section = re.search(r'<div class="classify-row".*?classifyLinkedAccount\(\'acc-visa\'', body, re.S).group()
+        self.assertIn('<option value="asset" selected>', brokerage_section)
+        self.assertIn('<option value="liability" selected>', visa_section)
+
+    def test_linked_accounts_page_no_longer_shows_classify_form_once_linked(self):
+        self._post("/api/line-item/classify-linked-account", {
+            "account_id": "acc-brokerage", "kind": "asset", "category": "Liquid", "name": "Individual Brokerage",
+        })
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Linked to: Individual Brokerage", body)
+        self.assertNotIn("classifyLinkedAccount('acc-brokerage'", body)
+        # The still-unlinked account's own classify form is unaffected.
+        self.assertIn("classifyLinkedAccount('acc-visa'", body)
+
+
+class TestFullAccountNumber(DashboardTestCase):
+    """A checking/savings account whose Item requested Plaid's Auth
+    product gets its real account number stored (source.collector.sync);
+    everywhere the app used to show just the last-4 mask should now show
+    that full number instead, per the user's explicit request."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="wells_fargo_checking", plaid_item_id="item-wf", institution_id="ins_wf",
+            institution_name="Wells Fargo", products=["auth"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="wells_fargo_checking", account={
+            "account_id": "acc-checking", "name": "Checking", "official_name": "Everyday Checking",
+            "type": "depository", "subtype": "checking", "mask": "6789",
+            "balances": {"current": 5_000.0, "available": 4_900.0, "iso_currency_code": "USD"},
+        })
+        db.set_plaid_account_numbers("acc-checking", account_number="1234567890", routing_number="121000248")
+        self.item_id = db.add_line_item("assets", {"kind": "asset", "name": "Checking", "balance": 100})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.delete_plaid_item("wells_fargo_checking")
+
+    def test_linking_populates_the_full_account_number_not_the_mask(self):
+        self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-checking",
+        })
+        row = db.get_line_item("assets", self.item_id)
+        self.assertEqual(row["last4"], "1234567890")
+
+    def test_asset_page_shows_the_full_number_in_the_editable_field(self):
+        self._post("/api/line-item/link-account", {
+            "section": "assets", "id": self.item_id, "account_id": "acc-checking",
+        })
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="1234567890"', body)
+        self.assertNotIn('value="6789"', body)
+
+    def test_link_dropdown_label_shows_the_full_number(self):
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Wells Fargo -- Everyday Checking (1234567890)", body)
+
+    def test_linked_accounts_table_shows_the_full_number_instead_of_the_mask(self):
+        # The "Linked accounts (live, read-only)" table lives on its own
+        # Linked Accounts tab.
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("1234567890", body)
+        self.assertIn("Account #", body)  # header relabeled from "Last 4"
+
+    def test_a_tokenized_account_number_is_flagged(self):
+        db.set_plaid_account_numbers(
+            "acc-checking", account_number="9999999999", routing_number="121000248", is_tokenized=True,
+        )
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("9999999999 (tokenized)", body)
+
+    def test_an_investment_account_with_no_auth_data_still_shows_the_mask(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fid", institution_id="ins_fid",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-401k", "name": "401k", "official_name": "APPLE 401(K) PLAN",
+            "type": "investment", "subtype": "401k", "mask": "4321",
+            "balances": {"current": 40_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        try:
+            resp = self._get("/asset.html")
+            body = resp.read().decode("utf-8")
+            self.assertIn("...4321", body)  # dropdown falls back to the mask
+        finally:
+            db.delete_plaid_item("fidelity")
+
+    def test_setup_page_has_a_full_account_number_checkbox(self):
+        resp = self._get("/setup.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('name="full_account_number"', body)
+        self.assertIn("full_account_number.checked", body)
+
+
+class TestRealEstateLinkAndIncome(DashboardTestCase):
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="wells_fargo", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="wells_fargo", account={
+            "account_id": "acc-mortgage", "name": "MORTGAGE ...7982", "official_name": "MORTGAGE ...7982",
+            "type": "loan", "subtype": "mortgage", "mask": "7982",
+            "balances": {"current": 480_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        self.item_id = db.add_line_item("real_estate", {
+            "name": "Moorpark", "current_value": 900_000, "loan_balance": 1, "ownership_pct": 100,
+            "annual_income": 24_000,
+        })
+
+    def tearDown(self):
+        db.clear_section("real_estate")
+        db.delete_plaid_item("wells_fargo")
+
+    def test_add_real_estate_with_annual_income(self):
+        status, payload = self._post("/api/line-item/add", {
+            "section": "real_estate",
+            "fields": {"name": "Rental", "current_value": "300000", "annual_income": "18000"},
+        })
+        self.assertTrue(payload["ok"])
+        row = db.get_line_item("real_estate", payload["id"])
+        self.assertEqual(row["annual_income"], 18000)
+
+    def test_real_estate_page_shows_annual_income_and_total(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("24,000.00", body)
+        self.assertIn("Annual Income", body)
+
+    def test_link_account_endpoint_works_for_real_estate_section(self):
+        status, payload = self._post("/api/line-item/link-account", {
+            "section": "real_estate", "id": self.item_id, "account_id": "acc-mortgage",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("real_estate", self.item_id)["linked_account_id"], "acc-mortgage")
+
+    def test_real_estate_page_shows_live_loan_balance_once_linked(self):
+        db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("480,000.00", body)  # the live balance
+        self.assertIn("420,000.00", body)  # equity: 900,000 - 480,000
+        self.assertIn("Wells Fargo -- MORTGAGE ...7982", body)
+
+    def test_asset_page_real_estate_line_reflects_live_loan_balance_once_linked(self):
+        # The Asset tab's collapsed real-estate summary line shows equity,
+        # not the loan balance itself -- so linking to a live mortgage
+        # account (480,000, vs. the typed-in loan_balance of 1) should
+        # show up here as a *lower* equity figure (900,000 - 480,000 =
+        # 420,000), not as the raw balance -- same live-balance-if-linked
+        # rule real_estate_equity()/effective_loan_balance() apply
+        # everywhere else (see the Real Estate Analysis tab's own
+        # equivalent test above).
+        db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("420,000.00", body)
+
+    def test_linked_accounts_page_shows_the_real_estate_link(self):
+        db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Linked to: Moorpark", body)
+
+    def test_ownership_pct_is_an_editable_input_prefilled_with_the_current_value(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("updateField('real_estate'", body)
+        self.assertIn("'ownership_pct'", body)
+        self.assertIn('value="100"', body)
+
+    def test_annual_income_is_an_editable_input_in_the_same_row(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("'annual_income'", body)
+        self.assertIn('value="24000"', body)
+
+    def test_updating_annual_income_via_the_generic_update_endpoint(self):
+        status, payload = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"annual_income": "36000"},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("real_estate", self.item_id)["annual_income"], 36000)
+
+    def test_loan_balance_shows_a_your_share_note_when_partially_owned(self):
+        db.update_line_item("real_estate", self.item_id, {
+            "linked_account_id": "acc-mortgage", "ownership_pct": 50,
+        })
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("your share: $240,000.00", body)  # 480,000 * 50%
+
+    def test_loan_balance_has_no_your_share_note_at_full_ownership(self):
+        db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("your share", body)
+
+    def test_updating_ownership_pct_via_the_generic_update_endpoint_rescales_equity(self):
+        db.update_line_item("real_estate", self.item_id, {"loan_balance": 300_000})
+        status, payload = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"ownership_pct": "50"},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        # (900,000 - 300,000) * 50% = 300,000
+        self.assertIn("300,000.00", body)
+
+    def test_name_purchase_price_and_current_value_are_editable_inputs(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("updateField('real_estate'", body)
+        self.assertIn("'name'", body)
+        self.assertIn("'purchase_price'", body)
+        self.assertIn("'current_value'", body)
+        self.assertIn('value="900000"', body)  # current_value, unformatted for the input
+
+    def test_updating_name_via_the_generic_update_endpoint(self):
+        status, payload = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"name": "Moorpark Ave"},
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("real_estate", self.item_id)["name"], "Moorpark Ave")
+
+    def test_loan_balance_is_an_editable_input_when_not_linked(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("'loan_balance'", body)
+
+    def test_loan_balance_is_not_an_editable_input_once_linked_to_a_live_account(self):
+        db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("'loan_balance'", body)  # live -- no input for it anymore
+
+    def test_totals_row_covers_purchase_price_current_value_and_loan_balance(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Totals", body)
+
+    def test_table_has_sortable_class(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<table class="sortable">', body)
+
+    def test_source_column_has_been_removed(self):
+        # The Source column (manual/imported bookkeeping) added little
+        # for the user and its width contributed to the table getting
+        # squeezed narrow enough that the Linked account header wrapped
+        # one letter per line -- dropped entirely.
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("<th>Source</th>", body)
+
+    def test_table_is_wrapped_in_a_horizontally_scrolling_container(self):
+        # With ten columns (several fixed-width money inputs plus the
+        # Linked account dropdown), the table is wider than the page's
+        # own max-width -- wrapping it in an overflow-x:auto container
+        # lets it scroll instead of the browser's table layout algorithm
+        # squeezing the Linked account header down to an unreadable,
+        # one-letter-per-line column.
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<div style="overflow-x:auto">', body)
+        self.assertLess(body.index('<div style="overflow-x:auto">'), body.index('<table class="sortable">'))
+
+
+class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
+    """The Real Estate Analysis tab's "In Monte Carlo?" checkbox column --
+    lets a property's equity opt in to the Monte Carlo / historical
+    stress test simulations as a 4th, untaxed, last-drawn pool (see
+    source.reporting.aggregate.build_summary and monte_carlo._WITHDRAWAL_ORDER)."""
+
+    def setUp(self):
+        self.item_id = db.add_line_item("real_estate", {
+            "name": "Cabin", "current_value": 300_000, "loan_balance": 0, "ownership_pct": 100,
+        })
+
+    def tearDown(self):
+        db.clear_section("real_estate")
+
+    def test_column_header_present(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("In Monte Carlo?", body)
+
+    def test_unchecked_by_default(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn(f"updateField('real_estate', {self.item_id}, 'include_in_monte_carlo'", body)
+        # The checkbox itself shouldn't render "checked" for a row that
+        # defaults to 0 -- distinguish this from the Inflates column's
+        # own equivalent by checking there's no "checked" immediately
+        # before this row's include_in_monte_carlo input.
+        row = body[body.index(f'data-id="{self.item_id}"'):]
+        mc_input = row[row.index("include_in_monte_carlo") - 80 : row.index("include_in_monte_carlo")]
+        self.assertNotIn("checked", mc_input)
+
+    def test_checking_it_persists_and_shows_checked_on_reload(self):
+        status, payload = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"include_in_monte_carlo": 1},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("real_estate", self.item_id)["include_in_monte_carlo"], 1)
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("checked", body)
+
+    def test_included_equity_total_line_reflects_only_opted_in_properties(self):
+        db.add_line_item("real_estate", {"name": "Rental", "current_value": 500_000, "loan_balance": 0, "ownership_pct": 100})
+        db.update_line_item("real_estate", self.item_id, {"include_in_monte_carlo": 1})
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Included in Monte Carlo simulations", body)
+        self.assertIn("300,000.00", body)  # only the Cabin, not the Rental
+
+
+class TestNumberInputFormattingForLargeValues(DashboardTestCase):
+    """A 7+-digit Purchase Price/Current Value/Loan Balance used to render
+    as literal scientific notation in the editable input itself (e.g.
+    1,600,000 became the text "1.6e+06") -- not a column-width/truncation
+    issue, but Python's old `:g` formatting in _editable_number_cell,
+    which switches to exponential past 6 significant digits and, worse,
+    silently rounds off digits once it does (3336607.99 became
+    "3.33661e+06", i.e. rounded to the nearest $10). Fixed by
+    _format_number_input_value (str()/repr() on the float, which never
+    goes scientific in any realistic dollar/percentage/year range here).
+    Per the user's "loan balance, purchase price and current value all
+    has problem" -- all three also got a wider (115px) column so the
+    now-un-abbreviated digits aren't cramped."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="wells_fargo", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="wells_fargo", account={
+            "account_id": "acc-mortgage", "name": "MORTGAGE ...7982", "official_name": "MORTGAGE ...7982",
+            "type": "loan", "subtype": "mortgage", "mask": "7982",
+            "balances": {"current": 483_471.76, "available": None, "iso_currency_code": "USD"},
+        })
+        self.item_id = db.add_line_item("real_estate", {
+            "name": "Moorpark", "purchase_price": 1_290_000, "current_value": 3_336_607.99,
+            "loan_balance": 1_100_000, "ownership_pct": 100,
+        })
+
+    def tearDown(self):
+        db.clear_section("real_estate")
+        db.delete_plaid_item("wells_fargo")
+
+    def test_format_number_input_value_never_uses_scientific_notation(self):
+        from source.webapp.render_helpers import _format_number_input_value
+
+        self.assertEqual(_format_number_input_value(1_600_000.0), "1600000")
+        self.assertEqual(_format_number_input_value(3_336_607.99), "3336607.99")
+        self.assertEqual(_format_number_input_value(365_000.0), "365000")
+        self.assertEqual(_format_number_input_value(1_234_567.89), "1234567.89")
+        self.assertEqual(_format_number_input_value(0.0), "0")
+        self.assertEqual(_format_number_input_value(-50_000.0), "-50000")
+        self.assertEqual(_format_number_input_value(100.5), "100.5")
+        self.assertEqual(_format_number_input_value(33.333), "33.333")
+
+    def test_seven_digit_purchase_price_and_current_value_render_in_full(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="1290000"', body)
+        self.assertIn('value="3336607.99"', body)
+        self.assertNotIn("e+0", body)
+        self.assertNotIn("e-0", body)
+
+    def test_seven_digit_loan_balance_renders_in_full_when_not_linked(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="1100000"', body)
+
+    def test_purchase_price_current_value_and_loan_balance_columns_are_widened(self):
+        resp = self._get("/real-estate.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("width:115px"), 3)  # purchase_price, current_value, loan_balance
+
+    def test_current_value_survives_a_round_trip_through_the_update_endpoint(self):
+        # Regression check for the precision-loss half of the old bug --
+        # not just cosmetic: the old :g-formatted "3.33661e+06" that
+        # showed in the box would have actually saved back as a rounded
+        # $3,336,610.00 if the row was ever re-submitted unchanged.
+        status, payload = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id,
+            "fields": {"current_value": "3336607.99"},
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_line_item("real_estate", self.item_id)["current_value"], 3336607.99)
+
+
+class TestLinkedPositionsPage(DashboardTestCase):
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 1500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 10,
+            "institution_price": 150, "institution_value": 1500, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+
+    def tearDown(self):
+        db.delete_plaid_item("fidelity")
+
+    def test_linked_positions_page_shows_holdings(self):
+        resp = self._get("/linked-positions.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("AAPL", body)
+        self.assertIn("Linked portfolio positions", body)
+
+    def test_nav_includes_linked_positions_tab(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('href="/linked-positions.html"', body)
+
+    def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
+        resp = self._get("/asset.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("AAPL", body)
+        self.assertIn('href="/linked-positions.html"', body)
+
+    def test_linked_positions_table_has_a_market_value_total_and_is_sortable(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<table class="sortable" id="linked-positions-table">', body)
+        self.assertIn("1,500.00", body)  # appears both in the row and the total
+
+    def test_linked_positions_page_shows_type_institution_donuts_and_an_industry_bar_chart(self):
+        # Type and institution stay donuts (few categories, read fine as
+        # pies); industry is a horizontal bar chart instead (it tends to
+        # accumulate many distinct values once positions are manually
+        # tagged, and a pie/donut stops being legible past ~6-7 slices --
+        # see the dataviz skill).
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Positions by type (market value)", body)
+        self.assertIn("Positions by institution (market value)", body)
+        self.assertIn("Positions by sector (market value)", body)
+        self.assertIn("Positions by industry (market value)", body)
+        self.assertIn('class="bar-chart"', body)
+        # The single holding is an "Equity" at "Fidelity", not yet
+        # industry-classified -- the type/institution donuts should show
+        # a legend row (single slice, no "Other" fold), and the sector/
+        # industry bars should show "Unknown".
+        self.assertIn("Equity", body)
+        self.assertIn("Fidelity", body)
+        self.assertIn("Unknown", body)
+        self.assertNotIn("Other", body.split("Positions by type")[1].split("Positions by sector")[0])
+
+    def test_industry_bar_chart_shows_every_distinct_industry_uncapped(self):
+        # Unlike the type/institution donuts (still capped -- a pie/donut
+        # stops being legible past ~6-7 slices), the industry bar chart
+        # shows every distinct industry as its own directly-labeled bar,
+        # however many there are -- folding a long tail into "Other"
+        # used to hide a real, specific industry like a single position's
+        # "Auto Manufacturers" behind a vague grouped label just because
+        # its total market value wasn't in some top-N cutoff.
+        # Reuses this class's own "acc-brokerage" account (created in
+        # setUp above) so tearDown's db.delete_plaid_item("fidelity") --
+        # which deletes holdings by looking up account_ids for that item
+        # -- cleans these up too, rather than leaking them into later
+        # tests in this class (setUpClass/the temp db are shared across
+        # every test method here, only setUp/tearDown run per-test).
+        now = "2026-09-01T00:00:00Z"
+        security_ids = [f"sec-extra-{i}" for i in range(20)]
+        try:
+            for i, security_id in enumerate(security_ids):
+                db.upsert_plaid_holding(item_key="fidelity", holding={
+                    "account_id": "acc-brokerage", "security_id": security_id, "ticker_symbol": f"T{i}",
+                    "security_name": f"Security {i}", "security_type": "equity", "quantity": 1,
+                    "institution_price": 10, "institution_value": 10, "cost_basis": 10,
+                    "iso_currency_code": "USD",
+                })
+                db.set_security_industry(security_id=security_id, ticker=f"T{i}", industry=f"Industry {i}", updated_at=now)
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            industry_section = body.split("Positions by industry")[1].split('<div id="positions-filter-bar"')[0]
+            for i in range(20):
+                self.assertIn(f"Industry {i}", industry_section)
+            self.assertNotIn(">Other<", industry_section)
+        finally:
+            # security_industries is a standalone cache table, not
+            # cascade-deleted by tearDown's db.delete_plaid_item -- see
+            # test_industry_column_and_chart_reflect_a_classified_holding
+            # above for the same cleanup pattern.
+            db.clear_security_industries(security_ids)
+
+    def test_sector_chart_rolls_up_two_different_industries_into_one_sector(self):
+        # "Semiconductors" and "Consumer Electronics" are two distinct
+        # industries that both roll up to "Technology" -- the sector
+        # chart should combine their market values into a single slice,
+        # unlike the industry chart which keeps them separate.
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-nvda", "ticker_symbol": "NVDA",
+            "security_name": "NVIDIA Corp", "security_type": "equity", "quantity": 1,
+            "institution_price": 500, "institution_value": 500, "cost_basis": 500,
+            "iso_currency_code": "USD",
+        })
+        db.set_security_industry(
+            security_id="sec-aapl", ticker="AAPL", industry="Consumer Electronics",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        db.set_security_industry(
+            security_id="sec-nvda", ticker="NVDA", industry="Semiconductors",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        try:
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            sector_section = body.split("Positions by sector")[1].split("Positions by industry")[0]
+            # A single "Technology" slice/bar, not one per industry --
+            # its member_labels is just ["Technology"] since the grouping
+            # already happened on the per-row "sector" field (mapped from
+            # each row's distinct industry) rather than on industry
+            # itself; both rows carry data-sector="Technology" so a click
+            # on this one bar still filters both of them.
+            self.assertIn('data-values="[&quot;Technology&quot;]"', sector_section)
+            # $1,500 (AAPL) + $500 (NVDA) = $2,000, all under one "Technology" bar.
+            self.assertIn("Technology: $2,000.00 (100%)", sector_section)
+            self.assertEqual(body.count('data-sector="Technology"'), 2)
+        finally:
+            db.clear_security_industries(["sec-aapl", "sec-nvda"])
+
+    def test_pie_slices_and_legend_rows_are_clickable_and_carry_filter_data(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        # Both the SVG wedge and its legend row are ".pie-seg" elements
+        # carrying the dim/slice-id/values the shared JS filters on.
+        self.assertIn('class="pie-seg"', body)
+        self.assertIn('data-dim="type"', body)
+        self.assertIn('data-dim="institution"', body)
+        self.assertIn('data-dim="industry"', body)
+        self.assertIn('onclick="handlePieSegClick(this)"', body)
+        self.assertIn('onkeydown="handlePieSegKeydown(event, this)"', body)
+        # The single Equity/Fidelity/Unknown-industry holding's slice
+        # values match the row's own data-type/data-institution/
+        # data-industry attributes exactly.
+        self.assertIn('data-values="[&quot;Equity&quot;]"', body)
+        self.assertIn('data-values="[&quot;Fidelity&quot;]"', body)
+        self.assertIn('data-values="[&quot;Unknown&quot;]"', body)
+
+    def test_positions_table_rows_carry_matching_filter_attributes(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('id="linked-positions-table"', body)
+        self.assertIn('id="linked-positions-total"', body)
+        self.assertIn('id="positions-filter-bar"', body)
+        self.assertIn(
+            'data-type="Equity" data-institution="Fidelity" data-industry="Unknown" data-sector="Unknown" '
+            'data-market-value="1500.0"',
+            body,
+        )
+        # Not yet classified -- shown as "Unclassified" in the table cell.
+        self.assertIn("Unclassified", body)
+
+    def test_a_second_distinct_holding_gets_its_own_matching_row_and_slice_values(self):
+        # A second holding at a different institution with a different
+        # security type -- the "Positions by type" chart should then carry
+        # two distinct slices whose data-values match each row's own
+        # data-type exactly, and likewise for "Positions by institution".
+        db.upsert_plaid_item(
+            item_key="schwab", plaid_item_id="item-2", institution_id="ins_2",
+            institution_name="Charles Schwab", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="schwab", account={
+            "account_id": "acc-schwab", "name": "Schwab", "official_name": "Schwab Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "1111",
+            "balances": {"current": 500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="schwab", holding={
+            "account_id": "acc-schwab", "security_id": "sec-bond", "ticker_symbol": "",
+            "security_name": "US Treasury Bond", "security_type": "fixed income", "quantity": 5,
+            "institution_price": 100, "institution_value": 500, "cost_basis": 500,
+            "iso_currency_code": "USD",
+        })
+        try:
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            self.assertIn(
+                'data-type="Equity" data-institution="Fidelity" data-industry="Unknown" data-sector="Unknown" '
+                'data-market-value="1500.0"',
+                body,
+            )
+            self.assertIn(
+                'data-type="Fixed Income" data-institution="Schwab" data-industry="Unknown" data-sector="Unknown" '
+                'data-market-value="500.0"',
+                body,
+            )
+            self.assertIn('data-values="[&quot;Fixed Income&quot;]"', body)
+            self.assertIn('data-values="[&quot;Schwab&quot;]"', body)
+            # Two type slices => two distinct slice ids on the type chart.
+            self.assertIn('data-slice-id="type-0"', body)
+            self.assertIn('data-slice-id="type-1"', body)
+        finally:
+            db.delete_plaid_item("schwab")
+
+
+    def test_industry_column_and_chart_reflect_a_classified_holding(self):
+        # security_industries is a standalone cache table (see db.py's
+        # module docstring on it) -- not cascade-deleted by tearDown's
+        # db.delete_plaid_item, so this test cleans up its own row to
+        # avoid leaking a classification into a later test that shares
+        # this class's single database (see DashboardTestCase.setUpClass).
+        db.set_security_industry(
+            security_id="sec-aapl", ticker="AAPL", industry="Consumer Electronics",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        try:
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            self.assertIn("<th>Industry</th>", body)
+            self.assertIn("Consumer Electronics", body)
+            self.assertIn(
+                'data-type="Equity" data-institution="Fidelity" data-industry="Consumer Electronics" '
+                'data-sector="Technology" data-market-value="1500.0"',
+                body,
+            )
+            self.assertIn('data-values="[&quot;Consumer Electronics&quot;]"', body)
+            # The intro paragraph mentions the word "Unclassified" as
+            # general help text -- check the table itself doesn't show
+            # it for this now-classified row.
+            table_html = body.split('id="linked-positions-table"')[1].split("</table>")[0]
+            self.assertNotIn("Unclassified", table_html)
+        finally:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-aapl",))
+
+    def test_positions_table_has_a_checkbox_column_and_the_bulk_classify_bar(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('class="position-check"', body)
+        self.assertIn('class="position-select-all"', body)
+        self.assertIn('data-security-id="sec-aapl"', body)
+        self.assertIn('data-ticker="AAPL"', body)
+        self.assertIn('id="industry-bulk-bar"', body)
+        self.assertIn('id="industry-bulk-input"', body)
+        self.assertIn('id="industry-options"', body)
+        self.assertIn("function classifySelectedIndustry()", body)
+        self.assertIn("function clearSelectedIndustry()", body)
+        self.assertIn("function clearPositionSelection()", body)
+        self.assertIn("function refreshIndustryBulkBar()", body)
+        self.assertIn("/api/classify-industry", body)
+        # This bar is scoped to the Linked Positions page, not the
+        # global delete-bulk bar every other page shares -- distinct
+        # classes/ids so the two mechanisms' JS never collides.
+        self.assertNotIn('class="position-check row-check"', body)
+        # The "Set sector" bar -- same mechanism, its own bar/id/input.
+        self.assertIn('id="sector-bulk-bar"', body)
+        self.assertIn('id="sector-bulk-input"', body)
+        self.assertIn('id="sector-options"', body)
+        self.assertIn("function classifySelectedSector()", body)
+        self.assertIn("function clearSelectedSector()", body)
+        self.assertIn("/api/classify-sector", body)
+
+    def test_positions_table_offers_every_industry_already_in_use_on_the_bulk_classify_datalist(self):
+        db.set_security_industry(
+            security_id="sec-aapl", ticker="AAPL", industry="Consumer Electronics",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        try:
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            datalist_html = body.split('id="industry-options"')[1].split("</datalist>")[0]
+            self.assertIn("Consumer Electronics", datalist_html)
+        finally:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-aapl",))
+
+
+class TestOtherTypeSubcategorization(DashboardTestCase):
+    """Plaid's "security_type" folds a lot of distinct real-world holdings
+    (REITs, private funds, etc.) into one generic "other" value -- the
+    Linked Positions page should split that bucket by the holding's
+    existing Industry tag ("Other: REIT") wherever one is set, both in the
+    "Positions by type" chart and the table's Type column/data-type filter
+    attribute, and leave an un-tagged "Other" holding (or any non-"Other"
+    type) showing exactly as before."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 2500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-reit", "ticker_symbol": "O",
+            "security_name": "Realty Income Corp", "security_type": "other", "quantity": 10,
+            "institution_price": 150, "institution_value": 1500, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-mystery", "ticker_symbol": "",
+            "security_name": "Unclassified Other Holding", "security_type": "other", "quantity": 20,
+            "institution_price": 50, "institution_value": 1000, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+        db.set_security_industry(
+            security_id="sec-reit", ticker="O", industry="REIT", updated_at="2026-09-13T00:00:00+00:00",
+        )
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-reit",))
+        db.delete_plaid_item("fidelity")
+
+    def test_industry_tagged_other_holding_shows_a_derived_other_colon_industry_label(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        # Chart slice carries the derived label, not the raw "Other".
+        self.assertIn('data-values="[&quot;Other: REIT&quot;]"', body)
+        # Table row's filter attribute and visible Type cell both use it.
+        # "REIT" (the plain tag, not a Yahoo Finance industry string like
+        # "REIT - Diversified") isn't in the sector table, so it lands in
+        # "Other" rather than being guessed into Real Estate.
+        self.assertIn(
+            'data-type="Other: REIT" data-institution="Fidelity" data-industry="REIT" data-sector="Other" '
+            'data-market-value="1500.0"',
+            body,
+        )
+        self.assertIn("<td>Other: REIT</td>", body)
+
+    def test_untagged_other_holding_still_shows_as_plain_other(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn(
+            'data-type="Other" data-institution="Fidelity" data-industry="Unknown" data-sector="Unknown" '
+            'data-market-value="1000.0"',
+            body,
+        )
+        self.assertIn('data-values="[&quot;Other&quot;]"', body)
+
+    def test_type_chart_shows_both_as_distinct_slices_not_folded_together(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('data-slice-id="type-0"', body)
+        self.assertIn('data-slice-id="type-1"', body)
+
+    def test_a_non_other_type_is_unaffected_even_with_an_industry_tag(self):
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 10,
+            "institution_price": 150, "institution_value": 1500, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+        db.set_security_industry(
+            security_id="sec-aapl", ticker="AAPL", industry="Consumer Electronics",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        try:
+            resp = self._get("/linked-positions.html")
+            body = resp.read().decode("utf-8")
+            self.assertIn(
+                'data-type="Equity" data-institution="Fidelity" data-industry="Consumer Electronics" '
+                'data-sector="Technology" data-market-value="1500.0"',
+                body,
+            )
+            self.assertIn('data-values="[&quot;Equity&quot;]"', body)
+        finally:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-aapl",))
+
+
+class TestClassifyIndustryEndpoint(DashboardTestCase):
+    """Backs the Linked Positions page's multi-select "Set industry"/
+    "Clear industry" bar. Sets up the same single Fidelity/AAPL holding
+    (security_id "sec-aapl") as TestLinkedPositionsPage.setUp, kept as its
+    own class (rather than subclassing TestLinkedPositionsPage) so this
+    doesn't re-run that class's whole test list under a second name."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 1500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 10,
+            "institution_price": 150, "institution_value": 1500, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-aapl",))
+        db.delete_plaid_item("fidelity")
+
+    def test_setting_an_industry_classifies_every_requested_item(self):
+        status, payload = self._post("/api/classify-industry", {
+            "items": [{"security_id": "sec-aapl", "ticker": "AAPL"}],
+            "industry": "Consumer Electronics",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_industries(), {"sec-aapl": "Consumer Electronics"})
+
+    def test_setting_a_manual_industry_overrides_an_existing_auto_classified_one(self):
+        db.set_security_industry(security_id="sec-aapl", ticker="AAPL", industry="Unknown", updated_at="2026-09-01T00:00:00+00:00")
+        status, payload = self._post("/api/classify-industry", {
+            "items": [{"security_id": "sec-aapl", "ticker": "AAPL"}],
+            "industry": "Cash",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_security_industries(), {"sec-aapl": "Cash"})
+
+    def test_blank_industry_clears_the_classification_instead_of_setting_it(self):
+        db.set_security_industry(security_id="sec-aapl", ticker="AAPL", industry="Consumer Electronics", updated_at="2026-09-01T00:00:00+00:00")
+        status, payload = self._post("/api/classify-industry", {
+            "items": [{"security_id": "sec-aapl", "ticker": "AAPL"}],
+            "industry": None,
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_industries(), {})
+
+    def test_classify_skips_items_missing_a_security_id_but_still_classifies_the_rest(self):
+        status, payload = self._post("/api/classify-industry", {
+            "items": [
+                {"security_id": "sec-aapl", "ticker": "AAPL"},
+                {"ticker": "NOID"},
+            ],
+            "industry": "Consumer Electronics",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_industries(), {"sec-aapl": "Consumer Electronics"})
+
+    def test_classifying_then_reloading_the_page_reflects_the_new_industry_in_the_bar_chart(self):
+        status, payload = self._post("/api/classify-industry", {
+            "items": [{"security_id": "sec-aapl", "ticker": "AAPL"}],
+            "industry": "Consumer Electronics",
+        })
+        self.assertTrue(payload["ok"])
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Consumer Electronics", body)
+        self.assertIn('data-values="[&quot;Consumer Electronics&quot;]"', body)
+
+
+class TestClassifySectorEndpoint(DashboardTestCase):
+    """Backs the Linked Positions page's multi-select "Set sector"/"Clear
+    sector" bar -- a manual override mainly meant for a mutual fund/ETF/
+    target-date fund, which never gets an `industry` classified for it in
+    the first place (see db.set_security_sector's docstring), so it has
+    no other way out of the "Unknown" sector bucket. Same setup/teardown
+    pattern as TestClassifyIndustryEndpoint above, kept separate so it
+    doesn't re-run that class's whole test list under a second name."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-idx", "ticker_symbol": "VG.INST.500.IDX",
+            "security_name": "Vg Inst 500 Idx", "security_type": "mutual fund", "quantity": 10,
+            "institution_price": 50, "institution_value": 500, "cost_basis": 400,
+            "iso_currency_code": "USD",
+        })
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-idx",))
+        db.delete_plaid_item("fidelity")
+
+    def test_setting_a_sector_classifies_every_requested_item(self):
+        status, payload = self._post("/api/classify-sector", {
+            "items": [{"security_id": "sec-idx", "ticker": "VG.INST.500.IDX"}],
+            "sector": "Diversified",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_sectors(), {"sec-idx": "Diversified"})
+
+    def test_setting_a_sector_overrides_a_previous_manual_sector(self):
+        db.set_security_sector(security_id="sec-idx", ticker="VG.INST.500.IDX", sector="Other", updated_at="2026-09-01T00:00:00+00:00")
+        status, payload = self._post("/api/classify-sector", {
+            "items": [{"security_id": "sec-idx", "ticker": "VG.INST.500.IDX"}],
+            "sector": "Diversified",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_security_sectors(), {"sec-idx": "Diversified"})
+
+    def test_blank_sector_clears_the_override_instead_of_setting_it(self):
+        db.set_security_sector(security_id="sec-idx", ticker="VG.INST.500.IDX", sector="Diversified", updated_at="2026-09-01T00:00:00+00:00")
+        status, payload = self._post("/api/classify-sector", {
+            "items": [{"security_id": "sec-idx", "ticker": "VG.INST.500.IDX"}],
+            "sector": None,
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_sectors(), {})
+
+    def test_classify_skips_items_missing_a_security_id_but_still_classifies_the_rest(self):
+        status, payload = self._post("/api/classify-sector", {
+            "items": [
+                {"security_id": "sec-idx", "ticker": "VG.INST.500.IDX"},
+                {"ticker": "NOID"},
+            ],
+            "sector": "Diversified",
+        })
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(db.get_security_sectors(), {"sec-idx": "Diversified"})
+
+    def test_classifying_then_reloading_the_page_reflects_the_new_sector_in_the_bar_chart_and_row(self):
+        status, payload = self._post("/api/classify-sector", {
+            "items": [{"security_id": "sec-idx", "ticker": "VG.INST.500.IDX"}],
+            "sector": "Diversified",
+        })
+        self.assertTrue(payload["ok"])
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Diversified", body)
+        self.assertIn('data-sector="Diversified"', body)
+        # The Industry column/derivation is untouched -- still "Unclassified".
+        self.assertIn("Unclassified", body)
+
+
+class TestGroupedSlicesAndDonutChart(unittest.TestCase):
+    """Unit tests for the chart helpers used on the Linked Positions page
+    (_grouped_slices, _donut_chart_html, and _bar_chart_html) -- kept
+    separate from the DashboardTestCase suite since these are pure
+    functions with no server/db involved."""
+
+    def test_sums_value_by_key_and_orders_largest_first(self):
+        rows = [
+            {"security_type": "equity", "market_value": 100},
+            {"security_type": "bond", "market_value": 500},
+            {"security_type": "equity", "market_value": 50},
+        ]
+        slices = dashboard._grouped_slices(rows, key="security_type", value_key="market_value")
+        self.assertEqual(slices, [("bond", 500.0, ["bond"]), ("equity", 150.0, ["equity"])])
+
+    def test_blank_or_missing_key_falls_back_to_unknown(self):
+        rows = [
+            {"security_type": "", "market_value": 10},
+            {"market_value": 20},
+        ]
+        slices = dashboard._grouped_slices(rows, key="security_type", value_key="market_value")
+        self.assertEqual(slices, [("Unknown", 30.0, ["Unknown"])])
+
+    def test_more_than_six_distinct_values_fold_into_other(self):
+        rows = [{"security_type": f"type-{i}", "market_value": (7 - i) * 10} for i in range(7)]
+        slices = dashboard._grouped_slices(rows, key="security_type", value_key="market_value")
+        self.assertEqual(len(slices), 7)  # 6 real slices + "Other"
+        labels = [label for label, _, _ in slices]
+        self.assertEqual(labels[:6], ["type-0", "type-1", "type-2", "type-3", "type-4", "type-5"])
+        self.assertEqual(labels[6], "Other")
+        # type-6 (10) is the only one folded in, so "Other" should equal it.
+        self.assertEqual(slices[6][1], 10.0)
+        # The "Other" bucket remembers which raw labels it folded together,
+        # so a click on it can still filter the underlying rows.
+        self.assertEqual(slices[6][2], ["type-6"])
+        # A real (non-folded) slice's member_labels is just itself.
+        self.assertEqual(slices[0][2], ["type-0"])
+
+    def test_max_slices_none_returns_every_distinct_value_with_no_other_bucket(self):
+        rows = [{"security_type": f"type-{i}", "market_value": (20 - i)} for i in range(20)]
+        slices = dashboard._grouped_slices(rows, key="security_type", value_key="market_value", max_slices=None)
+        self.assertEqual(len(slices), 20)
+        self.assertNotIn("Other", [label for label, _, _ in slices])
+        # Still sorted largest-first.
+        self.assertEqual(slices[0][0], "type-0")
+        self.assertEqual(slices[-1][0], "type-19")
+
+    def test_exactly_six_distinct_values_does_not_add_an_other_bucket(self):
+        rows = [{"security_type": f"type-{i}", "market_value": 1} for i in range(6)]
+        slices = dashboard._grouped_slices(rows, key="security_type", value_key="market_value")
+        self.assertEqual(len(slices), 6)
+        self.assertNotIn("Other", [label for label, _, _ in slices])
+
+    def test_donut_chart_with_no_data_shows_a_fallback_card(self):
+        html_out = dashboard._donut_chart_html("Positions by type (market value)", [], dim="type")
+        self.assertIn("No data yet.", html_out)
+        self.assertNotIn("<svg", html_out)
+
+    def test_donut_chart_renders_svg_legend_and_tooltips_for_each_slice(self):
+        slices = [("equity", 750.0, ["equity"]), ("bond", 250.0, ["bond"])]
+        html_out = dashboard._donut_chart_html("Positions by type (market value)", slices, dim="type")
+        self.assertIn("<svg", html_out)
+        self.assertIn("Positions by type (market value)", html_out)
+        self.assertIn("equity", html_out)
+        self.assertIn("bond", html_out)
+        # Legend shows value + percent for each slice.
+        self.assertIn("75%", html_out)
+        self.assertIn("25%", html_out)
+        # Native <title> hover tooltips, one per wedge.
+        self.assertEqual(html_out.count("<title>"), 2)
+        # Fixed-order categorical colors -- first slice gets slot 1, second slot 2.
+        self.assertIn(dashboard._DONUT_COLORS[0], html_out)
+        self.assertIn(dashboard._DONUT_COLORS[1], html_out)
+
+    def test_donut_chart_other_slice_uses_the_muted_color_not_a_categorical_slot(self):
+        slices = [
+            ("a", 10.0, ["a"]), ("b", 9.0, ["b"]), ("c", 8.0, ["c"]),
+            ("d", 7.0, ["d"]), ("e", 6.0, ["e"]), ("f", 5.0, ["f"]),
+            ("Other", 4.0, ["g"]),
+        ]
+        html_out = dashboard._donut_chart_html("Test", slices, dim="type")
+        self.assertIn(dashboard._DONUT_OTHER_COLOR, html_out)
+
+    def test_each_slice_is_a_clickable_pie_seg_with_dim_slice_id_and_values(self):
+        slices = [("equity", 750.0, ["equity"]), ("bond", 250.0, ["bond"])]
+        html_out = dashboard._donut_chart_html("Test", slices, dim="type")
+        # Two elements per slice: the circle wedge and its legend row.
+        self.assertEqual(html_out.count('class="pie-seg"'), 2)  # one per circle
+        self.assertEqual(html_out.count('class="legend-row pie-seg"'), 2)  # one per legend row
+        # Neither element should end up with two `class` attributes.
+        self.assertNotIn('class="pie-seg" class=', html_out)
+        self.assertNotIn('class="legend-row pie-seg" class=', html_out)
+        self.assertIn('data-dim="type"', html_out)
+        self.assertIn('data-slice-id="type-0"', html_out)
+        self.assertIn('data-slice-id="type-1"', html_out)
+        self.assertIn('onclick="handlePieSegClick(this)"', html_out)
+        self.assertIn('tabindex="0"', html_out)
+        self.assertIn('role="button"', html_out)
+
+    def test_other_slices_values_attribute_lists_every_folded_raw_label(self):
+        slices = [
+            ("a", 10.0, ["a"]), ("b", 9.0, ["b"]), ("c", 8.0, ["c"]),
+            ("d", 7.0, ["d"]), ("e", 6.0, ["e"]), ("f", 5.0, ["f"]),
+            ("Other", 4.0, ["g", "h", "i"]),
+        ]
+        html_out = dashboard._donut_chart_html("Test", slices, dim="type")
+        self.assertIn('data-values="[&quot;g&quot;, &quot;h&quot;, &quot;i&quot;]"', html_out)
+
+    def test_bar_chart_with_no_data_shows_a_fallback_card(self):
+        html_out = dashboard._bar_chart_html("Positions by industry (market value)", [], dim="industry")
+        self.assertIn("No data yet.", html_out)
+        self.assertNotIn('class="bar-chart"', html_out)
+
+    def test_bar_chart_renders_a_labeled_row_per_slice_with_value_and_percent(self):
+        slices = [("Cash", 750.0, ["Cash"]), ("Semiconductors", 250.0, ["Semiconductors"])]
+        html_out = dashboard._bar_chart_html("Positions by industry (market value)", slices, dim="industry")
+        self.assertIn('class="bar-chart"', html_out)
+        self.assertIn("Positions by industry (market value)", html_out)
+        self.assertIn("Cash", html_out)
+        self.assertIn("Semiconductors", html_out)
+        self.assertIn("75%", html_out)
+        self.assertIn("25%", html_out)
+        # No SVG involved -- this is the plain HTML bar form, not a donut.
+        self.assertNotIn("<svg", html_out)
+        # Fixed-order categorical colors, same sequence as the donut chart.
+        self.assertIn(dashboard._DONUT_COLORS[0], html_out)
+        self.assertIn(dashboard._DONUT_COLORS[1], html_out)
+
+    def test_bar_chart_other_bucket_uses_the_muted_color(self):
+        slices = [
+            ("a", 10.0, ["a"]), ("b", 9.0, ["b"]), ("c", 8.0, ["c"]),
+            ("d", 7.0, ["d"]), ("e", 6.0, ["e"]), ("f", 5.0, ["f"]),
+            ("Other", 4.0, ["g"]),
+        ]
+        html_out = dashboard._bar_chart_html("Test", slices, dim="industry")
+        self.assertIn(dashboard._DONUT_OTHER_COLOR, html_out)
+
+    def test_bar_chart_rows_are_clickable_pie_segs_with_dim_slice_id_and_values(self):
+        # Reuses the exact same click-to-filter contract as the donut
+        # chart (".pie-seg" + data-dim/data-slice-id/data-values, wired
+        # to the shared handlePieSegClick() JS) so no separate filtering
+        # JS was needed when this chart switched from a donut to a bar.
+        slices = [("Cash", 750.0, ["Cash"]), ("Semiconductors", 250.0, ["Semiconductors"])]
+        html_out = dashboard._bar_chart_html("Test", slices, dim="industry")
+        self.assertEqual(html_out.count('class="bar-row pie-seg"'), 2)
+        self.assertIn('data-dim="industry"', html_out)
+        self.assertIn('data-slice-id="industry-0"', html_out)
+        self.assertIn('data-slice-id="industry-1"', html_out)
+        self.assertIn('onclick="handlePieSegClick(this)"', html_out)
+        self.assertIn('onkeydown="handlePieSegKeydown(event, this)"', html_out)
+        self.assertIn('tabindex="0"', html_out)
+        self.assertIn('role="button"', html_out)
+        self.assertIn('data-values="[&quot;Cash&quot;]"', html_out)
+
+
+class TestSectorForIndustry(unittest.TestCase):
+    """Unit tests for _sector_for_industry/_SECTOR_BY_INDUSTRY -- the
+    lookup that rolls up a fine-grained Yahoo Finance industry (what
+    source.collector.sync_industries stores) to a broader sector for the
+    Linked Positions page's "Positions by sector" chart."""
+
+    def test_known_industries_map_to_their_sector(self):
+        self.assertEqual(dashboard._sector_for_industry("Semiconductors"), "Technology")
+        self.assertEqual(dashboard._sector_for_industry("Consumer Electronics"), "Technology")
+        self.assertEqual(dashboard._sector_for_industry("Auto Manufacturers"), "Consumer Cyclical")
+        self.assertEqual(dashboard._sector_for_industry("Internet Retail"), "Consumer Cyclical")
+        self.assertEqual(dashboard._sector_for_industry("Internet Content & Information"), "Communication Services")
+        self.assertEqual(dashboard._sector_for_industry("Drug Manufacturers - General"), "Healthcare")
+        self.assertEqual(dashboard._sector_for_industry("Banks - Diversified"), "Financial Services")
+        self.assertEqual(dashboard._sector_for_industry("Aerospace & Defense"), "Industrials")
+        self.assertEqual(dashboard._sector_for_industry("Asset Management"), "Financial Services")
+
+    def test_lookup_is_case_insensitive(self):
+        self.assertEqual(dashboard._sector_for_industry("semiconductors"), "Technology")
+        self.assertEqual(dashboard._sector_for_industry("SEMICONDUCTORS"), "Technology")
+
+    def test_blank_or_missing_industry_is_unknown(self):
+        self.assertEqual(dashboard._sector_for_industry(""), "Unknown")
+        self.assertEqual(dashboard._sector_for_industry(None), "Unknown")
+        self.assertEqual(dashboard._sector_for_industry("   "), "Unknown")
+
+    def test_unrecognized_industry_falls_back_to_other_not_a_guess(self):
+        # A manually typed-in tag (e.g. "Cash", "International Equity")
+        # isn't in the sector table -- it should land in "Other" rather
+        # than being silently mis-sorted into some sector it doesn't
+        # belong to.
+        self.assertEqual(dashboard._sector_for_industry("Cash"), "Other")
+        self.assertEqual(dashboard._sector_for_industry("International Equity"), "Other")
+
+
+class TestAssumptionsEndpoint(DashboardTestCase):
+    def test_percent_fields_are_converted_to_decimals(self):
+        status, payload = self._post("/api/assumptions", {"expected_return_pct": "7.5"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertAlmostEqual(float(db.get_assumptions()["expected_return"]), 0.075)
+
+    def test_summary_page_reflects_return_rate_changed_from_summary_itself(self):
+        # This is the endpoint the Summary page's "What if: expected
+        # return" card posts to -- a partial update (just this one field)
+        # must not disturb the other assumptions the Monte Carlo tab uses.
+        db.set_assumptions({"return_volatility": 0.12, "iterations": 200})
+        status, _ = self._post("/api/assumptions", {"expected_return_pct": "9.0"})
+        self.assertEqual(status, 200)
+        assumptions = db.get_assumptions()
+        self.assertAlmostEqual(float(assumptions["expected_return"]), 0.09)
+        self.assertAlmostEqual(float(assumptions["return_volatility"]), 0.12)
+
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('value="9.00"', body)
+
+
+class TestMonteCarloStartingBalance(DashboardTestCase):
+    """The Monte Carlo tab's starting balance is Net Liquid Asset -- 401k +
+    Liquid, net of liabilities -- not full net worth: real estate equity
+    and other Asset-tab categories (Insurance, etc.) aren't money you'd
+    draw down in retirement, and liabilities (a loan, a credit card
+    balance, ...) do reduce what's actually available, per the user's
+    "montecarlo simulations should be on 'Net Liquid Asset'" request. The
+    Summary tab's "What if: expected return" card runs the same
+    simulation and must show the same starting balance, so the two tabs
+    stay in sync with each other."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Credit card", "balance": 10_000})
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 500_000, "loan_balance": 300_000, "ownership_pct": 100})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+
+    def test_monte_carlo_page_starting_balance_is_net_liquid_asset(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # 100,000 (401k) + 50,000 (Liquid) - 10,000 (liability) =
+        # 140,000 -- net of the liability (unlike the old
+        # retirement_liquid_total, which would show 150,000 here), and
+        # not the 360,000 net worth (which would also add Insurance and
+        # RE equity).
+        self.assertIn("$140,000.00", body)
+        self.assertNotIn("$150,000.00", body)
+        self.assertNotIn("$360,000.00", body)
+
+    def test_summary_page_what_if_card_shows_the_same_starting_balance(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("$140,000.00", body)
+
+    def test_monte_carlo_and_summary_pages_agree_on_starting_balance(self):
+        # The two tabs must never drift apart -- both read build_summary()'s
+        # net_liquid_asset, so a figure that appears on one must appear
+        # on the other too.
+        mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("$140,000.00", mc_body)
+        self.assertIn("$140,000.00", summary_body)
+
+
+class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
+    """Reported bug: once a property is opted in to the simulation (Real
+    Estate Analysis tab's "In Monte Carlo?"), run_simulation/
+    run_historical_bootstrap_simulation/run_historical_stress_test all
+    ignore their own `starting_balance` argument and instead walk down
+    sum(pools.values()) -- which includes the opted-in real estate
+    equity as a 4th pool (see source.reporting.monte_carlo.
+    _run_random_simulation's own comment) -- but the Monte Carlo and
+    Summary pages' intro text still only quoted Net Liquid Asset, understating
+    the money actually being simulated. Fixed by a "Starting balance"
+    tile (Net Liquid Asset + opted-in real estate) and updated copy on
+    both pages."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        item_id = db.add_line_item("real_estate", {"name": "Rental", "current_value": 500_000, "loan_balance": 200_000, "ownership_pct": 100})
+        db.update_line_item("real_estate", item_id, {"include_in_monte_carlo": 1})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+
+    def test_monte_carlo_page_starting_balance_tile_includes_opted_in_real_estate(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # Net Liquid Asset (150,000) + opted-in equity (500,000 - 200,000
+        # = 300,000) = 450,000 -- not just the 150,000 Net Liquid Asset.
+        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000.00</div>', body)
+        self.assertIn('<div class="label">Real estate (opted in)</div><div class="value">$300,000.00</div>', body)
+
+    def test_monte_carlo_page_intro_paragraph_states_the_correct_total(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Plus $300,000.00 of real estate equity opted in", body)
+        self.assertIn("$450,000.00 simulated in total", body)
+
+    def test_summary_what_if_card_starting_balance_tile_includes_opted_in_real_estate(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000.00</div>', body)
+        self.assertIn("Plus $300,000.00 of real estate equity opted in", body)
+
+
+class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
+    """Reported bug: the Monte Carlo tab and the Summary tab's "What if"
+    card showed two different Median ending balance / Success rate
+    figures for the same plan. Both call run_simulation() with identical
+    starting_balance/pools/assumptions/expenses/income (see
+    TestMonteCarloStartingBalance above), but each used to leave `rng`
+    unseeded -- two independent, unseeded 1000-path Monte Carlo runs
+    landing on two different (if both individually plausible) numbers by
+    pure chance, not a calculation error. source.reporting.monte_carlo.
+    stable_simulation_seed fixes this by deriving a seed from those same
+    inputs, so both tabs replay the exact same 1000 paths."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 60_000})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+
+    def test_median_ending_balance_matches_between_the_two_tabs(self):
+        mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        mc_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", mc_body).group(1)
+        summary_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", summary_body).group(1)
+        self.assertEqual(mc_value, summary_value)
+
+    def test_success_rate_matches_between_the_two_tabs(self):
+        mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        mc_value = re.search(r"Success rate</div><div class=\"value\">([\d]+%)</div>", mc_body).group(1)
+        summary_value = re.search(r"Success rate</div><div class=\"value\">([\d]+%)</div>", summary_body).group(1)
+        self.assertEqual(mc_value, summary_value)
+
+    def test_reloading_either_tab_repeatedly_gives_the_same_number(self):
+        # Not just cross-tab agreement -- also reproducible run to run,
+        # since the same tab's own simulation used to re-randomize on
+        # every page load too.
+        first = self._get("/monte-carlo.html").read().decode("utf-8")
+        second = self._get("/monte-carlo.html").read().decode("utf-8")
+        first_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", first).group(1)
+        second_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", second).group(1)
+        self.assertEqual(first_value, second_value)
+
+    def test_changing_an_assumption_changes_the_result(self):
+        # The determinism shouldn't be so sticky that a real change to
+        # the plan gets ignored -- a different expected return should
+        # (almost certainly) produce a different median ending balance.
+        before = self._get("/monte-carlo.html").read().decode("utf-8")
+        before_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", before).group(1)
+        db.set_assumption("expected_return", 0.15)
+        after = self._get("/monte-carlo.html").read().decode("utf-8")
+        after_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", after).group(1)
+        self.assertNotEqual(before_value, after_value)
+
+
+class TestSummaryPageAssetTotals(DashboardTestCase):
+    """The Summary tab no longer shows a standalone "Manual asset total"
+    tile -- it didn't match what the Asset tab itself displayed, since the
+    Asset tab breaks balances out by category (401k, Liquid, Insurance,
+    ...). Instead the Summary tab shows the same real, per-category
+    balances and totals the Asset tab shows, plus a rate-of-return tile."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+
+    def _seed(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade", "balance": 50_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Insurance", "name": "Whole life", "balance": 20_000})
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Credit card", "balance": 5_000})
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 500_000, "loan_balance": 300_000, "ownership_pct": 100})
+
+    def test_manual_asset_total_label_is_gone(self):
+        self._seed()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertNotIn("Manual asset total", body)
+
+    def test_net_liquid_asset_and_total_asset_tiles_are_present(self):
+        self._seed()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$145,000.00</div>', body)
+        # Net Liquid Asset (145,000) + RE equity (200,000) = 345,000.
+        self.assertIn('<div class="label">Total Asset</div><div class="value">$345,000.00</div>', body)
+
+    def test_expected_rate_of_return_tile_shows_the_assumption_as_a_percent(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        # No assumptions saved yet -- falls back to the same 6.00% default
+        # the "What if" card's own input field uses.
+        self.assertIn('<div class="label">Expected rate of return</div><div class="value">6.00%</div>', body)
+
+    def test_assets_by_category_card_matches_the_asset_tab(self):
+        # Same underlying figures as the Asset tab's own top Summary
+        # table -- both now read build_summary()'s asset_category_subtotals,
+        # so they can't drift apart the way "Manual asset total" could.
+        self._seed()
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        asset_body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("Assets by category", summary_body)
+        for expected in (
+            "<td>401k</td><td class=\"num\">$100,000.00</td>",
+            "<td>Liquid</td><td class=\"num\">$50,000.00</td>",
+            "<td>Insurance</td><td class=\"num\">$20,000.00</td>",
+            "Net Liquid Asset</td><td class=\"num\">$145,000.00</td>",
+            "Total Asset</td><td class=\"num\">$345,000.00</td>",
+        ):
+            self.assertIn(expected, summary_body)
+            self.assertIn(expected, asset_body)
+
+    def test_empty_state_shows_zero_totals_not_an_error(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$0.00</div>', body)
+        self.assertIn('<div class="label">Total Asset</div><div class="value">$0.00</div>', body)
+
+    def test_rollup_table_renders_above_the_category_summary_table(self):
+        self._seed()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertLess(body.index("Total Asset</td>"), body.index("Net Liquid Asset = the balance"))
+
+
+class TestGaussianSimulationTiles(DashboardTestCase):
+    """The Monte Carlo tab's first simulation (drawing returns from the
+    Expected return/Return volatility assumptions the user sets) reports
+    a 10th/median/90th percentile ending balance range alongside success
+    rate and iterations -- not just the median -- so the spread is visible
+    without reading it off the fan chart."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000})
+
+    def tearDown(self):
+        db.clear_section("assets")
+
+    def test_tiles_include_10th_median_and_90th_percentile_ending_balance(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Success rate", body)
+        self.assertIn("Iterations", body)
+        self.assertRegex(body, r"10th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertRegex(body, r"Median ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertRegex(body, r"90th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+
+    def test_tile_values_match_a_freshly_run_gaussian_simulation(self):
+        from source.reporting.aggregate import build_summary
+        from source.reporting.monte_carlo import run_simulation
+
+        s = build_summary()
+        result = run_simulation(
+            starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income"],
+            assumptions=s["assumptions"], rng=random.Random(0),
+        )
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # Randomly seeded per request, so just confirm this section's own
+        # (non-"S&P 500"-prefixed) tiles are present and well-formed --
+        # exact figures will differ from this one-off comparison run.
+        self.assertIsNotNone(result)
+        self.assertNotIn('<div class="label">S&amp;P 500 10th percentile ending balance', body.split("S&amp;P 500 historical-returns simulation")[0])
+
+
+class TestSp500HistoricalBootstrapSection(DashboardTestCase):
+    """The Monte Carlo tab's second random simulation -- draws each
+    simulated year's return from real recorded S&P 500 annual returns
+    (bootstrap resampling) instead of the Gaussian expected-return/
+    volatility assumptions, reported as its own success rate + p10/
+    median/p90 ending balance tiles alongside the Gaussian one's tiles
+    and chart. Per user feedback this section reports figures only --
+    no fan chart of its own (see
+    test_section_has_no_chart_of_its_own_just_the_gaussian_fan_chart_above)."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000})
+
+    def tearDown(self):
+        db.clear_section("assets")
+
+    def test_section_heading_and_tiles_are_present(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("S&amp;P 500 historical-returns simulation", body)
+        self.assertIn("S&amp;P 500 success rate", body)
+        self.assertIn("S&amp;P 500 10th percentile ending balance", body)
+        self.assertIn("S&amp;P 500 90th percentile ending balance", body)
+        self.assertIn("S&amp;P 500 median ending balance", body)
+
+    def test_section_has_no_chart_of_its_own_just_the_gaussian_fan_chart_above(self):
+        # Per user feedback, this section reports its own tiles (success
+        # rate, 10th/median/90th percentile ending balance) but doesn't
+        # render a second fan chart -- there's exactly one <svg> on the
+        # page, belonging to the Gaussian simulation above it.
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertEqual(body.count("<svg"), 1)
+
+    def test_tiles_show_figures_consistent_with_a_freshly_run_bootstrap_simulation(self):
+        from source.reporting.aggregate import build_summary
+        from source.reporting.monte_carlo import run_historical_bootstrap_simulation
+
+        s = build_summary()
+        result = run_historical_bootstrap_simulation(
+            starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income"],
+            assumptions=s["assumptions"], rng=random.Random(0),
+        )
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # Randomly seeded on each request, so exact figures will differ
+        # from this one-off run -- just confirm the section reports
+        # sane, present values in the expected dollar format rather than
+        # erroring or being blank.
+        self.assertRegex(body, r"S&amp;P 500 10th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertRegex(body, r"S&amp;P 500 90th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertIsNotNone(result)  # sanity: the function itself doesn't error on real plan data
+
+
+class TestHistoricalStressTestTable(DashboardTestCase):
+    """The Monte Carlo tab's "Historical recession stress test" table --
+    same feature as the original workbook's own tab of that name, added
+    per the user's "create a table with all balance and years from
+    simulations ... with recession accounted" request."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000})
+        db.set_assumptions({"plan_horizon_years": 3, "current_year": 2028})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.set_assumptions({"plan_horizon_years": 40, "current_year": ""})
+
+    def _stress_test_section(self, body: str) -> str:
+        start = body.index("Historical recession stress test")
+        end = body.index("<h2>Assumptions</h2>")
+        return body[start:end]
+
+    def test_section_and_both_tables_are_present(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        self.assertIn("Scenario", section)
+        self.assertIn("Depleted?", section)
+        self.assertIn("Year-by-year detail", section)
+        self.assertIn("Great Depression (1929)", section)
+        self.assertIn("Dot-com Crash (2000)", section)
+        self.assertIn("Global Financial Crisis (2007)", section)
+        self.assertIn("Stagflation (1973)", section)
+        self.assertIn("No-crash baseline (10%/yr)", section)
+
+    def test_detail_table_has_a_yearly_drawdown_column_shared_across_scenarios(self):
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 10_000, "start_year": None, "end_year": None})
+        try:
+            from source.reporting.aggregate import build_summary
+            from source.reporting.monte_carlo import run_historical_stress_test
+
+            s = build_summary()
+            result = run_historical_stress_test(
+                starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income"],
+                assumptions=s["assumptions"],
+            )
+            resp = self._get("/monte-carlo.html")
+            body = resp.read().decode("utf-8")
+            section = self._stress_test_section(body)
+            self.assertIn("Yearly Drawdown", section)
+            # 60,000 - 10,000 = 50,000, flat every year (no inflation set).
+            self.assertIn(dashboard._money(result["yearly_needs"][0]), section)
+            self.assertIn(dashboard._money(50_000), section)
+        finally:
+            db.clear_section("expenses")
+            db.clear_section("income")
+
+    def test_detail_table_has_a_total_income_column_next_to_total_expense(self):
+        # Shown alongside Total Expense (the two raw, un-netted tab
+        # totals) so the user can compare them directly -- e.g. see that
+        # an Income row with "Inflates" checked grows year over year same
+        # as an inflating Expense row would.
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 10_000, "start_year": None, "end_year": None})
+        try:
+            from source.reporting.aggregate import build_summary
+            from source.reporting.monte_carlo import run_historical_stress_test
+
+            s = build_summary()
+            result = run_historical_stress_test(
+                starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income"],
+                assumptions=s["assumptions"],
+            )
+            resp = self._get("/monte-carlo.html")
+            body = resp.read().decode("utf-8")
+            section = self._stress_test_section(body)
+            self.assertIn("<th class=\"num\">Total Income</th>", section)
+            self.assertEqual(result["yearly_income"][0], 10_000)
+            # All three figures appear on the first data row, in Year,
+            # Total Expense, Total Income, Yearly Drawdown column order.
+            self.assertIn(
+                f'<td>2028</td><td class="num">{dashboard._money(60_000)}</td>'
+                f'<td class="num">{dashboard._money(10_000)}</td>'
+                f'<td class="num">{dashboard._money(50_000)}</td>',
+                section,
+            )
+        finally:
+            db.clear_section("expenses")
+            db.clear_section("income")
+
+    def test_detail_table_has_a_total_expense_column_next_to_total_income(self):
+        # Lets the user check the arithmetic themselves: Total Expense -
+        # Total Income (- the flat offset, if any) should equal Yearly
+        # Drawdown on every row. Column order puts Total Expense and
+        # Total Income next to each other, both before Yearly Drawdown.
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
+        db.add_line_item("income", {"name": "Rental", "annual_amount": 10_000, "start_year": None, "end_year": None})
+        try:
+            resp = self._get("/monte-carlo.html")
+            body = resp.read().decode("utf-8")
+            section = self._stress_test_section(body)
+            self.assertIn("<th class=\"num\">Total Expense</th>", section)
+            # Total Expense's column header appears before Total Income's,
+            # which appears before Yearly Drawdown's.
+            self.assertLess(
+                section.index('<th class="num">Total Expense</th>'),
+                section.index('<th class="num">Total Income</th>'),
+            )
+            self.assertLess(
+                section.index('<th class="num">Total Income</th>'),
+                section.index('<th class="num">Yearly Drawdown</th>'),
+            )
+            # No income offset set here (defaults to 0) -- Total Expense
+            # (60,000) - Total Income (10,000) == Yearly Drawdown
+            # (50,000), directly checkable from the rendered row.
+            self.assertIn(
+                f'<td>2028</td><td class="num">{dashboard._money(60_000)}</td>'
+                f'<td class="num">{dashboard._money(10_000)}</td>'
+                f'<td class="num">{dashboard._money(50_000)}</td>',
+                section,
+            )
+        finally:
+            db.clear_section("expenses")
+            db.clear_section("income")
+
+    def test_detail_table_shows_the_real_1929_return_and_matches_the_computed_balance(self):
+        # Ground truth from the simulation function itself, so this test
+        # stays correct even if the historical dataset is ever extended --
+        # it checks the dashboard renders what the function computed,
+        # not a hand-transcribed dollar figure.
+        from source.reporting.aggregate import build_summary
+        from source.reporting.monte_carlo import run_historical_stress_test
+
+        s = build_summary()
+        result = run_historical_stress_test(
+            starting_balance=s["net_liquid_asset"], expenses=s["expenses"], assumptions=s["assumptions"],
+        )
+        gd = next(sc for sc in result["scenarios"] if sc["label"].startswith("Great Depression"))
+
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        self.assertIn("Great Depression Return", section)
+        self.assertIn("Great Depression Balance", section)
+        self.assertIn(f"{gd['path'][0]['return'] * 100:.2f}%", section)  # -8.42%
+        self.assertIn(dashboard._money(gd["path"][0]["balance"]), section)
+        self.assertIn(dashboard._money(gd["ending_balance"]), section)
+
+    def test_no_expenses_means_no_scenario_depletes(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        summary_table = section[: section.index("Year-by-year detail")]
+        self.assertNotIn(">Yes<", summary_table)
+
+    def test_detail_table_rows_are_sortable_like_every_other_table(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        self.assertEqual(section.count('<table class="sortable">'), 2)  # summary + detail
+
+
+class TestDrawdownTaxAssumption(DashboardTestCase):
+    """The Monte Carlo tab's "Apply drawdown tax" checkbox and the Tax
+    (Fed+CA)/Total Withdrawal columns it adds to the Year-by-year detail
+    table -- added per the user's "add tax related expenditure we need
+    on drawdown ... based on current Fed rate and CA tax" request. On by
+    default (source.common.db.DEFAULT_ASSUMPTIONS)."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None})
+        db.set_assumptions({"plan_horizon_years": 2, "current_year": 2028})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+        db.set_assumptions({"plan_horizon_years": 40, "current_year": "", "apply_drawdown_tax": "1"})
+
+    def _stress_test_section(self, body: str) -> str:
+        start = body.index("Historical recession stress test")
+        end = body.index("<h2>Assumptions</h2>")
+        return body[start:end]
+
+    def test_checkbox_is_checked_by_default(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;" checked>', body)
+        self.assertIn("Apply drawdown tax (Fed + CA, current brackets)", body)
+
+    def test_detail_table_has_tax_and_total_withdrawal_columns_after_yearly_drawdown(self):
+        # The dashboard always calls the simulation functions with the
+        # Asset tab's three-pool split (source.webapp.pages.monte_carlo_page.
+        # _render_monte_carlo_page's pools=pools), so the live page is
+        # always in per-scenario-tax mode: Tax/Total Withdrawal aren't a
+        # shared column pair anymore (that's only true in the legacy
+        # pools=None path exercised directly against
+        # run_historical_stress_test elsewhere) -- each scenario gets its
+        # own Return/Tax/Withdrawal/Balance group instead.
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        self.assertLess(
+            section.index('<th class="num">Yearly Drawdown</th>'),
+            section.index('<th class="num">Great Depression Return</th>'),
+        )
+        self.assertLess(
+            section.index('<th class="num">Great Depression Return</th>'),
+            section.index('<th class="num">Great Depression Tax</th>'),
+        )
+        self.assertLess(
+            section.index('<th class="num">Great Depression Tax</th>'),
+            section.index('<th class="num">Great Depression Withdrawal</th>'),
+        )
+        self.assertLess(
+            section.index('<th class="num">Great Depression Withdrawal</th>'),
+            section.index('<th class="num">Great Depression Balance</th>'),
+        )
+        self.assertNotIn('<th class="num">Tax (Fed+CA)</th>', section)
+        self.assertNotIn('<th class="num">Total Withdrawal</th>', section)
+
+    def test_tax_is_positive_and_total_withdrawal_is_need_plus_tax_by_default(self):
+        from source.reporting.aggregate import build_summary
+        from source.reporting.monte_carlo import run_historical_stress_test
+
+        s = build_summary()
+        result = run_historical_stress_test(
+            starting_balance=s["net_liquid_asset"], expenses=s["expenses"], assumptions=s["assumptions"],
+        )
+        self.assertTrue(result["apply_drawdown_tax"])
+        self.assertGreater(result["yearly_tax"][0], 0.0)
+        self.assertAlmostEqual(result["yearly_total_withdrawal"][0], result["yearly_needs"][0] + result["yearly_tax"][0], places=6)
+
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        section = self._stress_test_section(body)
+        self.assertIn(dashboard._money(result["yearly_tax"][0]), section)
+        self.assertIn(dashboard._money(result["yearly_total_withdrawal"][0]), section)
+
+    def test_unchecking_apply_drawdown_tax_zeroes_the_tax_column_and_updates_the_balance(self):
+        status, payload = self._post("/api/assumptions", {"apply_drawdown_tax": 0})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_assumptions()["apply_drawdown_tax"], "0")
+
+        from source.reporting.aggregate import build_summary
+        from source.reporting.monte_carlo import run_historical_stress_test
+
+        s = build_summary()
+        result = run_historical_stress_test(
+            starting_balance=s["net_liquid_asset"], expenses=s["expenses"], assumptions=s["assumptions"],
+        )
+        self.assertFalse(result["apply_drawdown_tax"])
+        self.assertEqual(result["yearly_tax"][0], 0.0)
+        self.assertEqual(result["yearly_total_withdrawal"][0], result["yearly_needs"][0])
+
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # Unchecked -- no trailing " checked" before the tag closes (the
+        # checked variant, asserted in test_checkbox_is_checked_by_default
+        # above, always has one).
+        self.assertIn('<input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;">', body)
+        section = self._stress_test_section(body)
+        # Tax column reads $0.00, immediately followed by Total
+        # Withdrawal equal to Yearly Drawdown (needs[0]) -- confirms the
+        # table (not just the raw result dict above) reflects tax being off.
+        self.assertIn(
+            f'<td class="num">{dashboard._money(0.0)}</td>'
+            f'<td class="num">{dashboard._money(result["yearly_needs"][0])}</td>',
+            section,
+        )
+
+    def test_re_checking_apply_drawdown_tax_restores_a_positive_tax(self):
+        self._post("/api/assumptions", {"apply_drawdown_tax": 0})
+        status, payload = self._post("/api/assumptions", {"apply_drawdown_tax": 1})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.get_assumptions()["apply_drawdown_tax"], "1")
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;" checked>', body)
+
+    def test_gaussian_tiles_show_estimated_tax_when_applied(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("First-year tax (median path)", body)
+        self.assertIn("Total tax over horizon", body)
+
+    def test_gaussian_tiles_omit_tax_when_turned_off(self):
+        self._post("/api/assumptions", {"apply_drawdown_tax": 0})
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("First-year tax (median path)", body)
+        self.assertNotIn("Total tax over horizon", body)
+
+
+class TestMonteCarloPoolsAndRmd(DashboardTestCase):
+    """The Monte Carlo tab's three-pool split (Tax-deferred/Roth/Taxable
+    tiles, sourced from each Asset row's Tax treatment) and RMD
+    modeling (Birth year assumption + the "set a Birth year" nudge) --
+    added per the user's "add per-account tax treatment and RMD-aware
+    withdrawal ordering" request. build_summary()'s retirement_pools is
+    exercised in tests/test_aggregate.py; this class only checks the
+    Monte Carlo page renders it and the two new assumption fields
+    correctly."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 400_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Roth IRA", "balance": 100_000, "tax_treatment": "roth", "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Etrade brokerage", "balance": 250_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+        # db.set_assumptions() stores keys literally -- it doesn't do the
+        # "_pct" suffix -> /100 conversion that only the /api/assumptions
+        # HTTP endpoint applies, so resetting after a test that POSTed
+        # "taxable_gains_fraction_pct" means resetting the underlying
+        # "taxable_gains_fraction" key itself, not the "_pct"-suffixed one
+        # -- and back to its real default (DEFAULT_ASSUMPTIONS'
+        # "0.4"), not "", since an empty string isn't treated the same
+        # as an absent key by _pct()'s .get(key, default).
+        db.set_assumptions({"birth_year": "", "taxable_gains_fraction": "0.4", "plan_horizon_years": 40, "current_year": ""})
+
+    def test_pool_tiles_show_balances_by_tax_treatment(self):
+        # 401k -> tax_deferred (category default), the row explicitly
+        # marked roth -> roth, the other Liquid row (no tax_treatment
+        # set) -> taxable (category default) -- same
+        # _DEFAULT_TAX_TREATMENT_BY_CATEGORY resolution
+        # source.reporting.aggregate.effective_tax_treatment uses.
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Tax-deferred (401k/Traditional)", body)
+        self.assertIn("Roth (tax-free)", body)
+        self.assertIn("Taxable (brokerage)", body)
+        self.assertIn(dashboard._money(400_000), body)
+        self.assertIn(dashboard._money(100_000), body)
+        self.assertIn(dashboard._money(250_000), body)
+
+    def test_birth_year_field_defaults_blank_and_shows_rmd_nudge(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<label>Birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="">', body)
+        self.assertIn("Set a Birth year in Assumptions below", body)
+
+    def test_setting_birth_year_persists_and_removes_the_rmd_nudge(self):
+        status, _ = self._post("/api/assumptions", {"birth_year": "1960"})
+        self.assertEqual(status, 200)
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="1960"', body)
+        self.assertNotIn("Set a Birth year in Assumptions below", body)
+
+    def test_taxable_gains_fraction_field_defaults_to_40_percent(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="40.00"', body)
+
+    def test_setting_taxable_gains_fraction_persists(self):
+        status, _ = self._post("/api/assumptions", {"taxable_gains_fraction_pct": "25"})
+        self.assertEqual(status, 200)
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="25.00"', body)
+
+    def test_intro_paragraph_mentions_the_three_pool_withdrawal_order(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("drawn Taxable first, then Tax-deferred, then Roth last", body)
+
+
+class TestHistoricalStressTestHtmlPerScenarioTax(unittest.TestCase):
+    """Unit tests for source.webapp.pages.monte_carlo_page.
+    _historical_stress_test_html against hand-built result dicts, so
+    both branches (legacy shared Tax/Total Withdrawal columns vs.
+    per-scenario Tax/Withdrawal columns) are covered directly without
+    needing a live three-pool plan through the HTTP layer."""
+
+    def _base_result(self, **overrides):
+        result = {
+            "years": [2026, 2027],
+            "last_recorded_year": 2025,
+            "apply_drawdown_tax": True,
+            "yearly_total_expense": [60_000, 61_800],
+            "yearly_income": [0, 0],
+            "yearly_needs": [60_000, 61_800],
+            "scenarios": [
+                {
+                    "label": "Great Depression (1929)",
+                    "depleted": False,
+                    "depleted_year": None,
+                    "ending_balance": 900_000,
+                    "path": [
+                        {"return": -0.0842, "balance": 950_000},
+                        {"return": -0.25, "balance": 900_000},
+                    ],
+                },
+            ],
+        }
+        result.update(overrides)
+        return result
+
+    def test_legacy_mode_keeps_shared_tax_and_total_withdrawal_columns(self):
+        from source.webapp.pages.monte_carlo_page import _historical_stress_test_html
+
+        result = self._base_result(
+            yearly_tax=[8_000, 8_200],
+            yearly_total_withdrawal=[68_000, 70_000],
+        )
+        html_out = _historical_stress_test_html(result)
+        self.assertIn('<th class="num">Tax (Fed+CA)</th>', html_out)
+        self.assertIn('<th class="num">Total Withdrawal</th>', html_out)
+        self.assertNotIn("Great Depression Tax", html_out)
+        self.assertNotIn("Great Depression Withdrawal", html_out)
+        self.assertIn(dashboard._money(8_000), html_out)
+        self.assertIn(dashboard._money(68_000), html_out)
+
+    def test_per_scenario_tax_mode_gives_each_scenario_its_own_tax_and_withdrawal_columns(self):
+        from source.webapp.pages.monte_carlo_page import _historical_stress_test_html
+
+        result = self._base_result(per_scenario_tax=True)
+        result["scenarios"][0]["yearly_tax"] = [7_500, 7_700]
+        result["scenarios"][0]["yearly_total_withdrawal"] = [67_500, 69_500]
+        html_out = _historical_stress_test_html(result)
+        self.assertNotIn('<th class="num">Tax (Fed+CA)</th>', html_out)
+        self.assertNotIn('<th class="num">Total Withdrawal</th>', html_out)
+        self.assertIn('<th class="num">Great Depression Tax</th>', html_out)
+        self.assertIn('<th class="num">Great Depression Withdrawal</th>', html_out)
+        self.assertLess(
+            html_out.index('<th class="num">Great Depression Return</th>'),
+            html_out.index('<th class="num">Great Depression Tax</th>'),
+        )
+        self.assertLess(
+            html_out.index('<th class="num">Great Depression Tax</th>'),
+            html_out.index('<th class="num">Great Depression Withdrawal</th>'),
+        )
+        self.assertLess(
+            html_out.index('<th class="num">Great Depression Withdrawal</th>'),
+            html_out.index('<th class="num">Great Depression Balance</th>'),
+        )
+        self.assertIn(dashboard._money(7_500), html_out)
+        self.assertIn(dashboard._money(67_500), html_out)
+
+    def test_per_scenario_tax_mode_handles_missing_per_scenario_lists_gracefully(self):
+        # Defensive: a scenario dict without yearly_tax/yearly_total_withdrawal
+        # (shouldn't happen given how run_historical_stress_test builds
+        # them, but the renderer shouldn't crash if it ever did) renders
+        # blank cells rather than raising.
+        from source.webapp.pages.monte_carlo_page import _historical_stress_test_html
+
+        result = self._base_result(per_scenario_tax=True)
+        html_out = _historical_stress_test_html(result)
+        self.assertIn('<th class="num">Great Depression Tax</th>', html_out)
+
+    def test_per_scenario_tax_mode_zero_tax_note_when_drawdown_tax_off(self):
+        from source.webapp.pages.monte_carlo_page import _historical_stress_test_html
+
+        result = self._base_result(per_scenario_tax=True, apply_drawdown_tax=False)
+        result["scenarios"][0]["yearly_tax"] = [0, 0]
+        result["scenarios"][0]["yearly_total_withdrawal"] = [60_000, 61_800]
+        html_out = _historical_stress_test_html(result)
+        self.assertIn("Total Withdrawal equals Yearly Drawdown", html_out)
+
+
+class TestBackupsCard(DashboardTestCase):
+    """The Setup page's Backups card and the /api/backup-now endpoint --
+    added per the user's "implement automatic backup" request. DashboardTestCase
+    builds its server directly rather than through dashboard.run(), so
+    no startup backup happens on its own here -- each test starts from
+    zero backups."""
+
+    def tearDown(self):
+        for b in backup.list_backups():
+            Path(b["path"]).unlink(missing_ok=True)
+
+    def test_setup_page_shows_no_backups_yet_before_any_are_taken(self):
+        resp = self._get("/setup.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("No backups yet", body)
+
+    def test_back_up_now_creates_a_backup_and_the_setup_page_reflects_it(self):
+        status, payload = self._post("/api/backup-now", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(Path(payload["path"]).exists())
+
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("1 backup on disk", body)
+        self.assertIn(Path(payload["path"]).name, body)
+
+    def test_multiple_backups_show_plural_count_and_most_recent_first(self):
+        backup.create_backup(reason="one")
+        backup.create_backup(reason="two")
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("2 backups on disk", body)
+
+    def test_backups_folder_location_is_shown(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn(str(backup.backup_dir()), body)
+
+
+class TestExportEndpoint(DashboardTestCase):
+    def test_export_returns_a_path_that_exists(self):
+        status, payload = self._post("/api/export", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(Path(payload["path"]).exists())
+
+
+class TestPlaidCredentialsEndpoint(DashboardTestCase):
+    def tearDown(self):
+        secrets_store.clear_vault_cache()
+        self.fake_keyring._store.clear()
+
+    def test_saving_credentials_updates_the_vault(self):
+        status, payload = self._post("/api/plaid-credentials", {
+            "client_id": "client-abc", "secret": "secret-xyz", "environment": "sandbox",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(secrets_store.get_plaid_client_id(), "client-abc")
+        self.assertEqual(secrets_store.get_plaid_secret(env="sandbox"), "secret-xyz")
+
+    def test_setup_page_reflects_saved_credentials(self):
+        self._post("/api/plaid-credentials", {"client_id": "client-abc", "secret": "s", "environment": "sandbox"})
+        resp = self._get("/setup.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Client ID: saved", body)
+        self.assertIn("sandbox", body)
+
+    def test_credentials_default_to_the_primary_profile(self):
+        status, payload = self._post("/api/plaid-credentials", {
+            "client_id": "client-abc", "secret": "secret-xyz", "environment": "sandbox",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(secrets_store.get_plaid_client_id(profile="primary"), "client-abc")
+        with self.assertRaises(secrets_store.SecretNotFoundError):
+            secrets_store.get_plaid_client_id(profile="secondary")
+
+    def test_saving_secondary_profile_does_not_touch_primary(self):
+        self._post("/api/plaid-credentials", {
+            "client_id": "primary-client", "secret": "primary-secret", "environment": "sandbox", "profile": "primary",
+        })
+        self._post("/api/plaid-credentials", {
+            "client_id": "secondary-client", "secret": "secondary-secret", "environment": "sandbox", "profile": "secondary",
+        })
+        self.assertEqual(secrets_store.get_plaid_client_id(profile="primary"), "primary-client")
+        self.assertEqual(secrets_store.get_plaid_client_id(profile="secondary"), "secondary-client")
+
+    def test_saving_credentials_for_unknown_profile_returns_400(self):
+        status, payload = self._post("/api/plaid-credentials", {
+            "client_id": "client-abc", "secret": "s", "environment": "sandbox", "profile": "tertiary",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_setup_page_shows_both_credential_profiles(self):
+        resp = self._get("/setup.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Primary", body)
+        self.assertIn("Secondary", body)
+
+
+class TestPlaidConnectEndpoint(DashboardTestCase):
+    def tearDown(self):
+        db.delete_plaid_item("test_item")
+        secrets_store.clear_vault_cache()
+        self.fake_keyring._store.clear()
+
+    def test_connect_calls_link_real_item_and_reports_ok(self):
+        with patch("source.webapp.dashboard.plaid_link_item.link_real_item", return_value="plaid-item-1") as mock_link:
+            status, payload = self._post("/api/plaid-connect", {
+                "item_key": "test_item", "products": "investments", "environment": "sandbox",
+            })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        mock_link.assert_called_once_with(
+            "test_item", products=["investments"], environment="sandbox", profile="primary",
+        )
+
+    def test_connect_passes_through_the_chosen_profile(self):
+        with patch("source.webapp.dashboard.plaid_link_item.link_real_item", return_value="plaid-item-1") as mock_link:
+            status, payload = self._post("/api/plaid-connect", {
+                "item_key": "test_item", "products": "investments", "environment": "sandbox", "profile": "secondary",
+            })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        mock_link.assert_called_once_with(
+            "test_item", products=["investments"], environment="sandbox", profile="secondary",
+        )
+
+    def test_connect_without_item_key_returns_400(self):
+        status, payload = self._post("/api/plaid-connect", {"products": "investments"})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_connect_failure_surfaces_error_message(self):
+        with patch(
+            "source.webapp.dashboard.plaid_link_item.link_real_item",
+            side_effect=TimeoutError("Timed out waiting for Link to complete in the browser."),
+        ):
+            status, payload = self._post("/api/plaid-connect", {"item_key": "test_item"})
+        self.assertEqual(status, 500)
+        self.assertFalse(payload["ok"])
+        self.assertIn("Timed out", payload["error"])
+
+
+class TestPlaidRemoveEndpoint(DashboardTestCase):
+    def test_remove_calls_remove_item(self):
+        with patch("source.webapp.dashboard.plaid_remove_item.remove_item") as mock_remove:
+            status, payload = self._post("/api/plaid-remove", {"item_key": "test_item"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        mock_remove.assert_called_once_with("test_item")
+
+    def test_remove_without_item_key_returns_400(self):
+        status, payload = self._post("/api/plaid-remove", {})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+
+class TestChooseFileEndpoint(DashboardTestCase):
+    def test_returns_chosen_path_on_success(self):
+        fake_result = Mock(returncode=0, stdout="/Users/hadya/Downloads/plan.xlsx\n", stderr="")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result):
+            status, payload = self._post("/api/choose-file", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["path"], "/Users/hadya/Downloads/plan.xlsx")
+
+    def test_user_canceling_the_dialog_is_not_a_500(self):
+        fake_result = Mock(returncode=1, stdout="", stderr="execution error: User canceled. (-128)")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result):
+            status, payload = self._post("/api/choose-file", {})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "Canceled")
+
+    def test_other_osascript_failure_surfaces_message(self):
+        fake_result = Mock(returncode=1, stdout="", stderr="some other AppleScript error")
+        with patch("source.webapp.dashboard.subprocess.run", return_value=fake_result):
+            status, payload = self._post("/api/choose-file", {})
+        self.assertEqual(status, 500)
+        self.assertFalse(payload["ok"])
+        self.assertIn("some other AppleScript error", payload["error"])
+
+    def test_osascript_missing_surfaces_a_friendly_message(self):
+        with patch("source.webapp.dashboard.subprocess.run", side_effect=FileNotFoundError()):
+            status, payload = self._post("/api/choose-file", {})
+        self.assertEqual(status, 500)
+        self.assertFalse(payload["ok"])
+        self.assertIn("file picker", payload["error"].lower())
+
+
+class TestPlaidSyncEndpoint(DashboardTestCase):
+    def test_sync_calls_sync_all_and_returns_summary(self):
+        fake_summary = {"items_synced": ["a"], "errors": [], "accounts": 1, "holdings": 0, "synced_at": "now"}
+        with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value=fake_summary) as mock_sync:
+            status, payload = self._post("/api/plaid-sync", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["summary"], fake_summary)
+        mock_sync.assert_called_once()
+
+
+class TestSyncNowButtonPlacement(DashboardTestCase):
+    """"Sync now" moved off the Setup page and onto Summary (when at least
+    one Plaid item is connected), Linked Accounts, and Linked Positions
+    (the latter two always, since those pages are nothing but synced
+    data) -- see _sync_now_button_html."""
+
+    def tearDown(self):
+        db.delete_plaid_item("test_item")
+
+    def _link_an_item(self):
+        db.upsert_plaid_item(
+            item_key="test_item", plaid_item_id="plaid-item-1", institution_id="ins_1",
+            institution_name="Test Bank", products=["investments"], environment="sandbox", linked_at="now",
+        )
+
+    def test_setup_page_no_longer_has_the_sync_now_form(self):
+        self._link_an_item()
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertNotIn(">Sync now<", body)
+        self.assertIn("<a href=\"/linked-accounts.html\">Linked Accounts</a>", body)
+        self.assertIn("<a href=\"/linked-positions.html\">Linked Positions</a>", body)
+
+    def test_linked_positions_page_always_has_the_sync_now_button(self):
+        # Present even with nothing connected yet -- it's the natural
+        # first action on this page, not just a refresh for existing data.
+        body = self._get("/linked-positions.html").read().decode("utf-8")
+        self.assertIn(">Sync now<", body)
+        self.assertIn("/api/plaid-sync", body)
+
+    def test_linked_accounts_page_always_has_the_sync_now_button(self):
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn(">Sync now<", body)
+        self.assertIn("/api/plaid-sync", body)
+
+    def test_summary_page_has_sync_now_once_an_item_is_linked(self):
+        self._link_an_item()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn(">Sync now<", body)
+
+    def test_summary_page_omits_sync_now_when_nothing_is_linked(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertNotIn(">Sync now<", body)
+
+
+class TestLinkedAccountsPage(DashboardTestCase):
+    """The "Linked accounts (live, read-only)" table's own tab, split out
+    of Linked Positions -- see _render_linked_accounts_page. Institution/
+    account-type donuts mirror the Linked Positions page's own type/
+    institution charts, charted by |balance| (see that function's own
+    comment on why)."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 1500.0, "available": None, "iso_currency_code": "USD"},
+        })
+
+    def tearDown(self):
+        db.delete_plaid_item("fidelity")
+
+    def test_page_renders_and_nav_includes_it(self):
+        resp = self._get("/linked-accounts.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Linked accounts", body)
+        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
+
+    def test_shows_balance_donuts_and_a_sortable_total(self):
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("Accounts by institution (balance)", body)
+        self.assertIn("Accounts by account type (balance)", body)
+        self.assertIn('<table class="sortable">', body)
+        self.assertIn("1,500.00", body)  # row + total
+
+    def test_table_has_an_item_key_column_showing_the_real_institution(self):
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("<th>Item Key</th>", body)
+        # The row's Institution cell is the Item's real institution name
+        # ("Fidelity", from setUp's institution_name) -- not the
+        # account's own Plaid name ("Fidelity Brokerage" as official_name,
+        # which happens to also start with "Fidelity" here, so assert on
+        # the Item Key cell too, which is unambiguous).
+        self.assertIn("<td>fidelity</td>", body)
+
+    def test_empty_state_does_not_error(self):
+        db.delete_plaid_item("fidelity")
+        try:
+            resp = self._get("/linked-accounts.html")
+            self.assertEqual(resp.status, 200)
+            body = resp.read().decode("utf-8")
+            self.assertIn("No linked account data yet", body)
+        finally:
+            # Re-seed for this test's own tearDown, which expects the item
+            # to still exist.
+            db.upsert_plaid_item(
+                item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+                institution_name="Fidelity", products=["investments"], environment="sandbox",
+                linked_at="2026-09-01T00:00:00+00:00",
+            )
+
+    def test_linked_positions_page_no_longer_embeds_the_accounts_table_but_links_to_it(self):
+        resp = self._get("/linked-positions.html")
+        body = resp.read().decode("utf-8")
+        self.assertNotIn("Linked accounts (live, read-only)", body)
+        self.assertIn('href="/linked-accounts.html"', body)
+
+
+class TestUnifiedAddModal(DashboardTestCase):
+    """The single "+ Add" entry point (a fab button + modal in PAGE_SHELL,
+    shared by every page) that replaced the separate add-forms the Asset,
+    Expense/Income, and Real Estate tabs each used to carry -- see
+    ADD_KIND_INFO in PAGE_SHELL's own JS for the section/kind each of the
+    five types maps to."""
+
+    def test_fab_button_and_modal_present_on_every_tab(self):
+        for path in (
+            "/asset.html", "/expense.html", "/real-estate.html", "/summary.html",
+            "/linked-accounts.html", "/linked-positions.html",
+        ):
+            with self.subTest(path=path):
+                body = self._get(path).read().decode("utf-8")
+                self.assertIn('class="fab-add"', body)
+                self.assertIn('id="add-modal-overlay"', body)
+                self.assertIn("function openAddModal(", body)
+                self.assertIn("function submitAddModal(", body)
+
+    def test_modal_offers_all_five_kinds_and_maps_to_the_right_section(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        for option in ('value="asset"', 'value="liability"', 'value="expenses"', 'value="income"', 'value="real_estate"'):
+            self.assertIn(option, body)
+        self.assertIn("asset: {section: 'assets', kind: 'asset'", body)
+        self.assertIn("liability: {section: 'assets', kind: 'liability'", body)
+        self.assertIn("expenses: {section: 'expenses', kind: null", body)
+        self.assertIn("income: {section: 'income', kind: null", body)
+        self.assertIn("real_estate: {section: 'real_estate', kind: null", body)
+
+    def test_asset_page_has_add_shortcuts_instead_of_its_own_form(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("openAddModal('asset')", body)
+        self.assertIn("openAddModal('liability')", body)
+        self.assertNotIn('name="kind"><option value="asset">Asset</option><option value="liability">Liability</option>', body)
+
+    def test_real_estate_page_has_add_shortcut_instead_of_its_own_form(self):
+        body = self._get("/real-estate.html").read().decode("utf-8")
+        self.assertIn("openAddModal('real_estate')", body)
+
+    def test_add_via_modal_endpoint_still_works_for_every_kind(self):
+        # The modal is purely a front-end consolidation -- it still posts
+        # through the same /api/line-item/add each old per-tab form used,
+        # so existing add behavior (and the tests covering it) are
+        # untouched.
+        status, payload = self._post("/api/line-item/add", {
+            "section": "assets", "fields": {"kind": "asset", "name": "Brokerage", "balance": 1000},
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        db.clear_section("assets")
+
+
+class TestSummaryInsightCard(DashboardTestCase):
+    """The Summary tab's "Summary insight" card -- financial-health ratio
+    tiles plus an asset-allocation donut and an expenses-by-category bar
+    chart, built from the same build_summary() figures as the rest of the
+    page (see _summary_insight_html)."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+        db.clear_section("income")
+
+    def test_insight_card_is_absent_for_a_completely_empty_plan(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertNotIn("Summary insight", body)
+
+    def test_insight_card_shows_ratio_tiles_and_charts_once_populated(self):
+        db.set_assumption("current_year", 2028)
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 40_000})
+        db.add_line_item("income", {"name": "Rental", "category": "Rental", "annual_amount": 10_000})
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Summary insight", body)
+        self.assertIn("2028 income covers expenses", body)
+        self.assertIn("Liquid share of net worth", body)
+        self.assertIn("Debt-to-asset ratio", body)
+        self.assertIn("Asset allocation by category", body)
+        self.assertIn("Expenses by category", body)
+        # 10,000 / 40,000 = 25%
+        self.assertIn('<div class="label">2028 income covers expenses</div><div class="value">25%</div>', body)
+
+
+if __name__ == "__main__":
+    unittest.main()

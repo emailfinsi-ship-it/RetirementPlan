@@ -1,0 +1,23 @@
+# Personal data and runtime state -- never versioned (mirrors
+# scripts/build_share_zip.sh's own exclude list, same reasoning: none of
+# this belongs in something committed to history, let alone shared).
+data/
+output/
+logs/
+config/
+
+# This Mac's own venvs/build artifacts -- reproducible from
+# requirements.txt via scripts/run_dashboard.sh, not source.
+venv/
+venv_broken_old/
+.build_venv/
+build/
+dist/
+RetirementPlan.spec
+RetirementPlan-App.zip
+RetirementPlan-Share.zip
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
