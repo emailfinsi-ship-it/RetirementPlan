@@ -318,6 +318,7 @@ function handlePieSegClick(el) {{
   }}
   updatePieSelectionUI(dim);
   applyPositionFilters();
+  applyExpenditureFilters();
 }}
 function handlePieSegKeydown(e, el) {{
   if (e.key === 'Enter' || e.key === ' ') {{
@@ -335,11 +336,61 @@ function updatePieSelectionUI(dim) {{
     seg.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
   }});
 }}
+function renderFilterChips(barId, filters, onClearOne, onClearAll) {{
+  // Shared by every page's own applyXFilters() (below) -- builds the
+  // "Filtered by: <chip> <chip> Clear all" bar from whatever dims are
+  // currently set in that page's filters object. Pulled out on its own
+  // so a new filterable table only has to write the row-visibility
+  // half of applyPositionFilters(), not re-implement this chip UI too.
+  var bar = document.getElementById(barId);
+  if (!bar) return;
+  bar.innerHTML = '';
+  var dims = Object.keys(filters);
+  if (!dims.length) {{
+    bar.style.display = 'none';
+    return;
+  }}
+  var lead = document.createElement('span');
+  lead.textContent = 'Filtered by:';
+  bar.appendChild(lead);
+  dims.forEach(function(dim) {{
+    var f = filters[dim];
+    var chip = document.createElement('span');
+    chip.className = 'filter-chip';
+    var text = document.createElement('span');
+    var dimLabel = dim.replace(/-/g, ' ').replace(/\\b\\w/g, function(c) {{ return c.toUpperCase(); }});
+    text.textContent = dimLabel + ': ' + (f.values.length > 1 ? (f.values.length + ' grouped') : f.values[0]);
+    chip.appendChild(text);
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '\\u2715';
+    closeBtn.setAttribute('aria-label', 'Clear ' + dim + ' filter');
+    closeBtn.onclick = function() {{ onClearOne(dim); }};
+    chip.appendChild(closeBtn);
+    bar.appendChild(chip);
+  }});
+  var clearAllBtn = document.createElement('button');
+  clearAllBtn.type = 'button';
+  clearAllBtn.textContent = 'Clear all';
+  clearAllBtn.onclick = onClearAll;
+  bar.appendChild(clearAllBtn);
+  bar.style.display = 'flex';
+}}
+function __filtersSubset(dimNames) {{
+  // Every page's applyXFilters() only owns a handful of dims (Linked
+  // Positions: type/institution/industry/sector; Real Expenditure:
+  // expense-category/expense-month) out of the one shared
+  // __positionsFilters object, since a single page load only ever sets
+  // the dims its own charts declare -- this just keeps each page's own
+  // filter-chip bar from listing a dim it doesn't render charts for.
+  var subset = {{}};
+  dimNames.forEach(function(d) {{ if (d in __positionsFilters) subset[d] = __positionsFilters[d]; }});
+  return subset;
+}}
 function applyPositionFilters() {{
   var table = document.getElementById('linked-positions-table');
-  var bar = document.getElementById('positions-filter-bar');
   if (!table) return;
-  var dims = Object.keys(__positionsFilters);
+  var dims = Object.keys(__filtersSubset(['type', 'institution', 'industry', 'sector']));
   var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
   var total = 0;
   var anyDataRow = false;
@@ -357,43 +408,45 @@ function applyPositionFilters() {{
   if (totalCell && anyDataRow) {{
     totalCell.textContent = '$' + total.toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
   }}
-  if (bar) {{
-    bar.innerHTML = '';
-    if (!dims.length) {{
-      bar.style.display = 'none';
-    }} else {{
-      var lead = document.createElement('span');
-      lead.textContent = 'Filtered by:';
-      bar.appendChild(lead);
-      dims.forEach(function(dim) {{
-        var f = __positionsFilters[dim];
-        var chip = document.createElement('span');
-        chip.className = 'filter-chip';
-        var text = document.createElement('span');
-        var dimLabel = dim.charAt(0).toUpperCase() + dim.slice(1);
-        text.textContent = dimLabel + ': ' + (f.values.length > 1 ? (f.values.length + ' grouped') : f.values[0]);
-        chip.appendChild(text);
-        var closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.textContent = '\\u2715';
-        closeBtn.setAttribute('aria-label', 'Clear ' + dim + ' filter');
-        closeBtn.onclick = function() {{ clearPositionFilter(dim); }};
-        chip.appendChild(closeBtn);
-        bar.appendChild(chip);
-      }});
-      var clearAllBtn = document.createElement('button');
-      clearAllBtn.type = 'button';
-      clearAllBtn.textContent = 'Clear all';
-      clearAllBtn.onclick = clearPositionFilters;
-      bar.appendChild(clearAllBtn);
-      bar.style.display = 'flex';
-    }}
+  renderFilterChips('positions-filter-bar', __filtersSubset(['type', 'institution', 'industry', 'sector']), clearPositionFilter, clearPositionFilters);
+}}
+function applyExpenditureFilters() {{
+  // Real Expenditure tab's own click-to-filter: clicking a "by
+  // category" or "by month" bar segment filters the transaction list
+  // below to the row(s) that make up that bar, same contract as
+  // applyPositionFilters() above (shares __positionsFilters/
+  // handlePieSegClick -- dims are namespaced by string, "expense-
+  // category"/"expense-month" here vs. "type"/"institution"/"industry"/
+  // "sector" on Linked Positions, so the two never collide even though
+  // both live in the same global filter state) but targets the
+  // transactions table's own data-category/data-month attributes
+  // instead of market value, and has no running total to recompute.
+  var table = document.getElementById('real-expenditure-table');
+  if (!table) return;
+  var dims = Object.keys(__filtersSubset(['expense-category', 'expense-month']));
+  var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+  var visibleCount = 0;
+  rows.forEach(function(row) {{
+    if (!('category' in row.dataset) && !('month' in row.dataset)) return;  // the "no transactions yet" placeholder row
+    var visible = dims.every(function(dim) {{
+      var f = __positionsFilters[dim];
+      var field = dim === 'expense-category' ? 'category' : 'month';
+      return f.values.indexOf(row.dataset[field]) !== -1;
+    }});
+    row.style.display = visible ? '' : 'none';
+    if (visible) visibleCount++;
+  }});
+  var countEl = document.getElementById('real-expenditure-shown-count');
+  if (countEl) {{
+    countEl.textContent = dims.length ? ('Showing ' + visibleCount + ' of ' + rows.length + ' transactions.') : '';
   }}
+  renderFilterChips('expenditure-filter-bar', __filtersSubset(['expense-category', 'expense-month']), clearPositionFilter, clearPositionFilters);
 }}
 function clearPositionFilter(dim) {{
   delete __positionsFilters[dim];
   updatePieSelectionUI(dim);
   applyPositionFilters();
+  applyExpenditureFilters();
 }}
 function clearPositionFilters() {{
   Object.keys(__positionsFilters).forEach(function(dim) {{
@@ -401,6 +454,7 @@ function clearPositionFilters() {{
     updatePieSelectionUI(dim);
   }});
   applyPositionFilters();
+  applyExpenditureFilters();
 }}
 function refreshPositionBulkBarFor(barId, inputId) {{
   // Renamed from refreshBulkBar(barId, inputId) -- that name collided

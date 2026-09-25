@@ -113,7 +113,8 @@ def _render_real_expenditure_page() -> str:
         category_label = html.escape(t["category"]) + (" *" if t["category_edited_by_user"] else "")
         description = html.escape(t["merchant_name"] or t["name"])
         return (
-            f'<tr><td class="check-col"><input type="checkbox" class="transaction-check" '
+            f'<tr data-category="{html.escape(t["category"])}" data-month="{html.escape(_month_key(t["date"]))}">'
+            f'<td class="check-col"><input type="checkbox" class="transaction-check" '
             f'data-transaction-id="{html.escape(t["transaction_id"])}"></td>'
             f'<td>{html.escape(t["date"])}</td>'
             f'<td>{html.escape(t["institution"])}</td><td>{html.escape(t["account_name"])}</td>'
@@ -161,6 +162,9 @@ def _render_real_expenditure_page() -> str:
 </table>
 
 <h2>All transactions</h2>
+<p class="muted">Click a bar in either chart above to filter this list down to that category or month -- click it again (or "Clear all") to go back to everything.</p>
+<div id="expenditure-filter-bar" class="filter-bar"></div>
+<p id="real-expenditure-shown-count" class="muted"></p>
 <div id="transaction-bulk-bar" class="industry-bulk-bar">
   <span class="bulk-count">0 selected</span>
   <input type="text" id="transaction-category-input" list="transaction-categories" placeholder="e.g. Groceries, Dining, Travel" disabled>
@@ -172,7 +176,7 @@ def _render_real_expenditure_page() -> str:
   <button type="button" onclick="resetSelectedTransactionsExpenseFlag()" disabled>Reset to automatic</button>
   <button type="button" onclick="clearTransactionSelection()" disabled>Clear selection</button>
 </div>
-<table class="sortable">
+<table id="real-expenditure-table" class="sortable">
 <thead><tr><th class="check-col"><input type="checkbox" class="transaction-select-all"></th><th>Date</th><th>Institution</th><th>Account</th><th>Description</th><th>Category</th><th class="num">Amount</th><th>Status</th></tr></thead>
 <tbody>{transactions_rows_html}</tbody>
 </table>

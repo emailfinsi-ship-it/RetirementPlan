@@ -3780,6 +3780,28 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn("resetSelectedTransactionsExpenseFlag()", body)
         self.assertIn('class="transaction-check"', body)
 
+    def test_charts_and_table_rows_are_wired_for_click_to_filter(self):
+        # The category/month bar charts and the transaction table below
+        # them share the same click-to-filter contract Linked Positions
+        # uses (data-dim/data-slice-id/data-values on each bar,
+        # data-category/data-month on each row) -- see
+        # applyExpenditureFilters() in shell.py's shared script.
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=40.0, date="2026-09-05")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn('id="real-expenditure-table"', body)
+        self.assertIn('id="expenditure-filter-bar"', body)
+        self.assertIn('id="real-expenditure-shown-count"', body)
+        self.assertIn('data-dim="expense-category"', body)
+        self.assertIn('data-dim="expense-month"', body)
+        self.assertIn('data-category="Food And Drink Coffee" data-month="2026-09"', body)
+
+    def test_shared_script_has_the_expenditure_filter_functions(self):
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("function applyExpenditureFilters(", body)
+        self.assertIn("function renderFilterChips(", body)
+        self.assertIn("applyExpenditureFilters();", body)
+
 
 class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):
     def setUp(self):

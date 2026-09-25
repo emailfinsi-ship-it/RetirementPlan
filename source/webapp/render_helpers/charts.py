@@ -1,9 +1,15 @@
 """Donut and horizontal-bar chart renderers shared by every page that
 breaks a total down by category (Summary, Asset, Expense/Income, Linked
-Positions, Linked Accounts) -- see the dataviz skill for the chart-form
-and color-assignment rules these follow (fixed categorical hue order,
-<=6 real slices + a folded "Other", click-to-filter wired through the
-shared handlePieSegClick() JS in shell.py's PAGE_SHELL).
+Positions, Linked Accounts, Real Expenditure) -- see the dataviz skill
+for the chart-form and color-assignment rules these follow (fixed
+categorical hue order, <=6 real slices + a folded "Other", click-to-
+filter wired through the shared handlePieSegClick() JS in shell.py's
+PAGE_SHELL). Every chart's segments carry the data-dim/data-slice-id/
+data-values click-to-filter contract, but only Linked Positions
+(applyPositionFilters) and Real Expenditure (applyExpenditureFilters)
+currently have a table wired up to actually filter on click -- a click
+on Summary/Asset/Expense's own charts still highlights the clicked
+segment but has no table below it to filter.
 """
 
 from __future__ import annotations
