@@ -175,6 +175,16 @@ document.addEventListener('change', function(e) {{
   }}
 }});
 document.addEventListener('DOMContentLoaded', refreshBulkBar);
+document.addEventListener('DOMContentLoaded', function() {{
+  // On a phone, nav is a horizontally-scrollable single row (see
+  // styles.py's phone media query) -- with 10 tabs, most don't fit on
+  // screen at once, so whichever one is active needs to be scrolled
+  // into view itself, or it can land flush against the edge, half cut
+  // off (looks like broken/truncated text, not "swipe for more"). A
+  // no-op on desktop, where nav never scrolls in the first place.
+  var activeTab = document.querySelector('nav a.active');
+  if (activeTab) activeTab.scrollIntoView({{inline: 'center', block: 'nearest'}});
+}});
 function removePlaidItem(itemKey) {{
   if (!confirm('Unlink ' + itemKey + '? This revokes access at Plaid and removes its stored balances/holdings.')) return;
   postJSON('/api/plaid-remove', {{item_key: itemKey}})

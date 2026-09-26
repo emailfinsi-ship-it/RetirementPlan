@@ -149,8 +149,17 @@ PAGE_CSS = """
        (every tab's own label, up to 3-4 rows deep) -- a single
        horizontally-scrollable row reads as familiar "tab bar" UI
        instead, and keeps the page's own content starting higher up. */
-    nav { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    nav { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      scroll-padding-inline: 14px; }
     nav::-webkit-scrollbar { display: none; }
+    /* flex: 0 0 auto (not 1 1 0, the desktop rule) -- each tab sizes to
+       its own label instead of splitting the row evenly, since with 10
+       tabs an even split would squeeze every label unreadably thin. The
+       shared <script>'s DOMContentLoaded handler scrolls nav a.active
+       into view on load (with scroll-padding-inline above giving it a
+       little breathing room) -- otherwise whichever tab you're actually
+       on can land flush against the edge, half cut off, which reads as
+       broken rather than "swipe for more". */
     nav a { flex: 0 0 auto; white-space: nowrap; }
     /* A table wider than the phone screen (Asset/Expense/Linked
        Positions all have several columns) scrolls horizontally
