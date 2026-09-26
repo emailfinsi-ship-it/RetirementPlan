@@ -7,6 +7,7 @@ from source.reporting.monte_carlo import (
     FEDERAL_STANDARD_DEDUCTION_MFJ_2026,
     FEDERAL_TAX_BRACKETS_MFJ_2026,
     HISTORICAL_STRESS_SCENARIOS,
+    LEVERS,
     annual_expense_need,
     annual_income_need,
     annual_net_withdrawal_need,
@@ -15,6 +16,7 @@ from source.reporting.monte_carlo import (
     render_fan_svg,
     run_historical_bootstrap_simulation,
     run_historical_stress_test,
+    run_sensitivity_analysis,
     run_simulation,
     stable_simulation_seed,
     yearly_withdrawal_schedule,
@@ -1174,6 +1176,122 @@ class TestRenderFanSvg(unittest.TestCase):
         svg = render_fan_svg(result, color="#eb6834")
         self.assertIn("#eb6834", svg)
         self.assertNotIn("#2563eb", svg)
+
+
+class TestRunSensitivityAnalysis(unittest.TestCase):
+    """run_sensitivity_analysis -- the Monte Carlo tab's tornado
+    sensitivity sweep. Every scenario here uses return_volatility=0 (a
+    single deterministic path, since r.gauss(mu, 0) always returns mu)
+    and a starting balance/withdrawal/return combination chosen to sit
+    right at a depletion knife-edge over the plan horizon, so a lever's
+    effect flips success_rate cleanly between 0.0 and 1.0 instead of
+    landing on some hard-to-predict fraction -- see the balance
+    recurrence balance_t = (balance_0 - W/r)*(1+r)^t + W/r used to pick
+    these numbers (a starting balance below the W/r equilibrium point
+    depletes; how soon depends on r, horizon, and W)."""
+
+    def _knife_edge_kwargs(self, **overrides):
+        # Baseline depletes (crosses zero) around year ~25.7 of a
+        # 30-year horizon at 5% return with a flat $70,000/yr net need.
+        base = {
+            "starting_balance": 1_000_000,
+            "expenses": [{"name": "Baseline", "annual_amount": 70_000, "start_year": None, "end_year": None, "inflates": False}],
+            "income": [],
+            "assumptions": {
+                "expected_return": "0.05", "return_volatility": "0", "iterations": "5",
+                "plan_horizon_years": "30", "current_year": "2027", "annual_income_offset": "0",
+                "apply_drawdown_tax": "0",
+            },
+        }
+        base.update(overrides)
+        return base
+
+    def test_baseline_success_rate_matches_a_direct_seeded_run_simulation_call(self):
+        kwargs = self._knife_edge_kwargs()
+        result = run_sensitivity_analysis(**kwargs)
+        seed = stable_simulation_seed(
+            starting_balance=kwargs["starting_balance"], expenses=kwargs["expenses"],
+            income=kwargs["income"], assumptions=kwargs["assumptions"], pools=None,
+        )
+        direct = run_simulation(
+            starting_balance=kwargs["starting_balance"], expenses=kwargs["expenses"],
+            income=kwargs["income"], assumptions=kwargs["assumptions"], rng=random.Random(seed),
+        )
+        self.assertEqual(result["baseline_success_rate"], direct["success_rate"])
+        self.assertEqual(result["baseline_success_rate"], 0.0)  # the knife-edge scenario depletes at baseline
+
+    def test_returns_one_row_per_lever(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        self.assertEqual({r["key"] for r in result["rows"]}, {lever["key"] for lever in LEVERS})
+
+    def test_rows_are_sorted_by_swing_descending(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        swings = [r["swing"] for r in result["rows"]]
+        self.assertEqual(swings, sorted(swings, reverse=True))
+
+    def test_higher_expected_return_flips_the_knife_edge_scenario_to_success(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        row = next(r for r in result["rows"] if r["key"] == "expected_return")
+        self.assertEqual(row["low_success_rate"], 0.0)   # -1pt: still depletes, even sooner
+        self.assertEqual(row["high_success_rate"], 1.0)  # +1pt: survives the full horizon
+
+    def test_shorter_horizon_survives_longer_horizon_depletes(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        row = next(r for r in result["rows"] if r["key"] == "plan_horizon_years")
+        self.assertEqual(row["low_success_rate"], 1.0)   # 25 years: doesn't reach the ~25.7yr crossing
+        self.assertEqual(row["high_success_rate"], 0.0)  # 35 years: well past the crossing
+
+    def test_lower_expenses_survive_higher_expenses_deplete(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        row = next(r for r in result["rows"] if r["key"] == "expense_level")
+        self.assertEqual(row["low_success_rate"], 1.0)   # -10% expenses: crossing point pushed past year 30
+        self.assertEqual(row["high_success_rate"], 0.0)  # +10% expenses: crosses well before year 30
+
+    def test_higher_income_survives_lower_income_depletes(self):
+        # Same net $70,000/yr need as the knife-edge baseline, but split
+        # across gross expenses and gross income so income_level (which
+        # only scales the income list) has something to move.
+        kwargs = self._knife_edge_kwargs(
+            expenses=[{"name": "Baseline", "annual_amount": 140_000, "start_year": None, "end_year": None, "inflates": False}],
+            income=[{"name": "Pension", "annual_amount": 70_000, "start_year": None, "end_year": None, "inflates": False}],
+        )
+        result = run_sensitivity_analysis(**kwargs)
+        self.assertEqual(result["baseline_success_rate"], 0.0)  # same net need as the plain knife-edge case
+        row = next(r for r in result["rows"] if r["key"] == "income_level")
+        self.assertEqual(row["low_success_rate"], 0.0)   # -10% income: net need rises, depletes sooner
+        self.assertEqual(row["high_success_rate"], 1.0)  # +10% income: net need falls, survives
+
+    def test_inflation_lever_is_a_no_op_when_nothing_inflates(self):
+        # Neither the knife-edge expense nor (the empty) income list has
+        # `inflates` set, so nudging the Inflation % assumption up or
+        # down changes nothing about what gets withdrawn -- a clean,
+        # fully deterministic invariant, unlike return_volatility (whose
+        # effect on this knife-edge scenario isn't simply monotonic).
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        row = next(r for r in result["rows"] if r["key"] == "inflation_rate")
+        self.assertEqual(row["low_success_rate"], 0.0)
+        self.assertEqual(row["high_success_rate"], 0.0)
+        self.assertEqual(row["swing"], 0.0)
+
+    def test_every_row_reports_a_label_and_swing_description(self):
+        result = run_sensitivity_analysis(**self._knife_edge_kwargs())
+        for row in result["rows"]:
+            self.assertTrue(row["label"])
+            self.assertTrue(row["swing_label"])
+
+    def test_repeated_calls_with_identical_inputs_are_reproducible(self):
+        kwargs = self._knife_edge_kwargs()
+        result1 = run_sensitivity_analysis(**kwargs)
+        result2 = run_sensitivity_analysis(**kwargs)
+        self.assertEqual(result1, result2)
+
+    def test_honors_a_pools_argument_without_error(self):
+        kwargs = self._knife_edge_kwargs(pools={"tax_deferred": 600_000, "roth": 200_000, "taxable": 200_000, "real_estate": 0})
+        result = run_sensitivity_analysis(**kwargs)
+        self.assertEqual(len(result["rows"]), len(LEVERS))
+        for row in result["rows"]:
+            self.assertGreaterEqual(row["low_success_rate"], 0.0)
+            self.assertLessEqual(row["high_success_rate"], 1.0)
 
 
 if __name__ == "__main__":

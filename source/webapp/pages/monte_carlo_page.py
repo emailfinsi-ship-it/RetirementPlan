@@ -16,6 +16,7 @@ from source.reporting.monte_carlo import (
     render_fan_svg,
     run_historical_bootstrap_simulation,
     run_historical_stress_test,
+    run_sensitivity_analysis,
     run_simulation,
     stable_simulation_seed,
 )
@@ -55,6 +56,11 @@ def _render_monte_carlo_page() -> str:
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions, pools=pools,
     )
     stress_html = _historical_stress_test_html(stress_result)
+    sensitivity = run_sensitivity_analysis(
+        starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"],
+        assumptions=assumptions, pools=pools,
+    )
+    sensitivity_html = _sensitivity_html(sensitivity)
 
     tax_on = result.get("apply_drawdown_tax", True)
     tax_tiles = f"""
@@ -141,6 +147,7 @@ def _render_monte_carlo_page() -> str:
   <div class="tile"><div class="label">S&amp;P 500 90th percentile ending balance</div><div class="value">{_money(sp500_result['p90_ending_balance'])}</div></div>
 </div>
 {stress_html}
+{sensitivity_html}
 <h2>Assumptions</h2>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
@@ -318,6 +325,67 @@ def _historical_stress_test_html(result: dict) -> str:
 <tbody>{detail_rows}</tbody>
 </table>
 """
+
+def _success_rate_cell(rate: float, baseline: float) -> str:
+    """Colors a lever's low/high success rate green if it's at least as
+    good as the plan's own baseline, amber otherwise -- same status-ok/
+    status-warn convention as Budget vs Actual's variance cells, just
+    keyed off "did this direction help or hurt" instead of "over/under
+    budget"."""
+    css_class = "status-ok" if rate >= baseline else "status-warn"
+    return f'<span class="{css_class}">{rate * 100:.0f}%</span>'
+
+
+def _tornado_track_html(row: dict, baseline_pct: float) -> str:
+    """A single horizontal range bar spanning this lever's low- and
+    high-scenario success rate (whichever end is smaller/larger), on a
+    shared 0-100% success-rate axis, with a dark tick marking the plan's
+    own baseline success rate for reference -- the classic "tornado
+    diagram" shape falls out once every lever's bar is drawn on the same
+    axis and the rows are already sorted by swing (widest first, done by
+    run_sensitivity_analysis itself)."""
+    low_pct = row["low_success_rate"] * 100
+    high_pct = row["high_success_rate"] * 100
+    left = max(0.0, min(low_pct, high_pct))
+    right = min(100.0, max(low_pct, high_pct))
+    width = max(right - left, 0.8)
+    # #2a78d6 -- the same first categorical color every donut/bar chart
+    # on this page's siblings starts with (source.webapp.render_helpers.
+    # charts._DONUT_COLORS[0]); not imported directly since this is the
+    # only mark on this page that isn't built through that module.
+    return f"""<div style="position:relative; height:14px; background:#eef1f5; border-radius:4px;">
+<div style="position:absolute; left:{left:.1f}%; width:{width:.1f}%; height:100%; border-radius:4px; background:#2a78d6;"></div>
+<div style="position:absolute; left:{baseline_pct:.1f}%; top:-2px; width:2px; height:18px; background:#0f172a;" title="Baseline success rate: {baseline_pct:.0f}%"></div>
+</div>"""
+
+
+def _sensitivity_html(sensitivity: dict) -> str:
+    """The "what moves the needle" tornado view: holds every input fixed
+    at the plan's own baseline and perturbs one lever at a time (see
+    source.reporting.monte_carlo.sensitivity.LEVERS) to see how far
+    Success rate swings, sorted widest-swing-first so the tornado shape
+    is visible at a glance -- answers "which assumption is this plan
+    actually most sensitive to", which a single point estimate (the
+    tiles above) can't."""
+    baseline = sensitivity["baseline_success_rate"]
+    baseline_pct = baseline * 100
+    rows_html = "".join(
+        f'<tr><td>{html.escape(row["label"])}</td>'
+        f'<td class="muted">{html.escape(row["swing_label"])}</td>'
+        f'<td style="min-width:160px;">{_tornado_track_html(row, baseline_pct)}</td>'
+        f'<td class="num">{_success_rate_cell(row["low_success_rate"], baseline)}</td>'
+        f'<td class="num">{_success_rate_cell(row["high_success_rate"], baseline)}</td></tr>'
+        for row in sensitivity["rows"]
+    )
+    return f"""
+<h2>Sensitivity: what moves the needle</h2>
+<p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every Expense/Income-tab line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
+<table class="sortable">
+<thead><tr><th>Lever</th><th>Swing tested</th><th>Low vs. high success rate</th><th class="num">Low</th><th class="num">High</th></tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+"""
+
 
 def _assumption_checked(assumptions: dict, key: str, default: bool = True) -> bool:
     """Same '1'/'0'-string convention as source.reporting.monte_carlo's

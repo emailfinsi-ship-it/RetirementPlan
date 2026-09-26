@@ -2841,7 +2841,12 @@ class TestHistoricalStressTestTable(DashboardTestCase):
 
     def _stress_test_section(self, body: str) -> str:
         start = body.index("Historical recession stress test")
-        end = body.index("<h2>Assumptions</h2>")
+        # Ends at the Sensitivity section (not Assumptions) -- the
+        # sensitivity tornado table sits between the two and has its own
+        # "sortable" table, which would otherwise get counted as part of
+        # the stress-test section by tests that count sortable tables in
+        # this slice.
+        end = body.index("<h2>Sensitivity: what moves the needle</h2>")
         return body[start:end]
 
     def test_section_and_both_tables_are_present(self):
@@ -3004,7 +3009,12 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
 
     def _stress_test_section(self, body: str) -> str:
         start = body.index("Historical recession stress test")
-        end = body.index("<h2>Assumptions</h2>")
+        # Ends at the Sensitivity section (not Assumptions) -- the
+        # sensitivity tornado table sits between the two and has its own
+        # "sortable" table, which would otherwise get counted as part of
+        # the stress-test section by tests that count sortable tables in
+        # this slice.
+        end = body.index("<h2>Sensitivity: what moves the needle</h2>")
         return body[start:end]
 
     def test_checkbox_is_checked_by_default(self):
@@ -3117,6 +3127,43 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertNotIn("First-year tax (median path)", body)
         self.assertNotIn("Total tax over horizon", body)
+
+
+class TestMonteCarloSensitivitySection(DashboardTestCase):
+    """The Monte Carlo tab's "Sensitivity: what moves the needle" tornado
+    view (source.reporting.monte_carlo.sensitivity) -- rendered by
+    _sensitivity_html in monte_carlo_page.py, between the historical
+    stress test and the Assumptions form."""
+
+    def setUp(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 1_000_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None})
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("expenses")
+
+    def test_section_renders_with_every_lever_labeled(self):
+        resp = self._get("/monte-carlo.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Sensitivity: what moves the needle", body)
+        for label in ("Expected return", "Return volatility", "Inflation", "Plan horizon", "Expense level", "Income level"):
+            self.assertIn(label, body)
+
+    def test_section_reports_a_baseline_success_rate(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("This plan's baseline Success rate is", body)
+
+    def test_section_sits_between_the_stress_test_and_the_assumptions_form(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        stress_idx = body.index("Historical recession stress test")
+        sensitivity_idx = body.index("Sensitivity: what moves the needle")
+        assumptions_idx = body.index("<h2>Assumptions</h2>")
+        self.assertLess(stress_idx, sensitivity_idx)
+        self.assertLess(sensitivity_idx, assumptions_idx)
 
 
 class TestMonteCarloPoolsAndRmd(DashboardTestCase):

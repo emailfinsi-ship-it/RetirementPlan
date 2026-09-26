@@ -52,7 +52,8 @@ package split along the model's own seams -- line-item withdrawal math
 order engine (pools.py), small shared assumption/percentile helpers
 (assumptions.py), the random Gaussian/historical-bootstrap engine
 (simulation.py), the deterministic historical stress test
-(stress_test.py), and the fan-chart SVG renderer (chart.py). Nothing
+(stress_test.py), the fan-chart SVG renderer (chart.py), and the
+one-lever-at-a-time tornado sensitivity sweep (sensitivity.py). Nothing
 outside this package should need to change: every name any page module,
 report, or test previously imported with
 `from source.reporting.monte_carlo import X` is re-exported here
@@ -97,6 +98,10 @@ from source.reporting.monte_carlo.simulation import (
     run_simulation,
     stable_simulation_seed,
 )
+from source.reporting.monte_carlo.sensitivity import (
+    LEVERS,
+    run_sensitivity_analysis,
+)
 from source.reporting.monte_carlo.stress_test import (
     HISTORICAL_STRESS_SCENARIOS,
     _LAST_RECORDED_YEAR,
@@ -139,6 +144,8 @@ __all__ = [
     "run_historical_bootstrap_simulation",
     "run_simulation",
     "stable_simulation_seed",
+    "LEVERS",
+    "run_sensitivity_analysis",
     "HISTORICAL_STRESS_SCENARIOS",
     "_LAST_RECORDED_YEAR",
     "_LONG_RUN_AVERAGE_RETURN",
