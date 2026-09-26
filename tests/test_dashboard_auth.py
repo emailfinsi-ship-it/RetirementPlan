@@ -5,6 +5,7 @@ session cookie round-trips, first-time password setup, and login rate
 limiting. Reuses DashboardTestCase's real-socket harness from
 test_dashboard.py rather than re-implementing it."""
 
+import html.parser
 import http.client
 import json
 import time
@@ -204,6 +205,51 @@ class TestSetupPageSecurityAndNetworkCards(AuthTestCase):
         resp, payload = self._post("/api/set-bind-host", {"bind_host": "8.8.8.8"})
         self.assertEqual(resp.status, 400)
         self.assertFalse(payload["ok"])
+
+    def test_password_form_onsubmit_attribute_is_not_truncated_by_an_unescaped_quote(self):
+        """A real bug, found the hard way: an earlier version of this
+        attribute built its "passwords don't match" JS string with \\"
+        (a Python escape that renders as a literal '"' character) inside
+        a JS double-quoted string -- but the onsubmit attribute itself is
+        ALSO double-quote-delimited, so that literal '"' prematurely
+        closed the HTML attribute as far as any real browser's HTML
+        parser is concerned, silently dropping everything after it --
+        including postJSON(...) and even event.preventDefault() itself.
+        The browser then fell through to a native GET form submission,
+        putting the new password in the page's own URL query string and
+        never calling the API at all -- looked like nothing happened
+        (no JS error, a normal-looking page load), no password ever got
+        saved, and every existing test here missed it because they all
+        post straight to /api/set-password, bypassing the rendered form
+        (and its onsubmit JS) entirely. This test instead runs the
+        actual rendered HTML through html.parser -- the same class of
+        parser a browser uses -- so a stray unescaped quote that
+        truncates the attribute fails this test even though the raw
+        Python source "looks" fine. Parses the Security card's own HTML
+        fragment directly (not the whole /setup.html page) since the
+        page also has an unrelated "+ Add" modal form with its own
+        onsubmit -- this isolates the one attribute the bug actually
+        hit rather than picking up whichever form happens to render
+        last."""
+        from source.webapp.pages.setup import _security_card_html
+
+        card_html = _security_card_html(password_set=False)
+
+        class _FormAttrParser(html.parser.HTMLParser):
+            onsubmit = None
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "form":
+                    value = dict(attrs).get("onsubmit")
+                    if value:
+                        self.onsubmit = value
+
+        parser = _FormAttrParser()
+        parser.feed(card_html)
+        self.assertIsNotNone(parser.onsubmit, "no <form onsubmit=...> found in the Security card")
+        self.assertIn("event.preventDefault()", parser.onsubmit)
+        self.assertIn("postJSON('/api/set-password'", parser.onsubmit)
+        self.assertIn("location.reload()", parser.onsubmit)
 
 
 class TestLoginFailures(AuthTestCase):

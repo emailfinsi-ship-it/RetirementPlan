@@ -211,7 +211,7 @@ def _security_card_html(*, password_set: bool) -> str:
 {status}
 <h3 style="font-size:13px; margin-bottom:4px;">{heading}</h3>
 <form class="inline" onsubmit="event.preventDefault();
-  if (this.new_password.value !== this.confirm.value) {{ alert(\"Passwords don't match.\"); return; }}
+  if (this.new_password.value !== this.confirm.value) {{ alert('Passwords do not match.'); return; }}
   postJSON('/api/set-password', {{password: this.new_password.value, confirm: this.confirm.value}})
     .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>New password (8+ characters)<input name="new_password" type="password" required minlength="8"></label>
