@@ -1,5 +1,10 @@
 """The Linked Accounts tab: one row per Plaid-linked account, its
-current balance, and its donut-chart breakdown by institution."""
+current balance, and separate Assets/Liabilities donut-chart breakdowns
+by institution and by account type (kept apart so a mortgage or credit
+line's debt is never counted as a positive dollar amount alongside
+actual cash/investment balances -- see the comment on asset_rows/
+liability_rows below for why that used to make a clicked chart slice's
+number disagree with the accounts table's own filtered Total)."""
 
 from __future__ import annotations
 
@@ -72,27 +77,52 @@ def _render_linked_accounts_page() -> str:
 <button type="button" class="classify-btn" style="font-size:11px; padding:2px 8px;" onclick="classifyLinkedAccount('{account_id_attr}', this.closest('.classify-row'))">Classify</button>
 </div>"""
 
-    # Charted by magnitude (|balance|), not the signed balance the table
-    # below shows -- a credit card's -$5,000 balance should still draw a
-    # normal, positively-sized "$5,000 at Amex" wedge instead of either
-    # vanishing (a negative slice) or silently netting against an asset
-    # account's positive balance in the same "by institution" total,
-    # which would misrepresent both. Same donut mark/click-to-filter
-    # contract as the Linked Positions/Real Expenditure charts -- a click
-    # here filters the accounts table below via applyAccountsFilters()
-    # (shell.py's shared script), matching each row's own data-
-    # institution/data-account-type attributes below.
-    chart_rows = [{**r, "abs_balance": abs(r["balance"] or 0)} for r in linked_accounts]
-    institution_chart_html = _donut_chart_html(
-        "Accounts by institution (balance)",
-        _grouped_slices(chart_rows, key="institution", value_key="abs_balance"),
+    # Split into an Assets breakdown and a Liabilities breakdown rather
+    # than one combined "balance" chart -- a single chart summing
+    # abs(balance) used to count a mortgage or credit line's debt as a
+    # positive dollar amount right alongside cash/investment balances,
+    # so an institution or account type that's mostly debt (e.g. a HELOC-
+    # heavy bank) could show as a large slice here while actually being
+    # *negative* net worth, and clicking that slice to filter the table
+    # below (whose Total nets liabilities against assets, correctly)
+    # would show a much smaller, sometimes even negative-looking, number
+    # than the slice just claimed -- a real user-reported mismatch, not
+    # just a rounding difference. Splitting by is_liability means every
+    # number here is unambiguous: a slice's value is the plain, correctly
+    # -signed magnitude of exactly the accounts it represents, so a
+    # filtered Total always matches. Same donut click-to-filter contract
+    # as before -- a click filters the accounts table below via
+    # applyAccountsFilters() (shell.py's shared script), matching each
+    # row's own data-institution/data-account-type attributes below; the
+    # asset and liability version of a chart deliberately share the same
+    # dim ("account-institution"/"account-type") since they're two views
+    # of the same underlying dimension, so clicking "Fidelity" in either
+    # one filters the table to every Fidelity account, assets and
+    # liabilities alike.
+    asset_rows = [{**r, "asset_value": max(r["balance"] or 0.0, 0.0)} for r in linked_accounts if not r["is_liability"]]
+    liability_rows = [{**r, "liability_value": abs(r["balance"] or 0.0)} for r in linked_accounts if r["is_liability"]]
+    institution_assets_chart_html = _donut_chart_html(
+        "Assets by institution",
+        _grouped_slices(asset_rows, key="institution", value_key="asset_value"),
         dim="account-institution",
     )
-    account_type_chart_html = _donut_chart_html(
-        "Accounts by account type (balance)",
-        _grouped_slices(chart_rows, key="account_type", value_key="abs_balance"),
+    institution_liabilities_chart_html = _donut_chart_html(
+        "Liabilities by institution",
+        _grouped_slices(liability_rows, key="institution", value_key="liability_value"),
+        dim="account-institution",
+    )
+    type_assets_chart_html = _donut_chart_html(
+        "Assets by account type",
+        _grouped_slices(asset_rows, key="account_type", value_key="asset_value"),
         dim="account-type",
     )
+    type_liabilities_chart_html = _donut_chart_html(
+        "Liabilities by account type",
+        _grouped_slices(liability_rows, key="account_type", value_key="liability_value"),
+        dim="account-type",
+    )
+    total_assets = sum(r["asset_value"] for r in asset_rows)
+    total_liabilities = sum(r["liability_value"] for r in liability_rows)
 
     linked_accounts_html = "".join(
         f'<tr data-institution="{html.escape(r["institution"])}" data-account-type="{html.escape(r["account_type"])}" '
@@ -110,11 +140,18 @@ def _render_linked_accounts_page() -> str:
 <h2 style="margin-top:0">Linked accounts (live, read-only)</h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Asset-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Asset tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
 {_sync_now_button_html()}
+<p class="muted">Assets ({_money(total_assets)}) and liabilities ({_money(total_liabilities)}) are charted separately below -- net worth across every linked account is {_money(total_assets - total_liabilities)}.</p>
+<h3 style="font-size:13px;">Assets</h3>
 <div class="group-section">
-{institution_chart_html}
-{account_type_chart_html}
+{institution_assets_chart_html}
+{type_assets_chart_html}
 </div>
-<p class="muted">Click a slice of either chart above to filter the accounts list down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
+<h3 style="font-size:13px;">Liabilities</h3>
+<div class="group-section">
+{institution_liabilities_chart_html}
+{type_liabilities_chart_html}
+</div>
+<p class="muted">Click a slice of any chart above to filter the accounts list down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
 <table id="linked-accounts-table" class="sortable">

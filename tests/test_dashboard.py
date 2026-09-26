@@ -3536,9 +3536,8 @@ class TestSyncNowButtonPlacement(DashboardTestCase):
 class TestLinkedAccountsPage(DashboardTestCase):
     """The "Linked accounts (live, read-only)" table's own tab, split out
     of Linked Positions -- see _render_linked_accounts_page. Institution/
-    account-type donuts mirror the Linked Positions page's own type/
-    institution charts, charted by |balance| (see that function's own
-    comment on why)."""
+    account-type donuts are split into separate Assets and Liabilities
+    breakdowns (see that function's own comment on why)."""
 
     def setUp(self):
         db.upsert_plaid_item(
@@ -3565,10 +3564,40 @@ class TestLinkedAccountsPage(DashboardTestCase):
     def test_shows_balance_donuts_and_a_sortable_total(self):
         resp = self._get("/linked-accounts.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Accounts by institution (balance)", body)
-        self.assertIn("Accounts by account type (balance)", body)
+        self.assertIn("Assets by institution", body)
+        self.assertIn("Assets by account type", body)
+        self.assertIn("Liabilities by institution", body)
+        self.assertIn("Liabilities by account type", body)
         self.assertIn('<table id="linked-accounts-table" class="sortable">', body)
         self.assertIn("1,500.00", body)  # row + total
+
+    def test_assets_and_liabilities_are_charted_separately_not_as_gross_magnitude(self):
+        # Regression test for a user-reported mismatch: a single combined
+        # "balance" donut used to sum abs(balance) per institution/type,
+        # so a mortgage's debt counted as a positive dollar amount right
+        # alongside actual asset balances -- an institution's slice could
+        # claim far more than its accounts' net balance, and clicking it
+        # to filter the table below (whose Total correctly nets
+        # liabilities against assets) showed a much smaller number.
+        # Splitting into Assets/Liabilities charts means each number is
+        # the plain, correct magnitude of exactly what it represents.
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-mortgage", "name": "Mortgage", "official_name": "Mortgage",
+            "type": "loan", "subtype": "mortgage", "mask": "1111",
+            "balances": {"current": 500_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        assets_section = body.split("Assets by institution")[1].split("Liabilities by institution")[0]
+        liabilities_section = body.split("Liabilities by institution")[1].split("Click a slice of any chart")[0]
+        # The Assets chart(s) still show only the $1,500 brokerage
+        # balance -- the mortgage's $500,000 debt never inflates them.
+        self.assertIn("Fidelity: $1,500.00 (100%)", assets_section)
+        self.assertNotIn("$500,000.00", assets_section)
+        # The Liabilities chart(s) show the mortgage's own magnitude.
+        self.assertIn("Fidelity: $500,000.00 (100%)", liabilities_section)
+        self.assertNotIn("$1,500.00", liabilities_section)
+        # Net worth line: $1,500 assets minus $500,000 liabilities.
+        self.assertIn("net worth across every linked account is -$498,500.00", body)
 
     def test_table_has_an_item_key_column_showing_the_real_institution(self):
         resp = self._get("/linked-accounts.html")
