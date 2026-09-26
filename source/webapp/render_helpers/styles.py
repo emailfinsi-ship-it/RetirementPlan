@@ -25,10 +25,18 @@ PAGE_CSS = """
   h2 { font-size: 15px; margin: 28px 0 10px 0; font-weight: 650; color: var(--ink); }
   h3 { color: var(--ink); }
   .muted { color: var(--ink-muted); font-size: 12px; }
-  nav { display: flex; gap: 2px; flex-wrap: wrap; margin: 18px 0 28px 0; background: var(--surface);
+  /* One row, always -- flex-wrap: nowrap plus flex: 1 1 0 on each link
+     divides the bar evenly across however many tabs there are, so
+     adding a tab (e.g. Budget vs Actual) never pushes the last one onto
+     its own second row. A multi-word label that doesn't fit its share
+     of the width wraps onto a second LINE WITHIN its own pill instead
+     (white-space: normal, text-align: center) -- the bar stays a single
+     row, just a couple px taller when a label wraps. */
+  nav { display: flex; gap: 2px; flex-wrap: nowrap; margin: 18px 0 28px 0; background: var(--surface);
     border: 1px solid var(--border); border-radius: 12px; padding: 5px; box-shadow: var(--shadow-sm); }
-  nav a { padding: 7px 10px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 12px;
-    font-weight: 500; transition: background 0.15s ease, color 0.15s ease; white-space: nowrap; }
+  nav a { padding: 7px 6px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 12px;
+    font-weight: 500; transition: background 0.15s ease, color 0.15s ease; white-space: normal;
+    flex: 1 1 0; text-align: center; }
   nav a.active { background: var(--brand); color: #fff; }
   nav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
