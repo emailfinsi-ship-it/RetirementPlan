@@ -8,7 +8,7 @@ from source.webapp.pages.budget_vs_actual import (
     _render_budget_vs_actual_page,
     _variance_cell,
 )
-from tests.testing_utils import TempConfigTestCase
+from tests.testing_utils import PlaidVaultTestCase, TempConfigTestCase
 
 
 def _txn(transaction_id, *, date, amount, category, excluded=False, account_id="acc-1"):
@@ -62,7 +62,14 @@ class TestActualExpenseAndIncomeByMonth(unittest.TestCase):
         self.assertEqual(expense["2026-09"], 80.0)
 
 
-class TestRenderBudgetVsActualPage(TempConfigTestCase):
+class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
+    # PlaidVaultTestCase (not the plain TempConfigTestCase the rest of this
+    # file uses) because _render_budget_vs_actual_page() renders a full
+    # page through the shared shell (source.webapp.render_helpers.shell),
+    # which now checks auth_store.is_password_set() on every page (for the
+    # header's "Log out" button) -- that's a real keyring.get_password(...)
+    # call, and TempConfigTestCase doesn't patch keyring at all.
+
     def _patched_today(self, value: real_date):
         patcher = patch("source.webapp.pages.budget_vs_actual.date")
         mock_date = patcher.start()

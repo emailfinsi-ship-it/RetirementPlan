@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from source.common import db
+from source.common import auth_store, db
 from source.webapp.render_helpers.styles import PAGE_CSS
 
 
@@ -41,8 +41,13 @@ PAGE_SHELL = """<!doctype html>
 <style>{css}</style>
 </head>
 <body data-current-year="{current_year}">
-<h1>Retirement Plan</h1>
-<p class="muted">Your own retirement/asset plan -- standalone program, your own data.</p>
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+  <div>
+    <h1>Retirement Plan</h1>
+    <p class="muted">Your own retirement/asset plan -- standalone program, your own data.</p>
+  </div>
+  {logout_html}
+</div>
 <nav>{nav}</nav>
 <div id="bulk-bar" class="bulk-bar">
   <span class="bulk-count">0 selected</span>
@@ -779,6 +784,27 @@ def _nav_html(active: str) -> str:
         for href, label in NAV_ITEMS
     )
 
+
+def _logout_html() -> str:
+    """A small "Log out" button in the page header -- clears the session
+    cookie (source.webapp.dashboard's /api/logout) and sends the browser
+    to the login page. Rendered only once a password actually exists
+    (source.common.auth_store.is_password_set()) -- before that there's
+    no session to log out of and the login gate isn't active at all, so
+    showing the button would just be confusing. Built as its own string
+    (not inline in PAGE_SHELL) so its literal {} in the JS below doesn't
+    need doubling for PAGE_SHELL's own .format() call -- a value passed
+    into .format() is substituted as-is, never re-scanned for further
+    placeholders."""
+    if not auth_store.is_password_set():
+        return ""
+    return (
+        '<button type="button" style="align-self:flex-start; font-size:12px; padding:6px 12px; white-space:nowrap;" '
+        "onclick=\"postJSON('/api/logout', {}).then(function() { location.href = '/login.html'; })"
+        ".catch(function(e) { alert(e.message); });\">Log out</button>"
+    )
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -787,7 +813,9 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=body, current_year=current_year,
+        logout_html=_logout_html(),
     )
+
 
 def _sync_now_button_html(*, note: str | None = None) -> str:
     """The "Sync now" button -- pulls current balances/holdings from Plaid

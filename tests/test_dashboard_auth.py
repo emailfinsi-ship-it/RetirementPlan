@@ -169,6 +169,71 @@ class TestGateOncePasswordIsSet(AuthTestCase):
         self.assertFalse(auth_store.verify_session_token(cookie))
 
 
+class TestLogoutButtonInPageHeader(AuthTestCase):
+    """The login gate's counterpart on the way out: a "Log out" button in
+    the shared page shell (source.webapp.render_helpers.shell._logout_html)
+    so logging out is actually discoverable from the UI rather than just an
+    API endpoint (/api/logout) nothing in the page links to. Gated on
+    auth_store.is_password_set() -- before a password exists there's no
+    session to log out of and the gate isn't active at all, so the button
+    would just be confusing."""
+
+    def _page_body(self, path, *, cookie=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
+        headers = {"Cookie": f"{dashboard.SESSION_COOKIE_NAME}={cookie}"} if cookie else {}
+        try:
+            conn.request("GET", path, headers=headers)
+            return conn.getresponse().read().decode("utf-8")
+        finally:
+            conn.close()
+
+    def test_button_is_absent_when_no_password_is_set(self):
+        body = self._page_body("/summary.html")
+        self.assertNotIn("Log out", body)
+
+    def test_button_is_present_once_logged_in(self):
+        auth_store.set_password("correct horse battery")
+        resp, _ = self._post("/api/login", {"password": "correct horse battery"})
+        cookie = _cookie_value(resp.getheader("Set-Cookie"), dashboard.SESSION_COOKIE_NAME)
+        body = self._page_body("/summary.html", cookie=cookie)
+        self.assertIn(">Log out<", body)
+
+    def test_logout_html_helper_is_empty_string_when_no_password_is_set(self):
+        from source.webapp.render_helpers.shell import _logout_html
+
+        self.assertEqual(_logout_html(), "")
+
+    def test_onclick_attribute_is_not_truncated_by_an_unescaped_quote(self):
+        """Same bug class as
+        TestSetupPageSecurityAndNetworkCards.test_password_form_onsubmit_attribute_is_not_truncated_by_an_unescaped_quote
+        above: the onclick attribute here is HTML double-quote-delimited,
+        so its JS body has to stick to single quotes throughout, and the
+        only way to actually catch a violation is to parse the rendered
+        HTML the way a browser would rather than substring-match the raw
+        string (a truncated attribute can still "look" present as
+        trailing text after it)."""
+        from source.webapp.render_helpers.shell import _logout_html
+
+        auth_store.set_password("correct horse battery")
+        button_html = _logout_html()
+
+        class _ButtonAttrParser(html.parser.HTMLParser):
+            onclick = None
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "button":
+                    value = dict(attrs).get("onclick")
+                    if value:
+                        self.onclick = value
+
+        parser = _ButtonAttrParser()
+        parser.feed(button_html)
+        self.assertIsNotNone(parser.onclick, "no <button onclick=...> found in the logout button HTML")
+        self.assertIn("postJSON('/api/logout', {})", parser.onclick)
+        self.assertIn("location.href = '/login.html'", parser.onclick)
+        self.assertIn("alert(e.message)", parser.onclick)
+
+
 class TestSetupPageSecurityAndNetworkCards(AuthTestCase):
     def _body(self, *, cookie=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
