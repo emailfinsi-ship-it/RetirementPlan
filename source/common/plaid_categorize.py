@@ -52,17 +52,100 @@ def default_excluded_from_expense(primary: str | None, detailed: str | None) -> 
     return False
 
 
-def default_category(primary: str | None, detailed: str | None) -> str:
+# A short, curated list of broad buckets each Plaid `primary` personal_
+# finance_category rolls up to by default. Replaces the old 1:1
+# "prettify the detailed value" behavior, which produced a distinct
+# category per fine-grained Plaid subcategory (e.g. "Food And Drink
+# Coffee"/"Food And Drink Groceries"/"Food And Drink Restaurant" as
+# three separate strings) -- that read as barely-categorized at all on
+# the Real Expenditure charts, just dozens of near-duplicate slices.
+# See https://plaid.com/documents/transactions-personal-finance-category-taxonomy.csv
+# for Plaid's full primary/detailed taxonomy.
+_BROAD_CATEGORY_BY_PRIMARY = {
+    "INCOME": "Income",
+    "TRANSFER_IN": "Transfer",
+    "TRANSFER_OUT": "Transfer",
+    "LOAN_PAYMENTS": "Loan Payments",
+    "BANK_FEES": "Bank Fees",
+    "ENTERTAINMENT": "Entertainment",
+    "FOOD_AND_DRINK": "Food",
+    "GENERAL_MERCHANDISE": "Shopping",
+    "HOME_IMPROVEMENT": "Home Improvement",
+    "MEDICAL": "Medical & Health",
+    "PERSONAL_CARE": "Personal Care",
+    "GENERAL_SERVICES": "General Services",
+    "GOVERNMENT_AND_NON_PROFIT": "Government & Non-Profit",
+    "TRANSPORTATION": "Transportation",
+    "TRAVEL": "Travel",
+    "RENT_AND_UTILITIES": "Housing & Utilities",
+}
+
+# A handful of `detailed` values whose own primary bucket above would be
+# too broad to be useful on its own -- each is pulled into a more
+# specific bucket instead of falling into its primary's default (e.g. a
+# student loan payment reads as "Education / College Fees", not the
+# generic "Loan Payments" every mortgage/auto-loan installment gets).
+# Checked before the primary-level table above.
+_BROAD_CATEGORY_DETAILED_OVERRIDES = {
+    "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT": "Education / College Fees",
+    "GENERAL_SERVICES_EDUCATION": "Education / College Fees",
+    "GENERAL_SERVICES_INSURANCE": "Insurance",
+    "GENERAL_SERVICES_CHILDCARE": "Childcare",
+    "GENERAL_SERVICES_AUTOMOTIVE": "Transportation",
+    "GOVERNMENT_AND_NON_PROFIT_DONATIONS": "Donations & Gifts",
+    "GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT": "Taxes",
+}
+
+# Keyword fallback for a transaction Plaid never classified at all (no
+# primary/detailed, which does happen for some pending or oddly-coded
+# transactions) -- a best-effort guess from the merchant/transaction
+# name text, checked in order, first match wins. Deliberately short and
+# conservative: a miss just falls through to "Uncategorized", same as
+# before this existed.
+_NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("university", "college", "tuition", "campus", "student loan"), "Education / College Fees"),
+    (("airline", "airlines", "airbnb", "hotel", "expedia", "delta air", "united air", "marriott", "hilton"), "Travel"),
+    (("uber", "lyft", "shell", "chevron", "exxon", "gas station", "parking", "transit"), "Transportation"),
+    (("netflix", "spotify", "hulu", "disney+", "movie", "cinema", "theatre"), "Entertainment"),
+    (("amazon", "walmart", "target", "costco", "best buy"), "Shopping"),
+    (("restaurant", "cafe", "coffee", "starbucks", "mcdonald", "grill", "diner"), "Food"),
+    (("pharmacy", "clinic", "hospital", "doctor", "dental"), "Medical & Health"),
+    (("insurance",), "Insurance"),
+    (("rent", "landlord", "electric company", "utility", "utilities", "water bill"), "Housing & Utilities"),
+)
+
+
+def _guess_category_from_name(name: str | None) -> str | None:
+    text = (name or "").strip().lower()
+    if not text:
+        return None
+    for keywords, category in _NAME_KEYWORDS:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return None
+
+
+def default_category(primary: str | None, detailed: str | None, name: str | None = None) -> str:
     """A readable starting category from Plaid's own
-    personal_finance_category -- the `detailed` value
-    ("FOOD_AND_DRINK_COFFEE") prettified into "Food And Drink Coffee"
-    when present, falling back to `primary` prettified the same way,
-    then "Uncategorized" if Plaid never classified this transaction at
-    all. Just the STARTING value shown in the Category column/datalist
-    -- like every other category field in this app, it's free text with
-    no fixed enum, so a person can retype it to anything via the
-    Real Expenditure page's bulk-classify bar."""
-    raw = (detailed or primary or "").strip()
-    if not raw:
-        return "Uncategorized"
-    return " ".join(word.capitalize() for word in raw.replace("_", " ").split())
+    personal_finance_category, rolled up into a short list of broad
+    buckets (see _BROAD_CATEGORY_BY_PRIMARY/_BROAD_CATEGORY_DETAILED_
+    OVERRIDES above) rather than a distinct string per fine-grained
+    Plaid subcategory. `name` (the transaction's own name/merchant_name)
+    is only consulted when Plaid gave no personal_finance_category at
+    all -- a best-effort keyword guess instead of an immediate
+    "Uncategorized" -- and is optional so every existing caller that
+    doesn't have it handy keeps working unchanged. Just the STARTING
+    value shown in the Category column/datalist -- like every other
+    category field in this app, it's free text with no fixed enum, so a
+    person can retype it to anything via the Real Expenditure page's
+    bulk-classify bar."""
+    primary_key = (primary or "").strip().upper()
+    detailed_key = (detailed or "").strip().upper()
+    if detailed_key in _BROAD_CATEGORY_DETAILED_OVERRIDES:
+        return _BROAD_CATEGORY_DETAILED_OVERRIDES[detailed_key]
+    if primary_key in _BROAD_CATEGORY_BY_PRIMARY:
+        return _BROAD_CATEGORY_BY_PRIMARY[primary_key]
+    guessed = _guess_category_from_name(name)
+    if guessed:
+        return guessed
+    return "Uncategorized"

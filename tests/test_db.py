@@ -601,8 +601,53 @@ class TestPlaidTransactions(TempConfigTestCase):
         count = db.clear_plaid_transaction_category_overrides(["txn-1"])
         self.assertEqual(count, 1)
         row = db.list_plaid_transactions()[0]
-        self.assertEqual(row["category"], "Food And Drink Coffee")
+        self.assertEqual(row["category"], "Food")
         self.assertEqual(row["category_edited_by_user"], 0)
+
+    def test_recategorize_all_transactions_backfills_a_stale_category(self):
+        # Simulates a transaction that was synced before a
+        # default_category() bucket change (or just carries a value that
+        # no longer matches what it'd compute today) -- recategorize_
+        # all_transactions() should bring it up to date since it was
+        # never manually edited.
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", category="Food And Drink Coffee"),
+        )
+        changed = db.recategorize_all_transactions()
+        self.assertEqual(changed, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Food")
+
+    def test_recategorize_all_transactions_never_touches_a_manual_edit(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_category(["txn-1"], "My Own Label")
+        changed = db.recategorize_all_transactions()
+        self.assertEqual(changed, 0)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "My Own Label")
+
+    def test_recategorize_all_transactions_is_a_no_op_once_everything_matches(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.recategorize_all_transactions()  # first pass brings it up to date
+        changed_again = db.recategorize_all_transactions()
+        self.assertEqual(changed_again, 0)
+
+    def test_init_db_backfills_stale_categories_on_every_startup(self):
+        # A change to default_category()'s own bucket list (source.
+        # common.plaid_categorize) should reach transactions already
+        # sitting in the database the next time the app starts, not just
+        # ones synced from here on -- init_db() is called once at every
+        # startup (see source.common.db.init_db), so this only has to
+        # hold true across a second init_db() call, not a special
+        # migration step a person has to remember to run.
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", category="Food And Drink Coffee"),
+        )
+        db.init_db()
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Food")
 
     def test_update_plaid_transaction_excluded(self):
         db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))

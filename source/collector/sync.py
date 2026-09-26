@@ -66,7 +66,7 @@ def _transaction_to_dict(t: dict) -> dict:
         "pending": bool(t.get("pending")),
         "plaid_category_primary": primary,
         "plaid_category_detailed": detailed,
-        "category": default_category(primary, detailed),
+        "category": default_category(primary, detailed, t.get("merchant_name") or t.get("name")),
         "excluded_from_expense": default_excluded_from_expense(primary, detailed),
     }
 

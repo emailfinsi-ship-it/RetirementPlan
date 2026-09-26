@@ -138,19 +138,56 @@ def clear_plaid_transaction_category_overrides(transaction_ids: list[str]) -> in
     with connect() as conn:
         placeholders = ", ".join("?" for _ in transaction_ids)
         rows = conn.execute(
-            f"SELECT transaction_id, plaid_category_primary, plaid_category_detailed "
+            f"SELECT transaction_id, plaid_category_primary, plaid_category_detailed, merchant_name, name "
             f"FROM plaid_transactions WHERE transaction_id IN ({placeholders})",
             list(transaction_ids),
         ).fetchall()
         now = _now()
         for row in rows:
-            category = default_category(row["plaid_category_primary"], row["plaid_category_detailed"])
+            category = default_category(
+                row["plaid_category_primary"], row["plaid_category_detailed"],
+                row["merchant_name"] or row["name"],
+            )
             conn.execute(
                 "UPDATE plaid_transactions SET category = ?, category_edited_by_user = 0, updated_at = ? "
                 "WHERE transaction_id = ?",
                 (category, now, row["transaction_id"]),
             )
         return len(rows)
+
+
+def recategorize_all_transactions() -> int:
+    """Re-runs default_category() over every transaction that hasn't been
+    manually re-labeled (category_edited_by_user = 0), using each row's
+    own already-stored plaid_category_primary/detailed/name -- no Plaid
+    call involved. This is what lets a change to default_category()'s
+    own bucket list (source.common.plaid_categorize) apply to
+    transactions already sitting in the database, not just ones synced
+    from here on; called once from source.common.db._migrate_schema on
+    every app startup (cheap and idempotent for a single-user database's
+    transaction volume), so a person never has to do anything to pick up
+    a broader/renamed category bucket. A manually-set category is never
+    touched -- same protection update_plaid_transaction_category always
+    gets. Returns how many rows were actually changed."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT transaction_id, category, plaid_category_primary, plaid_category_detailed, merchant_name, name "
+            "FROM plaid_transactions WHERE category_edited_by_user = 0"
+        ).fetchall()
+        now = _now()
+        changed = 0
+        for row in rows:
+            new_category = default_category(
+                row["plaid_category_primary"], row["plaid_category_detailed"],
+                row["merchant_name"] or row["name"],
+            )
+            if new_category != row["category"]:
+                conn.execute(
+                    "UPDATE plaid_transactions SET category = ?, updated_at = ? WHERE transaction_id = ?",
+                    (new_category, now, row["transaction_id"]),
+                )
+                changed += 1
+        return changed
 
 
 

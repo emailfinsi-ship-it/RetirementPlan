@@ -3735,7 +3735,7 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn("Wells Fargo", body)
         self.assertIn("Everyday Checking", body)
         self.assertIn("Coffee Shop", body)
-        self.assertIn("Food And Drink Coffee", body)
+        self.assertIn("Food", body)
         self.assertIn("42.50", body)
 
     def test_monthly_and_annual_summaries_total_included_transactions(self):
@@ -3794,7 +3794,7 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn('id="real-expenditure-shown-count"', body)
         self.assertIn('data-dim="expense-category"', body)
         self.assertIn('data-dim="expense-month"', body)
-        self.assertIn('data-category="Food And Drink Coffee" data-month="2026-09"', body)
+        self.assertIn('data-category="Food" data-month="2026-09"', body)
 
     def test_shared_script_has_the_expenditure_filter_functions(self):
         body = self._get("/real-expenditure.html").read().decode("utf-8")
@@ -3831,7 +3831,7 @@ class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):
         })
         self.assertTrue(payload["ok"])
         row = db.list_plaid_transactions()[0]
-        self.assertEqual(row["category"], "Food And Drink Coffee")
+        self.assertEqual(row["category"], "Food")
         self.assertEqual(row["category_edited_by_user"], 0)
 
     def test_skips_items_missing_a_transaction_id_but_still_classifies_the_rest(self):

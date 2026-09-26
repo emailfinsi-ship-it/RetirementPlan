@@ -45,6 +45,15 @@ def init_db() -> None:
                 "INSERT OR IGNORE INTO assumptions (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, value, _now()),
             )
+    # Deliberately its own connection, opened only after the schema/
+    # migrations one above has fully committed and closed -- calling
+    # this from inside that still-open transaction would hit SQLite's
+    # single-writer lock (a nested connect() can't write until the outer
+    # one commits). Cheap and idempotent for a single-user database's
+    # transaction volume, so every startup keeps already-synced
+    # transactions' categories in sync with source.common.plaid_
+    # categorize's current bucket list, not just newly-synced ones.
+    recategorize_all_transactions()
 
 
 
@@ -93,6 +102,7 @@ from source.common.db.transactions import (
     delete_plaid_transactions,
     get_transactions_cursor,
     list_plaid_transactions,
+    recategorize_all_transactions,
     set_transactions_cursor,
     update_plaid_transaction_category,
     update_plaid_transaction_excluded,
@@ -145,6 +155,7 @@ __all__ = [
     "list_plaid_transactions",
     "update_plaid_transaction_category",
     "clear_plaid_transaction_category_overrides",
+    "recategorize_all_transactions",
     "update_plaid_transaction_excluded",
     "clear_plaid_transaction_excluded_overrides",
     "get_transactions_cursor",

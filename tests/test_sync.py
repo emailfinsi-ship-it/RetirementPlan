@@ -147,9 +147,22 @@ class TestSyncTransactions(PlaidVaultTestCase):
         rows = db.list_plaid_transactions()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["transaction_id"], "txn-1")
-        self.assertEqual(rows[0]["category"], "Food And Drink Coffee")
+        self.assertEqual(rows[0]["category"], "Food")
         self.assertEqual(rows[0]["excluded_from_expense"], 0)
         self.assertEqual(db.get_transactions_cursor("wells_fargo_checking"), "cursor-1")
+
+    def test_falls_back_to_a_name_based_guess_when_plaid_gives_no_category_at_all(self):
+        _seed_item("wells_fargo_checking", products=("transactions",))
+        client = MagicMock()
+        client.accounts_balance_get.return_value.to_dict.return_value = {"accounts": []}
+        client.transactions_sync.return_value.to_dict.return_value = {
+            "added": [_fake_transaction("txn-1", name="Stanford University Tuition", primary=None, detailed=None)],
+            "modified": [], "removed": [], "next_cursor": "cursor-1", "has_more": False,
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            sync._sync_one_item(db.get_plaid_item("wells_fargo_checking"))
+        rows = db.list_plaid_transactions()
+        self.assertEqual(rows[0]["category"], "Education / College Fees")
 
     def test_transfers_and_credit_card_payments_are_excluded_by_default(self):
         _seed_item("wells_fargo_checking", products=("transactions",))
