@@ -4073,6 +4073,18 @@ class TestSummaryPageNetWorthHistory(DashboardTestCase):
         self.assertIn("2026-09-02", body)
 
 
+class TestBudgetVsActualRouting(DashboardTestCase):
+    def test_page_is_reachable_and_in_the_nav(self):
+        body = self._get("/budget-vs-actual.html").read().decode("utf-8")
+        self.assertIn("Budget vs Actual", body)
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('href="/budget-vs-actual.html"', summary_body)
+
+    def test_real_expenditure_page_links_to_it(self):
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn('href="/budget-vs-actual.html"', body)
+
+
 class TestAutoSyncSettingsEndpoint(DashboardTestCase):
     def tearDown(self):
         app_settings.set_auto_sync_enabled(True)

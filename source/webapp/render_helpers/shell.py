@@ -20,6 +20,7 @@ NAV_ITEMS = (
     ("linked-positions.html", "Linked Positions"),
     ("expense.html", "Income/Expense"),
     ("real-expenditure.html", "Real Expenditure"),
+    ("budget-vs-actual.html", "Budget vs Actual"),
     ("real-estate.html", "Real Estate Analysis"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
     ("setup.html", "Setup"),

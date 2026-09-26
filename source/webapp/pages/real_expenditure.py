@@ -226,5 +226,6 @@ def _render_real_expenditure_page() -> str:
 <tbody>{transactions_rows_html}</tbody>
 </table>
 <p class="muted">A category marked with * was set by hand and won't be overwritten by a future sync. Amounts follow Plaid's own convention -- positive is money out, negative is money in/a refund -- so a category or month's total already nets a refund against the spending it reverses.</p>
+<p class="muted">See <a href="/budget-vs-actual.html">Budget vs Actual</a> to compare this against what the Income/Expense tab's own assumptions planned for.</p>
 """
     return _shell(title="Real Expenditure", active="real-expenditure.html", body=body)

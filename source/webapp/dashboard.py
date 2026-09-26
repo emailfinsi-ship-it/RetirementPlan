@@ -62,6 +62,7 @@ from source.webapp.render_helpers import (
     _sync_now_button_html,
 )
 from source.webapp.pages.asset import _group_by_category, _render_asset_page, _sync_linked_institution_fields
+from source.webapp.pages.budget_vs_actual import _render_budget_vs_actual_page
 from source.webapp.pages.expense import _render_expense_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
@@ -330,6 +331,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_expense_page())
             elif path == "/real-expenditure.html":
                 self._send_html(_render_real_expenditure_page())
+            elif path == "/budget-vs-actual.html":
+                self._send_html(_render_budget_vs_actual_page())
             elif path == "/real-estate.html":
                 self._send_html(_render_real_estate_page())
             elif path == "/monte-carlo.html":
