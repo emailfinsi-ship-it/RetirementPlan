@@ -319,6 +319,7 @@ function handlePieSegClick(el) {{
   updatePieSelectionUI(dim);
   applyPositionFilters();
   applyExpenditureFilters();
+  applyAccountsFilters();
 }}
 function handlePieSegKeydown(e, el) {{
   if (e.key === 'Enter' || e.key === ' ') {{
@@ -442,11 +443,63 @@ function applyExpenditureFilters() {{
   }}
   renderFilterChips('expenditure-filter-bar', __filtersSubset(['expense-category', 'expense-month']), clearPositionFilter, clearPositionFilters);
 }}
+function formatSignedMoney(value) {{
+  // Matches source.webapp.render_helpers.formatting._money's own
+  // "-$1,234.56" (sign before the dollar sign) rather than
+  // toLocaleString's default "$-1,234.56" if the '$' were just
+  // prepended to a negative number's own string -- matters here because
+  // a credit card's balance is negative, unlike Linked Positions' market
+  // values (always >= 0, so applyPositionFilters' own total recompute
+  // never had to worry about this).
+  var abs = Math.abs(value).toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
+  return (value < 0 ? '-$' : '$') + abs;
+}}
+function applyAccountsFilters() {{
+  // Linked Accounts tab's own click-to-filter: clicking a slice of
+  // either "by institution" or "by account type" donut filters the
+  // accounts table below to the row(s) that make up that slice -- same
+  // contract as applyPositionFilters()/applyExpenditureFilters() above
+  // (dims namespaced "account-institution"/"account-type", so they
+  // never collide with either of those). Also recomputes the Total row
+  // from just the visible accounts, same idea as applyPositionFilters'
+  // own market-value total.
+  var table = document.getElementById('linked-accounts-table');
+  if (!table) return;
+  var dims = Object.keys(__filtersSubset(['account-institution', 'account-type']));
+  var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+  var total = 0;
+  var visibleCount = 0;
+  var anyDataRow = false;
+  rows.forEach(function(row) {{
+    if (!('institution' in row.dataset) && !('accountType' in row.dataset)) return;  // the "no linked accounts" placeholder row
+    anyDataRow = true;
+    var visible = dims.every(function(dim) {{
+      var f = __positionsFilters[dim];
+      var field = dim === 'account-institution' ? 'institution' : 'accountType';
+      return f.values.indexOf(row.dataset[field]) !== -1;
+    }});
+    row.style.display = visible ? '' : 'none';
+    if (visible) {{
+      total += parseFloat(row.dataset.balance) || 0;
+      visibleCount++;
+    }}
+  }});
+  var totalCell = document.getElementById('linked-accounts-balance-total');
+  if (totalCell && anyDataRow) {{
+    totalCell.textContent = formatSignedMoney(total);
+  }}
+  var countEl = document.getElementById('linked-accounts-shown-count');
+  if (countEl) {{
+    countEl.textContent = dims.length ? ('Showing ' + visibleCount + ' of ' + rows.length + ' accounts.') : '';
+  }}
+  renderFilterChips('accounts-filter-bar', __filtersSubset(['account-institution', 'account-type']), clearPositionFilter, clearPositionFilters);
+}}
 function clearPositionFilter(dim) {{
   delete __positionsFilters[dim];
   updatePieSelectionUI(dim);
   applyPositionFilters();
   applyExpenditureFilters();
+  applyAccountsFilters();
 }}
 function clearPositionFilters() {{
   Object.keys(__positionsFilters).forEach(function(dim) {{
@@ -455,6 +508,7 @@ function clearPositionFilters() {{
   }});
   applyPositionFilters();
   applyExpenditureFilters();
+  applyAccountsFilters();
 }}
 function refreshPositionBulkBarFor(barId, inputId) {{
   // Renamed from refreshBulkBar(barId, inputId) -- that name collided
@@ -603,6 +657,16 @@ function resetSelectedTransactionsExpenseFlag() {{
   var items = _selectedTransactionItems();
   if (!items.length) return;
   postJSON('/api/classify-transaction-expense-flag', {{items: items, action: 'reset'}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function excludeOneTransaction(transactionId) {{
+  // The "Exclude this one" quick-action on a "Possible duplicate" badge
+  // (see _duplicate_badge_html in real_expenditure.py) -- a one-click
+  // shortcut for the exact same /api/classify-transaction-expense-flag
+  // call the bulk bar's "Exclude from total" button makes, just for a
+  // single transaction_id without needing to check its row first.
+  postJSON('/api/classify-transaction-expense-flag', {{items: [{{transaction_id: transactionId}}], action: 'exclude'}})
     .then(function() {{ location.reload(); }})
     .catch(function(err) {{ alert(err.message); }});
 }}

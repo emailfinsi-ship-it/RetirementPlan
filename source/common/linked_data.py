@@ -155,6 +155,7 @@ def read_transactions() -> list:
         item = items_by_key.get(t["item_key"], {})
         result.append({
             "transaction_id": t["transaction_id"],
+            "account_id": t["account_id"],
             "date": t["date"],
             "amount": t["amount"] or 0.0,
             "iso_currency_code": t["iso_currency_code"] or "",

@@ -3567,7 +3567,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("Accounts by institution (balance)", body)
         self.assertIn("Accounts by account type (balance)", body)
-        self.assertIn('<table class="sortable">', body)
+        self.assertIn('<table id="linked-accounts-table" class="sortable">', body)
         self.assertIn("1,500.00", body)  # row + total
 
     def test_table_has_an_item_key_column_showing_the_real_institution(self):
@@ -3602,6 +3602,22 @@ class TestLinkedAccountsPage(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertNotIn("Linked accounts (live, read-only)", body)
         self.assertIn('href="/linked-accounts.html"', body)
+
+    def test_charts_and_table_rows_are_wired_for_click_to_filter(self):
+        # Same click-to-filter contract as Linked Positions/Real
+        # Expenditure -- data-dim/data-slice-id/data-values on each donut
+        # slice, data-institution/data-account-type on each row, wired to
+        # applyAccountsFilters() in shell.py's shared script.
+        resp = self._get("/linked-accounts.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('id="linked-accounts-table"', body)
+        self.assertIn('id="accounts-filter-bar"', body)
+        self.assertIn('id="linked-accounts-shown-count"', body)
+        self.assertIn('id="linked-accounts-balance-total"', body)
+        self.assertIn('data-dim="account-institution"', body)
+        self.assertIn('data-dim="account-type"', body)
+        self.assertIn('data-institution="Fidelity" data-account-type="Brokerage" data-balance="1500.0"', body)
+        self.assertIn("function applyAccountsFilters(", body)
 
 
 class TestUnifiedAddModal(DashboardTestCase):
@@ -3801,6 +3817,35 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn("function applyExpenditureFilters(", body)
         self.assertIn("function renderFilterChips(", body)
         self.assertIn("applyExpenditureFilters();", body)
+
+    def test_transactions_sharing_account_date_amount_and_name_are_flagged_as_possible_duplicates(self):
+        # Two distinct Plaid transaction_ids can still describe what
+        # looks like the same real-world transaction -- flagged, not
+        # hidden or auto-excluded (see _duplicate_counts' docstring).
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=2.0, date="2026-09-01", name="Apple Caffe")
+        _seed_transaction("txn-2", amount=2.0, date="2026-09-01", name="Apple Caffe")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertEqual(body.count("possible duplicate (2)"), 2)
+        self.assertEqual(body.count("exclude this one"), 2)
+        self.assertIn("2 transactions flagged", body)
+
+    def test_transactions_that_dont_match_are_not_flagged(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=2.0, date="2026-09-01", name="Apple Caffe")
+        _seed_transaction("txn-2", amount=3.5, date="2026-09-01", name="Apple Caffe")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertNotIn("possible duplicate", body)
+
+    def test_an_already_excluded_duplicate_has_no_quick_exclude_link(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=2.0, date="2026-09-01", name="Apple Caffe")
+        _seed_transaction("txn-2", amount=2.0, date="2026-09-01", name="Apple Caffe")
+        db.update_plaid_transaction_excluded(["txn-2"], True)
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertEqual(body.count("possible duplicate (2)"), 2)
+        # Only the still-counted one (txn-1) gets the quick-exclude link.
+        self.assertEqual(body.count("exclude this one"), 1)
 
 
 class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):

@@ -39,9 +39,27 @@ def _year_key(date: str) -> str:
     return (date or "")[:4] or "Unknown"
 
 
+def _duplicate_counts(transactions: list[dict]) -> dict[str, int]:
+    """transaction_id -> how many transactions share its exact account_id/
+    date/amount/name -- Plaid still assigns each one its own distinct
+    transaction_id (so our sync correctly stores both as separate rows,
+    same as any two genuinely different transactions), but two this
+    alike are worth flagging for a person's own judgment call: a real
+    second charge that day, or a look-alike that should be excluded so
+    it isn't double-counted. Only ever a *flag* -- nothing here is
+    hidden or auto-excluded; see the row's own "Exclude this one" quick
+    action (excludeOneTransaction() in shell.py) for that."""
+    groups: dict[tuple, list[str]] = defaultdict(list)
+    for t in transactions:
+        key = (t["account_id"], t["date"], t["amount"], t["name"])
+        groups[key].append(t["transaction_id"])
+    return {tid: len(ids) for ids in groups.values() if len(ids) > 1 for tid in ids}
+
+
 def _render_real_expenditure_page() -> str:
     transactions = linked_data.read_transactions()
     included = [t for t in transactions if not t["excluded_from_expense"]]
+    duplicate_counts = _duplicate_counts(transactions)
 
     monthly_totals: dict[str, float] = defaultdict(float)
     monthly_counts: dict[str, int] = defaultdict(int)
@@ -112,13 +130,31 @@ def _render_real_expenditure_page() -> str:
         pending_badge = ' <span class="muted" style="font-size:11px;">pending</span>' if t["pending"] else ""
         category_label = html.escape(t["category"]) + (" *" if t["category_edited_by_user"] else "")
         description = html.escape(t["merchant_name"] or t["name"])
+        dup_count = duplicate_counts.get(t["transaction_id"])
+        if dup_count:
+            # Flag only -- never hides or auto-excludes anything (see
+            # _duplicate_counts' own docstring). The quick-exclude action
+            # is only offered when this row is still counted; an already-
+            # excluded one has nothing left to do here.
+            exclude_link = (
+                f' <a href="#" class="muted" style="font-size:11px;" '
+                f'onclick="excludeOneTransaction(\'{html.escape(t["transaction_id"])}\'); return false;">'
+                f'exclude this one</a>' if not t["excluded_from_expense"] else ""
+            )
+            duplicate_badge = (
+                f' <span class="muted" style="font-size:11px;" '
+                f'title="{dup_count} transactions on this account share the same date, amount, and name">'
+                f'possible duplicate ({dup_count}){exclude_link}</span>'
+            )
+        else:
+            duplicate_badge = ""
         return (
             f'<tr data-category="{html.escape(t["category"])}" data-month="{html.escape(_month_key(t["date"]))}">'
             f'<td class="check-col"><input type="checkbox" class="transaction-check" '
             f'data-transaction-id="{html.escape(t["transaction_id"])}"></td>'
             f'<td>{html.escape(t["date"])}</td>'
             f'<td>{html.escape(t["institution"])}</td><td>{html.escape(t["account_name"])}</td>'
-            f'<td>{description}{pending_badge}</td>'
+            f'<td>{description}{pending_badge}{duplicate_badge}</td>'
             f'<td>{category_label}</td>'
             f'<td class="num">{_money(t["amount"])}</td>'
             f'<td>{excluded_badge}</td></tr>'
@@ -132,6 +168,14 @@ def _render_real_expenditure_page() -> str:
 
     included_count = len(included)
     excluded_count = len(transactions) - included_count
+    duplicate_flagged_count = len(duplicate_counts)
+
+    duplicate_note = (
+        f'<p class="muted" style="margin:0;">{duplicate_flagged_count} transaction'
+        f'{"s" if duplicate_flagged_count != 1 else ""} flagged "possible duplicate" below -- same account, date, '
+        f'amount, and name as another transaction, but Plaid gave each its own distinct ID, so both are kept and '
+        f'counted unless you exclude one by hand.</p>'
+    ) if duplicate_flagged_count else ""
 
     body = f"""
 <h2 style="margin-top:0">Real Expenditure</h2>
@@ -142,6 +186,7 @@ def _render_real_expenditure_page() -> str:
 <h3 style="margin-top:0; font-size:13px;">Total real expenditure</h3>
 <p style="font-size:22px; font-weight:600; margin:4px 0;">{_money(total_real_expenditure)}</p>
 <p class="muted" style="margin:0;">Across {included_count} counted transaction{'s' if included_count != 1 else ''} -- {excluded_count} more excluded as transfers/card payments ({_money(excluded_total)}, not counted above).</p>
+{duplicate_note}
 </div>
 {category_chart_html}
 </div>

@@ -77,11 +77,11 @@ def _render_linked_accounts_page() -> str:
     # normal, positively-sized "$5,000 at Amex" wedge instead of either
     # vanishing (a negative slice) or silently netting against an asset
     # account's positive balance in the same "by institution" total,
-    # which would misrepresent both. Same donut mark/click-to-filter as
-    # the Linked Positions page's own type/institution charts -- clicking
-    # a slice here is a harmless no-op (no #linked-positions-table on
-    # this page for applyPositionFilters() to filter), same as the
-    # Summary page's insight charts.
+    # which would misrepresent both. Same donut mark/click-to-filter
+    # contract as the Linked Positions/Real Expenditure charts -- a click
+    # here filters the accounts table below via applyAccountsFilters()
+    # (shell.py's shared script), matching each row's own data-
+    # institution/data-account-type attributes below.
     chart_rows = [{**r, "abs_balance": abs(r["balance"] or 0)} for r in linked_accounts]
     institution_chart_html = _donut_chart_html(
         "Accounts by institution (balance)",
@@ -95,7 +95,9 @@ def _render_linked_accounts_page() -> str:
     )
 
     linked_accounts_html = "".join(
-        f'<tr><td>{html.escape(r["institution"])}</td><td>{html.escape(r["item_key"])}</td>'
+        f'<tr data-institution="{html.escape(r["institution"])}" data-account-type="{html.escape(r["account_type"])}" '
+        f'data-balance="{r["balance"] or 0}">'
+        f'<td>{html.escape(r["institution"])}</td><td>{html.escape(r["item_key"])}</td>'
         f'<td>{html.escape(r["account_type"])}</td>'
         f'<td>{html.escape(_account_number_display(r["last4"], r.get("account_number"), r.get("is_tokenized_account_number", False)))}</td>'
         f'<td class="num">{_money(r["balance"])}</td>'
@@ -112,10 +114,13 @@ def _render_linked_accounts_page() -> str:
 {institution_chart_html}
 {account_type_chart_html}
 </div>
-<table class="sortable">
+<p class="muted">Click a slice of either chart above to filter the accounts list down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
+<div id="accounts-filter-bar" class="filter-bar"></div>
+<p id="linked-accounts-shown-count" class="muted"></p>
+<table id="linked-accounts-table" class="sortable">
 <thead><tr><th>Institution</th><th>Item Key</th><th>Account Type</th><th>Account #</th><th class="num">Balance</th><th>Last Update</th><th>Line item</th></tr></thead>
 <tbody>{linked_accounts_html}</tbody>
-<tfoot><tr><td colspan="4">Total</td><td class="num">{_money(linked_balance_total)}</td><td colspan="2"></td></tr></tfoot>
+<tfoot><tr><td colspan="4">Total</td><td class="num" id="linked-accounts-balance-total">{_money(linked_balance_total)}</td><td colspan="2"></td></tr></tfoot>
 </table>
 <datalist id="linked-accounts-categories">{category_options_html}</datalist>
 <p class="muted">Investment holdings (and their own charts) are on the <a href="/linked-positions.html">Linked Positions</a> tab.</p>
