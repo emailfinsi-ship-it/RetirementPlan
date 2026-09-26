@@ -134,6 +134,28 @@ def _pools_net_of_liabilities(
     return {"tax_deferred": tax_deferred, "roth": roth, "taxable": taxable}
 
 
+def capture_net_worth_snapshot(summary: dict | None = None) -> None:
+    """Records today's net worth (and its component totals) into
+    source.common.db.net_worth_snapshots, from a build_summary() dict --
+    builds one itself if not given one. Called from source.webapp.
+    dashboard.run() on every startup, and again after every successful
+    Plaid sync (source.webapp.dashboard's /api/plaid-sync handler) --
+    both idempotent for the same day (see db.record_snapshot's own
+    docstring), so a person never has to do anything to start building a
+    net-worth-over-time history; it just accumulates one point per day
+    the app is opened or synced, from here on. Cheap: one extra INSERT
+    after work build_summary() (or its caller) already did."""
+    s = summary if summary is not None else build_summary()
+    db.record_snapshot(
+        net_worth=s["net_worth"],
+        manual_asset_total=s["manual_asset_total"],
+        linked_asset_total=s["linked_asset_total"],
+        liability_total=s["liability_total"],
+        real_estate_equity_total=s["real_estate_equity_total"],
+        retirement_liquid_total=s["retirement_liquid_total"],
+    )
+
+
 def build_summary() -> dict:
     assets = db.list_line_items("assets")
     real_estate = db.list_line_items("real_estate")

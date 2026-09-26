@@ -3479,6 +3479,10 @@ class TestChooseFileEndpoint(DashboardTestCase):
 
 
 class TestPlaidSyncEndpoint(DashboardTestCase):
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+
     def test_sync_calls_sync_all_and_returns_summary(self):
         fake_summary = {"items_synced": ["a"], "errors": [], "accounts": 1, "holdings": 0, "synced_at": "now"}
         with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value=fake_summary) as mock_sync:
@@ -3487,6 +3491,20 @@ class TestPlaidSyncEndpoint(DashboardTestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["summary"], fake_summary)
         mock_sync.assert_called_once()
+
+    def test_sync_also_captures_a_net_worth_snapshot(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+        with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value={}):
+            self._post("/api/plaid-sync", {})
+        self.assertEqual(len(db.list_net_worth_snapshots()), 1)
+
+    def test_a_snapshot_failure_does_not_fail_the_sync_response(self):
+        with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value={}), \
+             patch("source.webapp.dashboard.capture_net_worth_snapshot", side_effect=RuntimeError("boom")):
+            status, payload = self._post("/api/plaid-sync", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
 
 
 class TestSyncNowButtonPlacement(DashboardTestCase):
@@ -4016,6 +4034,43 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
         )
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertNotIn("enableTransactionsForItem('has_transactions')", body)
+
+
+class TestSummaryPageNetWorthHistory(DashboardTestCase):
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+
+    def test_with_only_one_snapshot_shows_the_come_back_later_message(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+        db.record_snapshot(
+            net_worth=100.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-01",
+        )
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Net worth over time", body)
+        self.assertIn("isn't a line yet", body)
+
+    def test_with_two_or_more_snapshots_shows_the_trend_line_and_change(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+        db.record_snapshot(
+            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-01",
+        )
+        db.record_snapshot(
+            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-02",
+        )
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("<svg", body)
+        self.assertIn("+$10,000.00", body)
+        self.assertIn("2026-09-01", body)
+        self.assertIn("2026-09-02", body)
 
 
 class TestCategoryRuleEndpoints(DashboardTestCase):

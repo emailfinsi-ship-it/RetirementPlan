@@ -40,6 +40,7 @@ from source.common.db.category_rules import (
     load_active_overrides,
     upsert_category_rule,
 )
+from source.common.db.net_worth_snapshots import list_net_worth_snapshots, record_snapshot
 
 
 def init_db() -> None:
@@ -142,6 +143,8 @@ __all__ = [
     "upsert_category_rule",
     "delete_category_rule",
     "load_active_overrides",
+    "record_snapshot",
+    "list_net_worth_snapshots",
     "upsert_plaid_item",
     "get_plaid_item",
     "list_plaid_items",

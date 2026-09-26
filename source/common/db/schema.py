@@ -277,6 +277,29 @@ CREATE TABLE IF NOT EXISTS category_rules (
     updated_at TEXT NOT NULL,
     UNIQUE(rule_type, match_key)
 );
+
+-- One row per calendar day this program was open (or synced) -- a
+-- running history of source.reporting.aggregate.build_summary()'s own
+-- headline totals, captured automatically (see aggregate.
+-- capture_net_worth_snapshot, called from source.webapp.dashboard.run()
+-- on every startup and again after every successful Plaid sync) so the
+-- Summary tab can chart net worth over time without a person ever having
+-- to do anything to start tracking it. snapshot_date is the PRIMARY KEY
+-- (not an id) specifically so capturing twice in the same day -- opening
+-- the app, then syncing later that same day -- always UPSERTs that day's
+-- row with the latest numbers rather than piling up several same-day
+-- points a line chart would just show as one anyway.
+CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+    snapshot_date TEXT PRIMARY KEY,           -- "YYYY-MM-DD", local date
+    net_worth REAL NOT NULL,
+    manual_asset_total REAL NOT NULL,
+    linked_asset_total REAL NOT NULL,
+    liability_total REAL NOT NULL,
+    real_estate_equity_total REAL NOT NULL,
+    retirement_liquid_total REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 

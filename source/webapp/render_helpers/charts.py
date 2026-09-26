@@ -142,6 +142,95 @@ def _donut_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *,
 """
 
 
+_LINE_CHART_COLOR = _DONUT_COLORS[0]
+
+
+def _line_chart_html(title: str, points: list[tuple[str, float]], *, note: str = "") -> str:
+    """A single-series trend line -- change-over-time, unlike the part-
+    to-whole donut/bar charts above (dataviz skill: a trend belongs on
+    one axis, read left-to-right, not ranked by magnitude). Currently
+    only the Summary tab's net-worth-over-time card uses this (source.
+    common.db.net_worth_snapshots), so it's deliberately minimal: no
+    click-to-filter (there's no table of individual snapshots to filter
+    down to), evenly-spaced x positions (points are typically one per
+    calendar day the app was opened, so real date-proportional spacing
+    would mostly just reproduce even spacing anyway), and direct labels
+    only at the first/last point plus one hover tooltip per point rather
+    than a label on every point (dataviz skill: selective direct labels,
+    never one on every mark)."""
+    if len(points) < 2:
+        return (
+            f'<div class="card" style="flex:1 1 480px;">'
+            f'<h3 style="margin-top:0; font-size:13px;">{html.escape(title)}</h3>'
+            '<p class="muted">Come back after this program has been opened (or synced) on a couple of '
+            'different days to see a trend here -- one data point isn\'t a line yet.</p></div>'
+        )
+    width, height = 640, 180
+    pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 22
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+
+    values = [v for _, v in points]
+    lo, hi = min(0.0, min(values)), max(values)
+    if hi - lo <= 0:
+        hi = lo + max(abs(lo) * 0.1, 1.0)  # a flat/all-zero series still gets a visible range
+
+    def x_at(i: int) -> float:
+        return pad_left + (i / (len(points) - 1)) * plot_w
+
+    def y_at(v: float) -> float:
+        return pad_top + (1 - (v - lo) / (hi - lo)) * plot_h
+
+    coords = [(x_at(i), y_at(v)) for i, (_, v) in enumerate(points)]
+    path = "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in coords)
+
+    zero_line = ""
+    if lo < 0 < hi:
+        zero_y = y_at(0.0)
+        zero_line = (
+            f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
+            f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
+        )
+
+    dots = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{_LINE_CHART_COLOR}">'
+        f'<title>{html.escape(date)}: {html.escape(_money(value))}</title></circle>'
+        for (date, value), (x, y) in zip(points, coords)
+    )
+    first_date, first_value = points[0]
+    last_date, last_value = points[-1]
+    labels = (
+        f'<text x="{pad_left}" y="{height - 6}" font-size="10" fill="#777">{html.escape(first_date)}</text>'
+        f'<text x="{width - pad_right}" y="{height - 6}" font-size="10" fill="#777" text-anchor="end">'
+        f'{html.escape(last_date)}</text>'
+    )
+
+    change = last_value - first_value
+    change_pct = (change / abs(first_value) * 100) if first_value else None
+    change_color = "#1baf7a" if change >= 0 else "#c94a4a"
+    change_label = (
+        f"{'+' if change >= 0 else ''}{_money(change)}"
+        + (f" ({'+' if change_pct >= 0 else ''}{change_pct:.1f}%)" if change_pct is not None else "")
+        + f" since {html.escape(first_date)}"
+    )
+
+    svg = (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
+        f'{zero_line}'
+        f'<path d="{path}" fill="none" stroke="{_LINE_CHART_COLOR}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{dots}{labels}'
+        '</svg>'
+    )
+    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    return f"""
+<div class="card" style="flex:2 1 480px;">
+<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+{svg}
+{note_html}
+</div>
+"""
+
+
 def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, dim: str) -> str:
     """Horizontal bar ranking, for a magnitude breakdown with too many
     categories to read as a donut (dataviz skill: a pie/donut stops

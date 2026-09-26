@@ -3,6 +3,7 @@ import unittest
 from source.common import db
 from source.reporting.aggregate import (
     build_summary,
+    capture_net_worth_snapshot,
     category_subtotals,
     effective_loan_balance,
     effective_tax_treatment,
@@ -451,6 +452,29 @@ class TestBuildSummaryAssetBreakdown(TempConfigTestCase):
         db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
         s = build_summary()
         self.assertEqual(s["asset_category_subtotals"], [])
+
+
+class TestCaptureNetWorthSnapshot(TempConfigTestCase):
+    def test_records_todays_snapshot_from_a_built_summary(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Bank", "balance": 10_000})
+        capture_net_worth_snapshot()
+        rows = db.list_net_worth_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["net_worth"], 10_000)
+
+    def test_accepts_an_already_built_summary_without_rebuilding_it(self):
+        s = build_summary()
+        s = {**s, "net_worth": 12345.0}
+        capture_net_worth_snapshot(s)
+        self.assertEqual(db.list_net_worth_snapshots()[0]["net_worth"], 12345.0)
+
+    def test_calling_it_twice_the_same_day_upserts_not_duplicates(self):
+        capture_net_worth_snapshot()
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Bank", "balance": 5_000})
+        capture_net_worth_snapshot()
+        rows = db.list_net_worth_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["net_worth"], 5_000)
 
 
 if __name__ == "__main__":

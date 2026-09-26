@@ -34,6 +34,7 @@ from source.collector import sync as plaid_sync
 from source.common import app_settings, auth_store, backup, config, db, linked_data, secrets_store
 from source.importer import xlsx_import
 from source.reporting import excel_export
+from source.reporting.aggregate import capture_net_worth_snapshot
 from source.webapp.render_helpers import (
     NAV_ITEMS,
     PAGE_CSS,
@@ -583,6 +584,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
             elif path == "/api/plaid-sync":
                 summary = plaid_sync.sync_all()
+                # Refreshes today's net-worth snapshot with the balances
+                # this sync just pulled -- see capture_net_worth_
+                # snapshot's own docstring on why re-capturing the same
+                # day is safe (upsert, not a new point). Best-effort: a
+                # snapshot hiccup shouldn't turn an otherwise-successful
+                # sync into a failed request.
+                try:
+                    capture_net_worth_snapshot()
+                except Exception:
+                    pass
                 self._send_json({"ok": True, "summary": summary})
             elif path == "/api/category-rule/save":
                 # Setup page's "Category rules" card -- see source.common.
@@ -742,6 +753,15 @@ def run(*, open_browser: bool = True) -> None:
         backup.ensure_daily_backup()
     except Exception as exc:
         print(f"Startup backup failed (continuing anyway): {exc}")
+
+    # One net-worth-history data point for today, from whatever's already
+    # in the database -- see aggregate.capture_net_worth_snapshot's own
+    # docstring. Best-effort, same as the backup above: a snapshot
+    # failure shouldn't stop the dashboard itself from starting.
+    try:
+        capture_net_worth_snapshot()
+    except Exception as exc:
+        print(f"Startup net-worth snapshot failed (continuing anyway): {exc}")
 
     bind_host = app_settings.get_bind_host()
     if bind_host != "127.0.0.1" and not auth_store.is_password_set():

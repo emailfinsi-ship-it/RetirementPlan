@@ -7,6 +7,7 @@ import html
 
 import random
 
+from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import render_fan_svg, run_simulation, stable_simulation_seed
 from source.webapp.render_helpers import (
@@ -15,6 +16,7 @@ from source.webapp.render_helpers import (
     _bar_chart_html,
     _donut_chart_html,
     _grouped_slices,
+    _line_chart_html,
     _money,
     _pct,
     _shell,
@@ -50,6 +52,13 @@ def _render_summary_page() -> str:
         s["asset_category_subtotals"], s["liability_total"], s["net_liquid_asset"]
     )
     asset_rollup_html = _asset_rollup_summary_html(s["net_liquid_asset"], s["real_estate_equity_total"])
+
+    snapshots = db.list_net_worth_snapshots()
+    net_worth_history_html = _line_chart_html(
+        "Net worth over time",
+        [(row["snapshot_date"], row["net_worth"]) for row in snapshots],
+        note="One point per day this program was opened or synced -- automatic, nothing to set up.",
+    )
 
     linked = s["linked_status"]
     if not linked["configured"]:
@@ -114,6 +123,7 @@ def _render_summary_page() -> str:
 
     body = f"""
 <div class="tiles">{tiles_html}</div>
+{net_worth_history_html}
 <div class="card">
 <h2 style="margin-top:0">Assets by category</h2>
 <p class="muted">Same balances as the <a href="/asset.html">Asset</a> tab's own Summary tables above its line items -- add, edit, or link an account there.</p>

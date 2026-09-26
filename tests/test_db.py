@@ -1051,5 +1051,44 @@ class TestCategoryRules(TempConfigTestCase):
         self.assertEqual(db.load_active_overrides(), {"primary": {}, "detailed": {}, "keywords": []})
 
 
+class TestNetWorthSnapshots(TempConfigTestCase):
+    def _record(self, snapshot_date, net_worth=100.0):
+        db.record_snapshot(
+            net_worth=net_worth, manual_asset_total=10.0, linked_asset_total=20.0,
+            liability_total=5.0, real_estate_equity_total=30.0, retirement_liquid_total=40.0,
+            snapshot_date=snapshot_date,
+        )
+
+    def test_record_and_list(self):
+        self._record("2026-09-01", net_worth=100.0)
+        rows = db.list_net_worth_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["snapshot_date"], "2026-09-01")
+        self.assertEqual(rows[0]["net_worth"], 100.0)
+        self.assertEqual(rows[0]["linked_asset_total"], 20.0)
+
+    def test_recording_the_same_day_twice_upserts_rather_than_duplicating(self):
+        self._record("2026-09-01", net_worth=100.0)
+        self._record("2026-09-01", net_worth=150.0)
+        rows = db.list_net_worth_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["net_worth"], 150.0)
+
+    def test_list_is_ordered_by_date_ascending(self):
+        self._record("2026-09-03")
+        self._record("2026-09-01")
+        self._record("2026-09-02")
+        dates = [r["snapshot_date"] for r in db.list_net_worth_snapshots()]
+        self.assertEqual(dates, ["2026-09-01", "2026-09-02", "2026-09-03"])
+
+    def test_record_defaults_to_todays_date(self):
+        from datetime import date
+        db.record_snapshot(
+            net_worth=1.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+        )
+        self.assertEqual(db.list_net_worth_snapshots()[0]["snapshot_date"], date.today().isoformat())
+
+
 if __name__ == "__main__":
     unittest.main()
