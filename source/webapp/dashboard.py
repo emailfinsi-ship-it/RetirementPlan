@@ -21,6 +21,7 @@ import html
 import json
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from source.collector import auto_sync
 from source.collector import link_item as plaid_link_item
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
@@ -582,6 +584,17 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Item key is required.")
                 plaid_remove_item.remove_item(item_key)
                 self._send_json({"ok": True})
+            elif path == "/api/auto-sync-settings":
+                # Setup page's "Automatic sync" card -- see source.common.
+                # app_settings and source.collector.auto_sync for what
+                # these two settings actually do (and their real
+                # limitation: only checked at app-open time, never on a
+                # day nobody opens this app at all).
+                if "enabled" in payload:
+                    app_settings.set_auto_sync_enabled(bool(payload["enabled"]))
+                if payload.get("interval_days"):
+                    app_settings.set_auto_sync_interval_days(int(payload["interval_days"]))
+                self._send_json({"ok": True})
             elif path == "/api/plaid-sync":
                 summary = plaid_sync.sync_all()
                 # Refreshes today's net-worth snapshot with the balances
@@ -762,6 +775,22 @@ def run(*, open_browser: bool = True) -> None:
         capture_net_worth_snapshot()
     except Exception as exc:
         print(f"Startup net-worth snapshot failed (continuing anyway): {exc}")
+
+    # Catches up on Plaid data if it's gone stale (see source.collector.
+    # auto_sync's own module docstring for exactly when this fires, and
+    # its real limitation -- it only ever runs at a moment this app is
+    # already being opened). On a background thread so a slow sync (many
+    # linked accounts/transactions) never delays the dashboard itself
+    # from becoming reachable; best-effort, same as the backup/snapshot
+    # above.
+    def _run_auto_sync_in_background() -> None:
+        try:
+            if auto_sync.sync_if_due():
+                print("Auto-sync: Plaid data was stale, synced automatically.")
+        except Exception as exc:
+            print(f"Auto-sync failed (continuing anyway): {exc}")
+
+    threading.Thread(target=_run_auto_sync_in_background, daemon=True).start()
 
     bind_host = app_settings.get_bind_host()
     if bind_host != "127.0.0.1" and not auth_store.is_password_set():

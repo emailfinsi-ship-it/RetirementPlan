@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 
+from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, config, db, plaid_categorize, secrets_store
 from source.webapp.render_helpers import _shell
 
@@ -78,6 +79,7 @@ def _render_setup_page() -> str:
     category_rules_html = _category_rules_card_html(
         rules=db.list_category_rules(), category_options_html=category_options_html,
     )
+    auto_sync_html = _auto_sync_card_html()
     plaid_credentials_html = "".join(
         _plaid_credentials_profile_html(profile=name, presence=presence.profiles[name]) for name in secrets_store.PROFILES
     )
@@ -155,6 +157,7 @@ def _render_setup_page() -> str:
 </table>
 
 {category_rules_html}
+{auto_sync_html}
 {security_html}
 {network_html}
 """
@@ -332,6 +335,42 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
 <tbody>{builtin_rows_html}</tbody>
 </table>
 </details>
+</div>
+"""
+
+
+def _auto_sync_card_html() -> str:
+    """Setup page card for source.collector.auto_sync -- see that
+    module's own docstring for exactly when it fires and its real
+    limitation (only checked at app-open time, not a true background
+    schedule)."""
+    enabled = app_settings.get_auto_sync_enabled()
+    interval_days = app_settings.get_auto_sync_interval_days()
+    age = auto_sync.days_since_last_sync()
+    if not db.list_plaid_items():
+        status = '<p class="status-line muted">No Plaid accounts linked yet -- nothing for this to sync.</p>'
+    elif age is None:
+        status = '<p class="status-line status-warn">Never synced yet -- the next time you open this app, it will sync automatically (if enabled below).</p>'
+    elif not enabled:
+        status = f'<p class="status-line muted">Off -- last synced {age:.0f} day{"s" if age != 1 else ""} ago. Turn this on to catch up automatically instead of remembering to click "Sync now".</p>'
+    elif age >= interval_days:
+        status = f'<p class="status-line status-warn">Overdue -- last synced {age:.0f} days ago (every {interval_days}). Will sync automatically the next time you open this app.</p>'
+    else:
+        status = f'<p class="status-line status-ok">Up to date -- last synced {age:.0f} day{"s" if age != 1 else ""} ago, next automatic sync in {interval_days - age:.0f} day{"s" if interval_days - age != 1 else ""}.</p>'
+
+    return f"""
+<div class="card">
+<h2 style="margin-top:0">Automatic sync</h2>
+<p class="muted">When enabled, this program checks once every time it's opened whether it's been at least this many days since your accounts were last synced -- if so, it syncs automatically in the background, the same as clicking "Sync now" yourself. This only ever runs at a moment you've actually opened the app; it can't wake itself up on a day you never do (that needs a real OS-level scheduled task -- see <code>scripts/install_launchd_auto_sync.sh</code> if you want that instead of or in addition to this).</p>
+{status}
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/auto-sync-settings', {{enabled: this.enabled.checked, interval_days: this.interval_days.value}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(e) {{ alert(e.message); }});">
+  <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="enabled" style="width:auto;"{' checked' if enabled else ''}> Enabled</label>
+  <label>Every<input name="interval_days" type="number" min="1" value="{interval_days}" style="width:70px;"> days</label>
+  <button type="submit" class="primary">Save</button>
+</form>
 </div>
 """
 

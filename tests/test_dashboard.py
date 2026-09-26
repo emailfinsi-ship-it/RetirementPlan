@@ -4073,6 +4073,37 @@ class TestSummaryPageNetWorthHistory(DashboardTestCase):
         self.assertIn("2026-09-02", body)
 
 
+class TestAutoSyncSettingsEndpoint(DashboardTestCase):
+    def tearDown(self):
+        app_settings.set_auto_sync_enabled(True)
+        app_settings.set_auto_sync_interval_days(30)
+        db.delete_plaid_item("auto_sync_test_item")
+
+    def test_saving_settings(self):
+        status, payload = self._post("/api/auto-sync-settings", {"enabled": False, "interval_days": 14})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(app_settings.get_auto_sync_enabled())
+        self.assertEqual(app_settings.get_auto_sync_interval_days(), 14)
+
+    def test_setup_page_shows_the_automatic_sync_card(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Automatic sync", body)
+        self.assertIn("api/auto-sync-settings", body)
+
+    def test_setup_page_shows_overdue_status(self):
+        from datetime import datetime, timedelta, timezone
+        db.upsert_plaid_item(
+            item_key="auto_sync_test_item", plaid_item_id="item-1", institution_id=None,
+            institution_name="Bank", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        stale = (datetime.now(timezone.utc) - timedelta(days=45)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        db.mark_plaid_item_synced("auto_sync_test_item", stale)
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Overdue", body)
+
+
 class TestCategoryRuleEndpoints(DashboardTestCase):
     def test_saving_a_rule_persists_it(self):
         status, payload = self._post("/api/category-rule/save", {

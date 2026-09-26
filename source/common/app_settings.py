@@ -4,7 +4,7 @@ as FamilyFinanceTracker's source.common.app_settings (that module's
 docstring explains the "why" in full; this is a trimmed copy for this
 standalone program, deliberately not sharing a package with that app).
 
-Stores three things, plain (never secrets -- the login password itself
+Stores these things, plain (never secrets -- the login password itself
 lives in the Keychain, see source.common.auth_store):
   - data_dir: where retirement_plan.db lives
   - output_dir: where generated .xlsx/CSV/HTML exports land
@@ -14,6 +14,12 @@ lives in the Keychain, see source.common.auth_store):
     reach it too). Read once at server startup (source.webapp.
     dashboard.run), so changing it takes effect on the next restart,
     not live.
+  - auto_sync_enabled / auto_sync_interval_days: whether source.collector.
+    auto_sync.sync_if_due() should pull fresh Plaid data on its own once
+    this program has gone stale for that many days -- see that module's
+    own docstring for exactly when it fires (only when the app is
+    actually opened; this program is a plain foreground process, not a
+    background daemon, so it can't do anything on a day nobody opens it).
 """
 
 from __future__ import annotations
@@ -79,4 +85,35 @@ def get_bind_host() -> str:
 def set_bind_host(host: str) -> None:
     data = _read()
     data["bind_host"] = host
+    _write(data)
+
+
+_DEFAULT_AUTO_SYNC_INTERVAL_DAYS = 30
+
+
+def get_auto_sync_enabled() -> bool:
+    # On by default -- a person who's never touched this setting gets
+    # the "don't let this go stale" behavior automatically, same as
+    # every other Setup-page default in this program.
+    value = _read().get("auto_sync_enabled")
+    return True if value is None else bool(value)
+
+
+def set_auto_sync_enabled(enabled: bool) -> None:
+    data = _read()
+    data["auto_sync_enabled"] = bool(enabled)
+    _write(data)
+
+
+def get_auto_sync_interval_days() -> int:
+    try:
+        days = int(_read().get("auto_sync_interval_days") or _DEFAULT_AUTO_SYNC_INTERVAL_DAYS)
+    except (TypeError, ValueError):
+        return _DEFAULT_AUTO_SYNC_INTERVAL_DAYS
+    return days if days > 0 else _DEFAULT_AUTO_SYNC_INTERVAL_DAYS
+
+
+def set_auto_sync_interval_days(days: int) -> None:
+    data = _read()
+    data["auto_sync_interval_days"] = max(1, int(days))
     _write(data)
