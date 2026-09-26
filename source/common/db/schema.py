@@ -245,6 +245,38 @@ CREATE TABLE IF NOT EXISTS plaid_transactions (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(date);
+
+-- User-editable overrides on top of source.common.plaid_categorize's
+-- hardcoded default category-rollup rules (Plaid primary/detailed ->
+-- broad bucket, and the merchant-name keyword fallback) -- see that
+-- module's docstring for the built-in defaults this layers on top of.
+-- A row here always wins over the matching built-in default (checked
+-- first by source.common.plaid_categorize.default_category whenever the
+-- caller passes overrides= built from these rows -- see
+-- source.common.db.category_rules.load_active_overrides), so a person
+-- can correct or extend the rollup without this program's own code ever
+-- changing. rule_type is one of:
+--   'primary'  -- match_key is a Plaid personal_finance_category.primary
+--                 value (e.g. "GENERAL_MERCHANDISE"), case-insensitive.
+--   'detailed' -- match_key is a Plaid .detailed value (e.g.
+--                 "GENERAL_MERCHANDISE_PET_SUPPLIES"), case-insensitive,
+--                 checked before 'primary' (more specific wins), same
+--                 order as the built-in tables.
+--   'keyword'  -- match_key is a single lowercase substring checked
+--                 against the transaction's merchant/transaction name,
+--                 checked before every built-in keyword rule, in
+--                 ascending id order (oldest-added first), first match
+--                 wins -- only ever consulted when Plaid gave no
+--                 primary/detailed at all, same as the built-in list.
+CREATE TABLE IF NOT EXISTS category_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_type TEXT NOT NULL,          -- 'primary' | 'detailed' | 'keyword'
+    match_key TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(rule_type, match_key)
+);
 """
 
 

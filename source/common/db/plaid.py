@@ -67,6 +67,52 @@ def mark_plaid_item_synced(item_key: str, synced_at: str) -> None:
 
 
 
+def rename_plaid_item_key(old_key: str, new_key: str) -> int:
+    """Renames an Item's own internal label everywhere it's stored as a
+    foreign key (plaid_accounts, plaid_holdings, plaid_transactions) plus
+    the plaid_items row itself. Does NOT touch the Keychain -- item_key is
+    also that Item's access-token lookup key there (see
+    source.common.secrets_store), which this program's own sandboxed
+    tooling cannot reach (real macOS Keychain access needs the actual
+    app/venv on the Mac, not this dashboard's test/CI environment) -- see
+    scripts/rename_plaid_item_key.py, the one-time script a person runs
+    themselves in their own Terminal, which calls this function AND
+    renames the matching Keychain entry in the same pass so the two never
+    drift apart. Returns the number of rows touched across all four
+    tables (0 if old_key doesn't exist); raises ValueError if new_key is
+    already in use by a different Item."""
+    with connect() as conn:
+        if not conn.execute("SELECT 1 FROM plaid_items WHERE item_key = ?", (old_key,)).fetchone():
+            return 0
+        if conn.execute("SELECT 1 FROM plaid_items WHERE item_key = ?", (new_key,)).fetchone():
+            raise ValueError(f"item_key '{new_key}' is already in use by another linked Item.")
+        # plaid_accounts.item_key is a declared FOREIGN KEY REFERENCES
+        # plaid_items(item_key) (see schema.py) -- renaming either side
+        # alone, even mid-transaction, leaves a moment where a row points
+        # at an item_key that doesn't exist yet/anymore, which SQLite's
+        # (non-deferrable-by-default) FK enforcement rejects immediately.
+        # Deferring for just this transaction (auto-resets on commit/
+        # rollback -- nothing to undo afterwards) lets all four tables be
+        # renamed in any order and only checks consistency once, at the
+        # very end, by which point everything agrees.
+        conn.execute("PRAGMA defer_foreign_keys = ON")
+        touched = 0
+        touched += conn.execute(
+            "UPDATE plaid_transactions SET item_key = ? WHERE item_key = ?", (new_key, old_key)
+        ).rowcount
+        touched += conn.execute(
+            "UPDATE plaid_holdings SET item_key = ? WHERE item_key = ?", (new_key, old_key)
+        ).rowcount
+        touched += conn.execute(
+            "UPDATE plaid_accounts SET item_key = ? WHERE item_key = ?", (new_key, old_key)
+        ).rowcount
+        touched += conn.execute(
+            "UPDATE plaid_items SET item_key = ? WHERE item_key = ?", (new_key, old_key)
+        ).rowcount
+        return touched
+
+
+
 def delete_plaid_item(item_key: str) -> None:
     """Removes everything local for an Item (accounts, holdings, then the
     item row itself). Does not touch the Keychain or call Plaid -- see

@@ -4018,5 +4018,65 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
         self.assertNotIn("enableTransactionsForItem('has_transactions')", body)
 
 
+class TestCategoryRuleEndpoints(DashboardTestCase):
+    def test_saving_a_rule_persists_it(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "peloton", "category": "Fitness",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        rules = db.list_category_rules()
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(rules[0]["category"], "Fitness")
+
+    def test_saving_a_rule_returns_400_for_an_unknown_rule_type(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "nonsense", "match_key": "x", "category": "Y",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_saving_a_rule_immediately_recategorizes_matching_transactions(self):
+        db.upsert_plaid_item(
+            item_key="k", plaid_item_id="item-1", institution_id=None, institution_name=None,
+            products=["transactions"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_transaction(item_key="k", transaction={
+            "transaction_id": "t1", "account_id": "acc-1", "date": "2026-09-01", "amount": 25.0,
+            "iso_currency_code": "USD", "name": "Peloton Membership", "merchant_name": "Peloton",
+            "pending": False, "plaid_category_primary": None, "plaid_category_detailed": None,
+            "category": "Uncategorized", "excluded_from_expense": False,
+        })
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "peloton", "category": "Fitness",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["recategorized"], 1)
+        self.assertEqual(db.list_plaid_transactions()[0]["category"], "Fitness")
+
+    def test_deleting_a_rule(self):
+        rule_id = db.upsert_category_rule(rule_type="primary", match_key="a", category="A")
+        status, payload = self._post("/api/category-rule/delete", {"id": rule_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["deleted"])
+        self.assertEqual(db.list_category_rules(), [])
+
+    def test_deleting_an_unknown_rule_reports_not_deleted_but_still_ok(self):
+        status, payload = self._post("/api/category-rule/delete", {"id": 999})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["deleted"])
+
+    def test_setup_page_lists_saved_rules_and_the_built_in_reference_table(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Category rules", body)
+        self.assertIn("peloton", body)
+        self.assertIn("Fitness", body)
+        self.assertIn("deleteCategoryRule(", body)
+        # The built-in reference table shows at least one hardcoded default.
+        self.assertIn("GENERAL_MERCHANDISE", body)
+
+
 if __name__ == "__main__":
     unittest.main()

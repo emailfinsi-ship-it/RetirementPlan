@@ -121,6 +121,12 @@ function postJSON(url, body) {{
       }});
     }});
 }}
+function deleteCategoryRule(id) {{
+  if (!confirm('Delete this category rule?')) return;
+  postJSON('/api/category-rule/delete', {{id: id}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
 function addLineItem(section, formEl) {{
   var fields = {{}};
   new FormData(formEl).forEach(function(value, key) {{ if (value !== '') fields[key] = value; }});

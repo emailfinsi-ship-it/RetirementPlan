@@ -84,6 +84,44 @@ class TestDefaultCategory(unittest.TestCase):
     def test_unmatched_name_still_falls_back_to_uncategorized(self):
         self.assertEqual(default_category(None, None, "XYZ1234 POS Purchase"), "Uncategorized")
 
+    def test_override_with_no_matching_rule_behaves_like_no_override_at_all(self):
+        self.assertEqual(
+            default_category("FOOD_AND_DRINK", "FOOD_AND_DRINK_COFFEE", overrides={"primary": {}, "detailed": {}, "keywords": []}),
+            "Food",
+        )
+
+    def test_primary_override_wins_over_the_built_in_default(self):
+        overrides = {"primary": {"GENERAL_MERCHANDISE": "Custom Bucket"}, "detailed": {}, "keywords": []}
+        self.assertEqual(default_category("GENERAL_MERCHANDISE", None, overrides=overrides), "Custom Bucket")
+
+    def test_detailed_override_wins_over_both_the_built_in_detailed_and_primary_default(self):
+        overrides = {"primary": {}, "detailed": {"FOOD_AND_DRINK_COFFEE": "Coffee Habit"}, "keywords": []}
+        self.assertEqual(default_category("FOOD_AND_DRINK", "FOOD_AND_DRINK_COFFEE", overrides=overrides), "Coffee Habit")
+
+    def test_override_detailed_wins_over_override_primary(self):
+        overrides = {
+            "primary": {"GENERAL_MERCHANDISE": "Shopping"},
+            "detailed": {"GENERAL_MERCHANDISE_PET_SUPPLIES": "Pets"},
+            "keywords": [],
+        }
+        self.assertEqual(
+            default_category("GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_PET_SUPPLIES", overrides=overrides), "Pets",
+        )
+
+    def test_custom_keyword_rule_is_checked_before_the_built_in_keyword_list(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("peloton", "Fitness")]}
+        self.assertEqual(default_category(None, None, "Peloton Membership", overrides=overrides), "Fitness")
+
+    def test_custom_keyword_rule_wins_over_a_built_in_keyword_match_on_the_same_text(self):
+        # "starbucks" would otherwise match the built-in Food keyword list
+        # -- a person's own rule for the same text always wins.
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("starbucks", "Work Perks")]}
+        self.assertEqual(default_category(None, None, "Starbucks Coffee #4521", overrides=overrides), "Work Perks")
+
+    def test_keyword_override_is_never_consulted_when_plaid_already_classified_it(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("shuttle", "Custom Travel")]}
+        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Travel")
+
 
 if __name__ == "__main__":
     unittest.main()

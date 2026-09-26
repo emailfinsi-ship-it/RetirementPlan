@@ -34,6 +34,12 @@ from __future__ import annotations
 from source.common.db.schema import SCHEMA, DEFAULT_ASSUMPTIONS
 from source.common.db.connection import _now, connect
 from source.common.db.migrations import _migrate_schema
+from source.common.db.category_rules import (
+    delete_category_rule,
+    list_category_rules,
+    load_active_overrides,
+    upsert_category_rule,
+)
 
 
 def init_db() -> None:
@@ -82,6 +88,7 @@ from source.common.db.plaid import (
     list_plaid_items,
     list_plaid_holdings,
     mark_plaid_item_synced,
+    rename_plaid_item_key,
     set_plaid_account_numbers,
     upsert_plaid_account,
     upsert_plaid_holding,
@@ -131,10 +138,15 @@ __all__ = [
     "set_assumptions",
     "get_meta",
     "set_meta",
+    "list_category_rules",
+    "upsert_category_rule",
+    "delete_category_rule",
+    "load_active_overrides",
     "upsert_plaid_item",
     "get_plaid_item",
     "list_plaid_items",
     "mark_plaid_item_synced",
+    "rename_plaid_item_key",
     "delete_plaid_item",
     "account_balances_from_payload",
     "upsert_plaid_account",

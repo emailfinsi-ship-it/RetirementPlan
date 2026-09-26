@@ -517,6 +517,49 @@ class TestPlaidItems(TempConfigTestCase):
         self.assertEqual(db.list_plaid_accounts(), [])
         self.assertEqual(db.list_plaid_holdings(), [])
 
+    def test_rename_item_key_updates_the_item_row_and_every_referencing_table(self):
+        db.upsert_plaid_item(
+            item_key="morgan_stanley", plaid_item_id="item-1", institution_id=None,
+            institution_name="Charles Schwab", products=["investments", "transactions"],
+            environment="production", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="morgan_stanley", account={
+            "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 100},
+        })
+        db.upsert_plaid_holding(item_key="morgan_stanley", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 100,
+        })
+        db.upsert_plaid_transaction(item_key="morgan_stanley", transaction=_fake_transaction_row("txn-1"))
+
+        touched = db.rename_plaid_item_key("morgan_stanley", "schwab")
+
+        self.assertEqual(touched, 4)  # item row + 1 account + 1 holding + 1 transaction
+        self.assertIsNone(db.get_plaid_item("morgan_stanley"))
+        renamed = db.get_plaid_item("schwab")
+        self.assertEqual(renamed["institution_name"], "Charles Schwab")
+        self.assertEqual(renamed["plaid_item_id"], "item-1")
+        self.assertEqual(db.list_plaid_accounts()[0]["item_key"], "schwab")
+        self.assertEqual(db.list_plaid_holdings()[0]["item_key"], "schwab")
+        self.assertEqual(db.list_plaid_transactions()[0]["item_key"], "schwab")
+
+    def test_rename_item_key_is_a_no_op_for_an_unknown_old_key(self):
+        self.assertEqual(db.rename_plaid_item_key("nope", "whatever"), 0)
+
+    def test_rename_item_key_refuses_a_new_key_already_in_use(self):
+        db.upsert_plaid_item(
+            item_key="a", plaid_item_id="item-1", institution_id=None, institution_name=None,
+            products=[], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_item(
+            item_key="b", plaid_item_id="item-2", institution_id=None, institution_name=None,
+            products=[], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        with self.assertRaises(ValueError):
+            db.rename_plaid_item_key("a", "b")
+        # Neither Item was touched by the failed rename.
+        self.assertIsNotNone(db.get_plaid_item("a"))
+        self.assertIsNotNone(db.get_plaid_item("b"))
+
 
 def _fake_transaction_row(transaction_id, *, account_id="acc-1", amount=42.50, date="2026-09-01",
                            name="Coffee Shop", primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE",
@@ -945,6 +988,67 @@ class TestSecuritySectors(TempConfigTestCase):
 
         self.assertEqual(removed, 0)
         self.assertEqual(db.get_security_sectors(), {"sec-fund": "Diversified"})
+
+
+class TestCategoryRules(TempConfigTestCase):
+    def test_upsert_and_list(self):
+        db.upsert_category_rule(rule_type="primary", match_key="general_merchandise", category="Shopping")
+        rows = db.list_category_rules()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["rule_type"], "primary")
+        # Normalized upper-case for primary/detailed, matching how Plaid's
+        # own values are compared in plaid_categorize.default_category.
+        self.assertEqual(rows[0]["match_key"], "GENERAL_MERCHANDISE")
+        self.assertEqual(rows[0]["category"], "Shopping")
+
+    def test_keyword_rule_is_lowercased(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="PELOTON", category="Fitness")
+        self.assertEqual(db.list_category_rules()[0]["match_key"], "peloton")
+
+    def test_upsert_is_idempotent_on_rule_type_and_match_key(self):
+        db.upsert_category_rule(rule_type="detailed", match_key="foo", category="Bar")
+        db.upsert_category_rule(rule_type="detailed", match_key="foo", category="Baz")
+        rows = db.list_category_rules()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["category"], "Baz")
+
+    def test_upsert_rejects_an_unknown_rule_type(self):
+        with self.assertRaises(ValueError):
+            db.upsert_category_rule(rule_type="nonsense", match_key="foo", category="Bar")
+
+    def test_upsert_rejects_a_blank_match_key_or_category(self):
+        with self.assertRaises(ValueError):
+            db.upsert_category_rule(rule_type="primary", match_key="  ", category="Bar")
+        with self.assertRaises(ValueError):
+            db.upsert_category_rule(rule_type="primary", match_key="foo", category="  ")
+
+    def test_list_can_filter_by_rule_type(self):
+        db.upsert_category_rule(rule_type="primary", match_key="a", category="A")
+        db.upsert_category_rule(rule_type="keyword", match_key="b", category="B")
+        self.assertEqual(len(db.list_category_rules(rule_type="primary")), 1)
+        self.assertEqual(len(db.list_category_rules(rule_type="keyword")), 1)
+
+    def test_delete_category_rule(self):
+        rule_id = db.upsert_category_rule(rule_type="primary", match_key="a", category="A")
+        self.assertTrue(db.delete_category_rule(rule_id))
+        self.assertEqual(db.list_category_rules(), [])
+
+    def test_delete_missing_rule_returns_false(self):
+        self.assertFalse(db.delete_category_rule(999))
+
+    def test_load_active_overrides_shapes_rows_for_default_category(self):
+        db.upsert_category_rule(rule_type="primary", match_key="general_merchandise", category="Shopping")
+        db.upsert_category_rule(rule_type="detailed", match_key="foo_bar", category="Baz")
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+
+        overrides = db.load_active_overrides()
+
+        self.assertEqual(overrides["primary"], {"GENERAL_MERCHANDISE": "Shopping"})
+        self.assertEqual(overrides["detailed"], {"FOO_BAR": "Baz"})
+        self.assertEqual(overrides["keywords"], [("peloton", "Fitness")])
+
+    def test_load_active_overrides_is_empty_by_default(self):
+        self.assertEqual(db.load_active_overrides(), {"primary": {}, "detailed": {}, "keywords": []})
 
 
 if __name__ == "__main__":

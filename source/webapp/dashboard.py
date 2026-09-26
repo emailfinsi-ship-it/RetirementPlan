@@ -584,6 +584,28 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/plaid-sync":
                 summary = plaid_sync.sync_all()
                 self._send_json({"ok": True, "summary": summary})
+            elif path == "/api/category-rule/save":
+                # Setup page's "Category rules" card -- see source.common.
+                # db.category_rules and plaid_categorize.default_category's
+                # own docstring for exactly how a saved rule here takes
+                # priority over this program's built-in category-rollup
+                # defaults. Immediately re-runs recategorize_all_
+                # transactions() so the change is visible on Real
+                # Expenditure right away, not just for transactions synced
+                # from here on -- cheap and idempotent for a personal
+                # database's transaction volume (see that function's own
+                # docstring), same call already made on every app startup.
+                rule_id = db.upsert_category_rule(
+                    rule_type=(payload.get("rule_type") or "").strip(),
+                    match_key=payload.get("match_key") or "",
+                    category=payload.get("category") or "",
+                )
+                changed = db.recategorize_all_transactions()
+                self._send_json({"ok": True, "id": rule_id, "recategorized": changed})
+            elif path == "/api/category-rule/delete":
+                deleted = db.delete_category_rule(int(payload.get("id")))
+                changed = db.recategorize_all_transactions() if deleted else 0
+                self._send_json({"ok": True, "deleted": deleted, "recategorized": changed})
             elif path == "/api/export":
                 out_path = excel_export.export_current_state()
                 self._send_json({"ok": True, "path": str(out_path)})

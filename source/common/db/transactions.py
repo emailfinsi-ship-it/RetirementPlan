@@ -18,6 +18,7 @@ manual edit.
 
 from __future__ import annotations
 
+from source.common.db.category_rules import load_active_overrides
 from source.common.db.connection import _now, connect
 from source.common.plaid_categorize import default_category, default_excluded_from_expense
 
@@ -142,11 +143,12 @@ def clear_plaid_transaction_category_overrides(transaction_ids: list[str]) -> in
             f"FROM plaid_transactions WHERE transaction_id IN ({placeholders})",
             list(transaction_ids),
         ).fetchall()
+        overrides = load_active_overrides()
         now = _now()
         for row in rows:
             category = default_category(
                 row["plaid_category_primary"], row["plaid_category_detailed"],
-                row["merchant_name"] or row["name"],
+                row["merchant_name"] or row["name"], overrides=overrides,
             )
             conn.execute(
                 "UPDATE plaid_transactions SET category = ?, category_edited_by_user = 0, updated_at = ? "
@@ -161,25 +163,29 @@ def recategorize_all_transactions() -> int:
     manually re-labeled (category_edited_by_user = 0), using each row's
     own already-stored plaid_category_primary/detailed/name -- no Plaid
     call involved. This is what lets a change to default_category()'s
-    own bucket list (source.common.plaid_categorize) apply to
-    transactions already sitting in the database, not just ones synced
-    from here on; called once from source.common.db._migrate_schema on
+    own bucket list (source.common.plaid_categorize), OR a person's own
+    category_rules override added/edited/deleted on the Setup page, apply
+    to transactions already sitting in the database, not just ones synced
+    from here on. Called once from source.common.db._migrate_schema on
     every app startup (cheap and idempotent for a single-user database's
-    transaction volume), so a person never has to do anything to pick up
-    a broader/renamed category bucket. A manually-set category is never
-    touched -- same protection update_plaid_transaction_category always
-    gets. Returns how many rows were actually changed."""
+    transaction volume) AND right after any category_rules change (see
+    dashboard._handle_category_rule_save/_delete), so a person never has
+    to do anything to pick up a broader/renamed category bucket. A
+    manually-set category is never touched -- same protection
+    update_plaid_transaction_category always gets. Returns how many rows
+    were actually changed."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT transaction_id, category, plaid_category_primary, plaid_category_detailed, merchant_name, name "
             "FROM plaid_transactions WHERE category_edited_by_user = 0"
         ).fetchall()
+        overrides = load_active_overrides()
         now = _now()
         changed = 0
         for row in rows:
             new_category = default_category(
                 row["plaid_category_primary"], row["plaid_category_detailed"],
-                row["merchant_name"] or row["name"],
+                row["merchant_name"] or row["name"], overrides=overrides,
             )
             if new_category != row["category"]:
                 conn.execute(

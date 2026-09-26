@@ -44,14 +44,17 @@ def _item_products(item_row: dict) -> set:
     return {p.strip() for p in (item_row.get("products") or "").split(",") if p.strip()}
 
 
-def _transaction_to_dict(t: dict) -> dict:
+def _transaction_to_dict(t: dict, *, category_overrides: dict | None = None) -> dict:
     """Flattens one Plaid Transaction (already .to_dict()'d) into the
     plain dict source.common.db.transactions.upsert_plaid_transaction
     expects -- Plaid's own fields plus this row's *default*
     category/excluded_from_expense, computed fresh from Plaid's
     personal_finance_category every time (upsert_plaid_transaction is
     what actually decides whether to keep a manual override instead --
-    this function never knows or cares whether one exists)."""
+    this function never knows or cares whether one exists). category_
+    overrides is source.common.db.category_rules.load_active_overrides()'s
+    own shape -- see default_category's own docstring -- loaded once per
+    sync pass by this function's caller rather than once per transaction."""
     pfc = t.get("personal_finance_category") or {}
     primary = pfc.get("primary")
     detailed = pfc.get("detailed")
@@ -66,7 +69,9 @@ def _transaction_to_dict(t: dict) -> dict:
         "pending": bool(t.get("pending")),
         "plaid_category_primary": primary,
         "plaid_category_detailed": detailed,
-        "category": default_category(primary, detailed, t.get("merchant_name") or t.get("name")),
+        "category": default_category(
+            primary, detailed, t.get("merchant_name") or t.get("name"), overrides=category_overrides,
+        ),
         "excluded_from_expense": default_excluded_from_expense(primary, detailed),
     }
 
@@ -83,6 +88,7 @@ def _sync_transactions_for_item(item_row: dict, client, access_token: str) -> in
     already does for "auth"/"investments"."""
     item_key = item_row["item_key"]
     cursor = db.get_transactions_cursor(item_key)
+    category_overrides = db.load_active_overrides()
     count = 0
     has_more = True
     while has_more:
@@ -92,7 +98,9 @@ def _sync_transactions_for_item(item_row: dict, client, access_token: str) -> in
         )
         response = client.transactions_sync(request).to_dict()
         for t in response.get("added", []) + response.get("modified", []):
-            db.upsert_plaid_transaction(item_key=item_key, transaction=_transaction_to_dict(t))
+            db.upsert_plaid_transaction(
+                item_key=item_key, transaction=_transaction_to_dict(t, category_overrides=category_overrides),
+            )
             count += 1
         removed_ids = [r["transaction_id"] for r in response.get("removed", [])]
         if removed_ids:

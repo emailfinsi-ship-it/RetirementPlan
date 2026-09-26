@@ -115,17 +115,61 @@ _NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
-def _guess_category_from_name(name: str | None) -> str | None:
+def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, str]] | None = None) -> str | None:
     text = (name or "").strip().lower()
     if not text:
         return None
+    # User-added keyword rules (source.common.db.category_rules) are
+    # checked first, in the order they were added, so a person's own
+    # rule always wins over a built-in one that might also match the
+    # same text -- see default_category's own docstring for why this
+    # function takes them as a parameter instead of importing the db
+    # itself.
+    for keyword, category in extra_keywords or ():
+        if keyword in text:
+            return category
     for keywords, category in _NAME_KEYWORDS:
         if any(keyword in text for keyword in keywords):
             return category
     return None
 
 
-def default_category(primary: str | None, detailed: str | None, name: str | None = None) -> str:
+# The three kinds of rule source.common.db.category_rules stores --
+# duplicated here (not imported from there) to keep this module's "no
+# db import" guarantee (see module docstring): both sides just need to
+# agree on the same three strings, and a db module importing a constant
+# from this pure-helpers module is the direction that's actually safe.
+RULE_TYPES = ("primary", "detailed", "keyword")
+
+
+def list_built_in_rules() -> list[dict]:
+    """This module's own hardcoded rollup rules, flattened into the same
+    shape as source.common.db.category_rules.list_category_rules() rows
+    (minus id/timestamps), purely for read-only display -- the Setup
+    page's "Category rules" card shows these alongside a person's own
+    saved overrides so it's clear what's already covered by default
+    before adding a new rule. A keyword rule here shows its first keyword
+    as a representative match_key with the rest appended to the category
+    label, since the built-in list groups several keywords under one
+    category (unlike a saved override, which is always one keyword per
+    row) -- this function never needs to round-trip back into
+    default_category, just to be readable on a page."""
+    rules = []
+    for key, category in _BROAD_CATEGORY_BY_PRIMARY.items():
+        rules.append({"rule_type": "primary", "match_key": key, "category": category})
+    for key, category in _BROAD_CATEGORY_DETAILED_OVERRIDES.items():
+        rules.append({"rule_type": "detailed", "match_key": key, "category": category})
+    for keywords, category in _NAME_KEYWORDS:
+        rules.append({"rule_type": "keyword", "match_key": ", ".join(keywords), "category": category})
+    return rules
+
+
+def default_category(
+    primary: str | None,
+    detailed: str | None,
+    name: str | None = None,
+    overrides: dict | None = None,
+) -> str:
     """A readable starting category from Plaid's own
     personal_finance_category, rolled up into a short list of broad
     buckets (see _BROAD_CATEGORY_BY_PRIMARY/_BROAD_CATEGORY_DETAILED_
@@ -138,14 +182,33 @@ def default_category(primary: str | None, detailed: str | None, name: str | None
     value shown in the Category column/datalist -- like every other
     category field in this app, it's free text with no fixed enum, so a
     person can retype it to anything via the Real Expenditure page's
-    bulk-classify bar."""
+    bulk-classify bar.
+
+    `overrides`, when given, is source.common.db.category_rules.
+    load_active_overrides()'s own shape: {"primary": {KEY: category},
+    "detailed": {KEY: category}, "keywords": [(keyword, category), ...]}
+    -- a person's own rules (Setup page's "Category rules" card), always
+    checked BEFORE the matching built-in table/list below, so a custom
+    rule always wins over a built-in one that would otherwise also
+    match. Optional and defaults to none, so every existing caller that
+    hasn't been taught about user overrides yet keeps working exactly as
+    before."""
+    overrides = overrides or {}
+    override_primary = overrides.get("primary") or {}
+    override_detailed = overrides.get("detailed") or {}
+    override_keywords = overrides.get("keywords") or []
+
     primary_key = (primary or "").strip().upper()
     detailed_key = (detailed or "").strip().upper()
+    if detailed_key in override_detailed:
+        return override_detailed[detailed_key]
+    if primary_key in override_primary:
+        return override_primary[primary_key]
     if detailed_key in _BROAD_CATEGORY_DETAILED_OVERRIDES:
         return _BROAD_CATEGORY_DETAILED_OVERRIDES[detailed_key]
     if primary_key in _BROAD_CATEGORY_BY_PRIMARY:
         return _BROAD_CATEGORY_BY_PRIMARY[primary_key]
-    guessed = _guess_category_from_name(name)
+    guessed = _guess_category_from_name(name, override_keywords)
     if guessed:
         return guessed
     return "Uncategorized"
