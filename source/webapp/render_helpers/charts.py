@@ -145,25 +145,35 @@ def _donut_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *,
 _LINE_CHART_COLOR = _DONUT_COLORS[0]
 
 
-def _line_chart_html(title: str, points: list[tuple[str, float]], *, note: str = "") -> str:
+_DEFAULT_LINE_CHART_EMPTY_MESSAGE = (
+    "Come back after this program has been opened (or synced) on a couple of different days "
+    "to see a trend here -- one data point isn't a line yet."
+)
+
+
+def _line_chart_html(
+    title: str, points: list[tuple[str, float]], *, note: str = "",
+    empty_message: str = _DEFAULT_LINE_CHART_EMPTY_MESSAGE,
+) -> str:
     """A single-series trend line -- change-over-time, unlike the part-
     to-whole donut/bar charts above (dataviz skill: a trend belongs on
     one axis, read left-to-right, not ranked by magnitude). Currently
-    only the Summary tab's net-worth-over-time card uses this (source.
-    common.db.net_worth_snapshots), so it's deliberately minimal: no
-    click-to-filter (there's no table of individual snapshots to filter
-    down to), evenly-spaced x positions (points are typically one per
-    calendar day the app was opened, so real date-proportional spacing
-    would mostly just reproduce even spacing anyway), and direct labels
-    only at the first/last point plus one hover tooltip per point rather
-    than a label on every point (dataviz skill: selective direct labels,
+    only the Asset tab's net-worth-over-time card uses this (source.
+    common.db.net_worth_snapshots, reduced to one point per calendar
+    month -- see source.webapp.pages.asset._monthly_net_worth_points),
+    so it's deliberately minimal: no click-to-filter (there's no table
+    of individual snapshots to filter down to), evenly-spaced x
+    positions (real date-proportional spacing would mostly just
+    reproduce even spacing anyway for points that are roughly evenly
+    spread over time), and direct labels only at the first/last point
+    plus one hover tooltip per point rather than a label on every point
+    (dataviz skill: selective direct labels,
     never one on every mark)."""
     if len(points) < 2:
         return (
             f'<div class="card" style="flex:1 1 480px;">'
             f'<h3 style="margin-top:0; font-size:13px;">{html.escape(title)}</h3>'
-            '<p class="muted">Come back after this program has been opened (or synced) on a couple of '
-            'different days to see a trend here -- one data point isn\'t a line yet.</p></div>'
+            f'<p class="muted">{html.escape(empty_message)}</p></div>'
         )
     width, height = 640, 180
     pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 22

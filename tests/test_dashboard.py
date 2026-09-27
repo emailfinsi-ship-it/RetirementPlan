@@ -4083,26 +4083,20 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
         self.assertNotIn("enableTransactionsForItem('has_transactions')", body)
 
 
-class TestSummaryPageNetWorthHistory(DashboardTestCase):
+class TestAssetPageNetWorthHistory(DashboardTestCase):
+    """Moved here from the Summary tab (see source.webapp.pages.asset's
+    _monthly_net_worth_points) -- also covers the reduction from the
+    net_worth_snapshots table's one-row-per-day storage down to the
+    chart's one-point-per-calendar-month display. Storage itself stays
+    daily throughout (nothing in source.common.db.net_worth_snapshots
+    or source.reporting.aggregate.capture_net_worth_snapshot changed);
+    only what gets plotted is coarser."""
+
     def tearDown(self):
         with db.connect() as conn:
             conn.execute("DELETE FROM net_worth_snapshots")
 
-    def test_with_only_one_snapshot_shows_the_come_back_later_message(self):
-        with db.connect() as conn:
-            conn.execute("DELETE FROM net_worth_snapshots")
-        db.record_snapshot(
-            net_worth=100.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-01",
-        )
-        body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Net worth over time", body)
-        self.assertIn("isn't a line yet", body)
-
-    def test_with_two_or_more_snapshots_shows_the_trend_line_and_change(self):
-        with db.connect() as conn:
-            conn.execute("DELETE FROM net_worth_snapshots")
+    def test_summary_page_no_longer_has_this_card(self):
         db.record_snapshot(
             net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
             liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
@@ -4111,13 +4105,72 @@ class TestSummaryPageNetWorthHistory(DashboardTestCase):
         db.record_snapshot(
             net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
             liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-02",
+            snapshot_date="2026-10-01",
         )
         body = self._get("/summary.html").read().decode("utf-8")
+        self.assertNotIn("Net worth over time", body)
+
+    def test_with_snapshots_from_only_one_calendar_month_shows_the_come_back_later_message(self):
+        db.record_snapshot(
+            net_worth=100.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-01",
+        )
+        db.record_snapshot(
+            net_worth=105.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-15",
+        )
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("Net worth over time", body)
+        self.assertIn("Come back next month", body)
+        self.assertIn("one point per calendar month", body.lower())
+
+    def test_multiple_snapshots_in_the_same_month_collapse_to_that_months_latest_value(self):
+        db.record_snapshot(
+            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-01",
+        )
+        # A second, later snapshot in the SAME month -- should overwrite
+        # (not add to) September's point on the chart.
+        db.record_snapshot(
+            net_worth=999_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-20",
+        )
+        db.record_snapshot(
+            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-10-01",
+        )
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("<svg", body)
+        # September's point is the LATEST (09-20) value, $999,000 -- not
+        # the first (09-01) one, $100,000 (which shouldn't appear at all).
+        self.assertNotIn("$100,000.00", body)
+        self.assertIn("999,000.00", body)
+        # October ($110,000) down from September's $999,000 -- a big drop.
+        self.assertIn("-$889,000.00", body)
+        self.assertIn("2026-09", body)
+        self.assertIn("2026-10", body)
+
+    def test_two_or_more_distinct_months_show_the_trend_line_and_change(self):
+        db.record_snapshot(
+            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-09-01",
+        )
+        db.record_snapshot(
+            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date="2026-10-01",
+        )
+        body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn("<svg", body)
         self.assertIn("+$10,000.00", body)
-        self.assertIn("2026-09-01", body)
-        self.assertIn("2026-09-02", body)
+        self.assertIn("2026-09", body)
+        self.assertIn("2026-10", body)
 
 
 class TestBudgetVsActualRouting(DashboardTestCase):

@@ -21,6 +21,7 @@ from source.webapp.render_helpers import (
     _editable_select_cell,
     _editable_text_cell,
     _effective_balance_html,
+    _line_chart_html,
     _link_select_html,
     _money,
     _shell,
@@ -37,6 +38,33 @@ _TAX_TREATMENT_OPTIONS = (
     ("tax_deferred", "Tax-deferred (401k/Traditional)"),
     ("roth", "Roth (tax-free)"),
     ("taxable", "Taxable (brokerage)"),
+)
+
+
+def _monthly_net_worth_points(snapshots: list[dict]) -> list[tuple[str, float]]:
+    """Reduces source.common.db.net_worth_snapshots' one-row-per-day
+    history down to one point per calendar month, for the "Net worth
+    over time" chart below -- the LAST snapshot recorded in each month
+    (i.e. that month's most up to date net worth), labeled "YYYY-MM"
+    rather than a specific day since each point now represents a whole
+    month, not one day. This is a display-only reduction: capture
+    itself is untouched and still writes one row per day (see
+    source.reporting.aggregate.capture_net_worth_snapshot), same as
+    always -- nothing here changes what's stored, only what the chart
+    plots. Relies on list_net_worth_snapshots' own ORDER BY
+    snapshot_date (ascending), so simply overwriting each month's entry
+    as we go leaves the last (most recent) row for that month."""
+    by_month: dict[str, dict] = {}
+    for row in snapshots:
+        month = row["snapshot_date"][:7]  # "YYYY-MM-DD" -> "YYYY-MM"
+        by_month[month] = row
+    return [(month, row["net_worth"]) for month, row in sorted(by_month.items())]
+
+
+_NET_WORTH_CHART_EMPTY_MESSAGE = (
+    "Come back next month to see a trend here -- this chart plots one point per calendar month "
+    "(this program still captures a snapshot every time it's opened or synced, same as always; "
+    "there's just only one month's worth of it so far)."
 )
 
 
@@ -97,10 +125,19 @@ def _render_asset_page() -> str:
     asset_summary_html = _asset_category_summary_html(asset_category_subtotals, liability_total, net_liquid_asset)
     asset_rollup_html = _asset_rollup_summary_html(net_liquid_asset, real_estate_total)
 
+    net_worth_history_html = _line_chart_html(
+        "Net worth over time",
+        _monthly_net_worth_points(db.list_net_worth_snapshots()),
+        note="One point per calendar month (that month's latest value) -- captured automatically "
+        "every time this program is opened or synced, nothing to set up.",
+        empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
+    )
+
     body = f"""
 <h2 style="margin-top:0">Assets</h2>
 <p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In Monte Carlo?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
 {asset_rollup_html}
+{net_worth_history_html}
 {asset_summary_html}
 {asset_tables_html}
 {real_estate_line_html}
