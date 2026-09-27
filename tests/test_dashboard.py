@@ -4125,6 +4125,11 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         self.assertIn("Net worth over time", body)
         self.assertIn("Come back next month", body)
         self.assertIn("one point per calendar month", body.lower())
+        # Collapsed by default (no `open` attribute) -- nothing to look
+        # at yet besides the note, so it shouldn't claim a full card's
+        # worth of space at the top of the page until there's real data.
+        self.assertIn('<details class="card">', body)
+        self.assertNotIn("<details open", body)
 
     def test_multiple_snapshots_in_the_same_month_collapse_to_that_months_latest_value(self):
         db.record_snapshot(
@@ -4171,6 +4176,9 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         self.assertIn("+$10,000.00", body)
         self.assertIn("2026-09", body)
         self.assertIn("2026-10", body)
+        # Real data -- a plain always-open card, not the collapsed
+        # <details> the no-data-yet state above renders as.
+        self.assertNotIn("<details class=", body)
 
 
 class TestBudgetVsActualRouting(DashboardTestCase):

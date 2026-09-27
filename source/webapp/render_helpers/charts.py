@@ -170,10 +170,17 @@ def _line_chart_html(
     (dataviz skill: selective direct labels,
     never one on every mark)."""
     if len(points) < 2:
+        # A <details> disclosure, not the plain always-open card the real
+        # chart below renders as -- nothing to actually look at yet (just
+        # the "come back later" note), so it starts collapsed and stays
+        # out of the way rather than claiming a big empty-looking card's
+        # worth of space at the top of the page. Once there's real data,
+        # the branch below takes over and this collapsed state no longer
+        # applies -- nothing to remember to "re-expand".
         return (
-            f'<div class="card" style="flex:1 1 480px;">'
-            f'<h3 style="margin-top:0; font-size:13px;">{html.escape(title)}</h3>'
-            f'<p class="muted">{html.escape(empty_message)}</p></div>'
+            f'<details class="card">'
+            f'<summary style="font-size:13px; font-weight:650;">{html.escape(title)} <span class="muted" style="font-weight:500;">(no data yet)</span></summary>'
+            f'<p class="muted" style="margin-bottom:0;">{html.escape(empty_message)}</p></details>'
         )
     width, height = 640, 180
     pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 22

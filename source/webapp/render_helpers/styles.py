@@ -52,6 +52,17 @@ PAGE_CSS = """
   .tile .value { font-size: 21px; font-weight: 700; margin-top: 6px; color: var(--ink); }
   .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin: 14px 0;
     background: var(--surface); box-shadow: var(--shadow-sm); }
+  /* A <details>-based card (currently just _line_chart_html's "no data
+     yet" state) -- collapsed by default so a chart with nothing to show
+     yet doesn't claim a full card's worth of space; clicking the
+     summary line expands it to read the explanatory note underneath. */
+  details.card { padding: 12px 20px; }
+  details.card[open] { padding: 18px 20px; }
+  details.card > summary { cursor: pointer; list-style: none; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before { content: "\25b8  "; color: var(--ink-muted); font-size: 11px; }
+  details.card[open] > summary::before { content: "\25be  "; }
+  details.card > summary + p { margin-top: 8px; }
   form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
   form.inline label { display: flex; flex-direction: column; font-size: 11px; color: #555; gap: 3px; font-weight: 500; }
   form.inline input, form.inline select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
