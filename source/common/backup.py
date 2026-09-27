@@ -97,13 +97,26 @@ def create_backup(reason: str = "manual") -> Path | None:
 
 
 def _existing_backups(target_dir: Path) -> list[Path]:
+    """Only ever returns files that were still really there at the
+    moment this ran -- glob() itself only matches what's currently on
+    disk, but the gap between that and the stat() call below (needed to
+    sort by mtime) is a real window: source.webapp.dashboard.run() uses
+    a ThreadingHTTPServer, so one request's create_backup() (which
+    prunes old backups right after writing the new one) can delete a
+    file a concurrent request is in the middle of listing here. Rather
+    than letting a vanished file's stat() blow up the whole page with a
+    500, just leave it out -- it's not a real backup anymore either
+    way."""
     if not target_dir.exists():
         return []
-    return sorted(
-        target_dir.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    dated: list[tuple[Path, float]] = []
+    for p in target_dir.glob(f"{_FILENAME_PREFIX}*{_FILENAME_SUFFIX}"):
+        try:
+            dated.append((p, p.stat().st_mtime))
+        except FileNotFoundError:
+            continue
+    dated.sort(key=lambda pair: pair[1], reverse=True)
+    return [p for p, _ in dated]
 
 
 def _prune_backups(target_dir: Path) -> None:
@@ -114,16 +127,23 @@ def _prune_backups(target_dir: Path) -> None:
 def list_backups() -> list[dict]:
     """Newest first -- each entry has path/filename/size_bytes/
     modified_at, for the Setup page's Backups card (and for a future
-    in-app "restore" action, if this ever grows one)."""
-    return [
-        {
+    in-app "restore" action, if this ever grows one). Only ever lists
+    files that actually exist -- see _existing_backups' own docstring
+    on the concurrent-prune race this (and the second stat() call here,
+    guarded the same way) protects against."""
+    rows = []
+    for p in _existing_backups(backup_dir()):
+        try:
+            stat = p.stat()
+        except FileNotFoundError:
+            continue
+        rows.append({
             "path": str(p),
             "filename": p.name,
-            "size_bytes": p.stat().st_size,
-            "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(p.stat().st_mtime)),
-        }
-        for p in _existing_backups(backup_dir())
-    ]
+            "size_bytes": stat.st_size,
+            "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+        })
+    return rows
 
 
 def has_backup_today() -> bool:

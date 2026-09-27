@@ -123,6 +123,53 @@ class TestListBackups(TempConfigTestCase):
         self.assertIn("modified_at", entry)
         self.assertGreater(entry["size_bytes"], 0)
 
+    def test_a_file_deleted_between_glob_and_stat_is_left_out_not_a_500(self):
+        """Simulates the real race backup._existing_backups' docstring
+        describes: source.webapp.dashboard.run() uses a
+        ThreadingHTTPServer, so a concurrent create_backup() call's
+        prune step can delete a backup file after glob() has already
+        found it here, but before stat() runs on it (needed to sort by
+        mtime, and again for size_bytes/modified_at below) -- that
+        vanished file should just be left off the list, not blow up the
+        whole page with an unhandled FileNotFoundError."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        p1 = backup.create_backup(reason="first")
+        p2 = backup.create_backup(reason="second")
+        real_stat = Path.stat
+
+        def flaky_stat(self, *args, **kwargs):
+            if self == p1:
+                raise FileNotFoundError()
+            return real_stat(self, *args, **kwargs)
+
+        with patch.object(Path, "stat", flaky_stat):
+            entries = backup.list_backups()
+
+        self.assertEqual([e["filename"] for e in entries], [p2.name])
+
+    def test_existing_backups_also_tolerates_the_same_race(self):
+        """Same guard, one level down -- _existing_backups' own stat()
+        call (used for sorting) is exercised directly here rather than
+        through list_backups' second stat() call above."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        p1 = backup.create_backup(reason="first")
+        p2 = backup.create_backup(reason="second")
+        real_stat = Path.stat
+
+        def flaky_stat(self, *args, **kwargs):
+            if self == p1:
+                raise FileNotFoundError()
+            return real_stat(self, *args, **kwargs)
+
+        with patch.object(Path, "stat", flaky_stat):
+            remaining = backup._existing_backups(backup.backup_dir())
+
+        self.assertEqual(remaining, [p2])
+
 
 class TestEnsureDailyBackup(TempConfigTestCase):
     def test_first_call_of_the_day_creates_a_backup(self):
