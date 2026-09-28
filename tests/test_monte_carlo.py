@@ -11,6 +11,7 @@ from source.reporting.monte_carlo import (
     annual_expense_need,
     annual_income_need,
     annual_net_withdrawal_need,
+    deterministic_drawdown_schedule,
     effective_line_item_amount,
     estimate_annual_drawdown_tax,
     render_fan_svg,
@@ -1292,6 +1293,96 @@ class TestRunSensitivityAnalysis(unittest.TestCase):
         for row in result["rows"]:
             self.assertGreaterEqual(row["low_success_rate"], 0.0)
             self.assertLessEqual(row["high_success_rate"], 1.0)
+
+
+class TestDeterministicDrawdownSchedule(unittest.TestCase):
+    """deterministic_drawdown_schedule -- the Drawdown Planning tab's
+    single non-random year-by-year projection, built on the exact same
+    _apply_year_withdrawal engine run_simulation's pools= mode uses."""
+
+    def _assumptions(self, **overrides):
+        base = {
+            "expected_return": "0.0", "plan_horizon_years": "3", "current_year": "2027",
+            "annual_income_offset": "0", "apply_drawdown_tax": "0",
+        }
+        base.update(overrides)
+        return base
+
+    def test_result_shape(self):
+        pools = {"tax_deferred": 500_000, "roth": 200_000, "taxable": 300_000, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions())
+        self.assertEqual(result["years"], [2027, 2028, 2029])
+        self.assertEqual(len(result["rows"]), 3)
+        for row in result["rows"]:
+            for key in ("year", "age", "need", "rmd", "tax", "shortfall", "taxable", "tax_deferred", "roth", "real_estate", "total"):
+                self.assertIn(key, row)
+
+    def test_zero_return_zero_need_leaves_the_total_unchanged(self):
+        pools = {"tax_deferred": 500_000, "roth": 200_000, "taxable": 300_000, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions())
+        for row in result["rows"]:
+            self.assertAlmostEqual(row["total"], 1_000_000)
+
+    def test_expenses_draw_down_the_taxable_pool_first(self):
+        pools = {"tax_deferred": 500_000, "roth": 200_000, "taxable": 300_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=self._assumptions())
+        first = result["rows"][0]
+        self.assertEqual(first["tax_deferred"], 500_000)  # untouched -- taxable covers the need
+        self.assertEqual(first["taxable"], 250_000)
+        self.assertEqual(first["need"], 50_000)
+
+    def test_rmd_forced_once_birth_year_puts_the_owner_past_rmd_age(self):
+        pools = {"tax_deferred": 1_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=[], assumptions=self._assumptions(birth_year="1950"),
+        )
+        self.assertGreater(result["rows"][0]["rmd"], 0.0)
+
+    def test_no_birth_year_means_no_rmd(self):
+        pools = {"tax_deferred": 1_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions())
+        for row in result["rows"]:
+            self.assertEqual(row["rmd"], 0.0)
+
+    def test_positive_return_grows_the_balance_with_no_expenses(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 1_000_000, "real_estate": 0}
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=[], assumptions=self._assumptions(expected_return="0.05"),
+        )
+        self.assertAlmostEqual(result["rows"][0]["taxable"], 1_050_000)
+        self.assertAlmostEqual(result["rows"][0]["total"], 1_050_000)
+
+    def test_horizon_years_overrides_the_plan_horizon_assumption(self):
+        pools = {"tax_deferred": 100_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=[], assumptions=self._assumptions(plan_horizon_years="40"), horizon_years=5,
+        )
+        self.assertEqual(len(result["rows"]), 5)
+
+    def test_real_estate_is_drawn_last(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 500_000}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=self._assumptions())
+        first = result["rows"][0]
+        self.assertEqual(first["real_estate"], 450_000)
+
+    def test_shortfall_is_zero_when_pools_cover_the_need(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 10_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=self._assumptions())
+        self.assertEqual(result["rows"][0]["shortfall"], 0.0)
+
+    def test_shortfall_is_positive_once_every_pool_is_exhausted(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 5_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=self._assumptions())
+        self.assertGreater(result["rows"][0]["shortfall"], 0.0)
+
+    def test_expected_return_is_reported_back(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions(expected_return="0.07"))
+        self.assertAlmostEqual(result["expected_return"], 0.07)
 
 
 if __name__ == "__main__":

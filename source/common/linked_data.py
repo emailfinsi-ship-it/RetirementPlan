@@ -23,6 +23,48 @@ def _is_liability_type(typ) -> bool:
     return str(typ or "").strip().lower() in _LIABILITY_TYPES
 
 
+# Maps a linked Plaid investment account's own `subtype` to the tax
+# bucket it belongs in for retirement-drawdown purposes (source.
+# reporting.aggregate.effective_tax_treatment/_VALID_TAX_TREATMENTS) --
+# this is the exact signal the user asked to surface ("account sources
+# like Roth conversion, IRA, 401k for Fidelity, so we can plan asset
+# sources for Drawdown planning"): Plaid already reports this per
+# account (confirmed in this program's own synced data: 'brokerage',
+# 'stock plan', 'roth', 'ira', '401k', 'crypto exchange' all actually
+# occur), so a linked account never has to sit at the category-based
+# ("401k"/"liquid") guess a brand-new, never-tagged manual Asset-tab row
+# falls back to. Deliberately keyed on Plaid's own subtype strings
+# (lowercase, exactly as Plaid/this database returns them -- see
+# plaid_accounts.subtype), never a guess from the account's display
+# name, so an account named "IRA Rollover" that's actually a taxable
+# brokerage sub-account (or vice versa) is never mis-read. A subtype not
+# listed here (a brokerage, stock plan, crypto exchange, or anything
+# else Plaid reports) isn't a recognized tax-advantaged subtype --
+# detected_tax_treatment returns None for it, and every caller treats
+# that the same as "no detection, fall back to taxable/the category
+# default" rather than as an error.
+_SUBTYPE_TAX_TREATMENT = {
+    "401k": "tax_deferred",
+    "403b": "tax_deferred",
+    "457b": "tax_deferred",
+    "ira": "tax_deferred",
+    "sep ira": "tax_deferred",
+    "simple ira": "tax_deferred",
+    "profit sharing plan": "tax_deferred",
+    "pension": "tax_deferred",
+    "keogh": "tax_deferred",
+    "roth": "roth",
+    "roth 401k": "roth",
+}
+
+
+def detected_tax_treatment(subtype) -> str | None:
+    """The tax bucket implied by a linked Plaid account's own `subtype`
+    (see _SUBTYPE_TAX_TREATMENT above) -- None when subtype is blank or
+    isn't a recognized retirement-account subtype."""
+    return _SUBTYPE_TAX_TREATMENT.get(str(subtype or "").strip().lower())
+
+
 def linked_data_status() -> dict:
     items = db.list_plaid_items()
     last_synced = [i["last_synced_at"] for i in items if i["last_synced_at"]]
@@ -103,6 +145,19 @@ def linkable_accounts() -> list:
             "is_tokenized_account_number": bool(a["is_tokenized_account_number"]),
             "balance": _signed_balance(a),
             "last_update": a["updated_at"] or "",
+            # Raw Plaid type/subtype ("investment"/"401k", "depository"/
+            # "checking", ...) plus the tax bucket subtype implies, if
+            # any (detected_tax_treatment above) -- exposed here, not
+            # just on read_linked_account_balances(), so
+            # source.reporting.aggregate.build_summary/
+            # effective_tax_treatment can auto-fill a linked Asset-tab
+            # row's tax treatment from the very same live_by_account_id
+            # map it already builds from this function, and so the
+            # Drawdown Planning tab can bucket an investment account
+            # that was never manually added to the Asset tab at all.
+            "type": a["type"] or "",
+            "subtype": a["subtype"] or "",
+            "detected_tax_treatment": detected_tax_treatment(a["subtype"]),
         })
     return result
 

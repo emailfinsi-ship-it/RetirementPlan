@@ -23,6 +23,7 @@ NAV_ITEMS = (
     ("budget-vs-actual.html", "Budget vs Actual"),
     ("real-estate.html", "Real Estate Analysis"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
+    ("drawdown-planning.html", "Drawdown Planning"),
     ("setup.html", "Setup"),
 )
 

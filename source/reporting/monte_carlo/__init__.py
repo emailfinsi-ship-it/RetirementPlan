@@ -116,6 +116,9 @@ from source.reporting.monte_carlo.chart import (
     _money_short,
     render_fan_svg,
 )
+from source.reporting.monte_carlo.drawdown_schedule import (
+    deterministic_drawdown_schedule,
+)
 
 __all__ = [
     "annual_expense_need",
@@ -156,4 +159,5 @@ __all__ = [
     "_HISTORICAL_BAND_COLOR",
     "_money_short",
     "render_fan_svg",
+    "deterministic_drawdown_schedule",
 ]

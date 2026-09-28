@@ -30,15 +30,32 @@ _VALID_TAX_TREATMENTS = {"tax_deferred", "roth", "taxable"}
 _DEFAULT_TAX_TREATMENT_BY_CATEGORY = {"401k": "tax_deferred", "liquid": "taxable"}
 
 
-def effective_tax_treatment(row: dict) -> str:
+def effective_tax_treatment(row: dict, live_by_account_id: dict | None = None) -> str:
     """A retirement/liquid asset row's tax treatment for pool-splitting
-    purposes: whatever's explicitly stored, or a category-based default
-    for a row that's never been tagged. Always one of
-    _VALID_TAX_TREATMENTS -- never blank -- so every caller can switch
-    on the result without a None/"" case to handle."""
+    purposes: whatever's explicitly stored; failing that, whatever a
+    linked Plaid account's own subtype implies (source.common.
+    linked_data.detected_tax_treatment -- Roth/IRA/401k are reported by
+    Plaid itself, so a row linked to one of those never has to fall back
+    to a blind category guess); failing that, a category-based default
+    for a row that's never been tagged and isn't linked to a recognized
+    subtype. Always one of _VALID_TAX_TREATMENTS -- never blank -- so
+    every caller can switch on the result without a None/"" case to
+    handle.
+
+    `live_by_account_id` is optional (and keyed by account_id, e.g.
+    source.common.linked_data.linkable_accounts() reduced to a dict) --
+    omitted entirely, this behaves exactly as it always has (explicit
+    stored value, else the category default), which is what every
+    existing caller/test that doesn't pass it still gets."""
     explicit = (row.get("tax_treatment") or "").strip().lower()
     if explicit in _VALID_TAX_TREATMENTS:
         return explicit
+    if live_by_account_id:
+        linked_account_id = row.get("linked_account_id")
+        live = live_by_account_id.get(linked_account_id) if linked_account_id else None
+        detected = (live or {}).get("detected_tax_treatment")
+        if detected in _VALID_TAX_TREATMENTS:
+            return detected
     return _DEFAULT_TAX_TREATMENT_BY_CATEGORY.get((row.get("category") or "").strip().lower(), "taxable")
 
 
@@ -190,13 +207,16 @@ def build_summary() -> dict:
     # tax_deferred_total + roth_total + taxable_total always equals
     # retirement_liquid_total.
     tax_deferred_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows if effective_tax_treatment(a) == "tax_deferred"
+        effective_balance(a, live_by_account_id) for a in retirement_rows
+        if effective_tax_treatment(a, live_by_account_id) == "tax_deferred"
     )
     roth_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows if effective_tax_treatment(a) == "roth"
+        effective_balance(a, live_by_account_id) for a in retirement_rows
+        if effective_tax_treatment(a, live_by_account_id) == "roth"
     )
     taxable_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows if effective_tax_treatment(a) == "taxable"
+        effective_balance(a, live_by_account_id) for a in retirement_rows
+        if effective_tax_treatment(a, live_by_account_id) == "taxable"
     )
 
     # Any Plaid account a manual line item or real-estate row is now
@@ -239,6 +259,80 @@ def build_summary() -> dict:
         real_estate_equity(r, loan_balance=effective_loan_balance(r, live_by_account_id))
         for r in real_estate if r.get("include_in_monte_carlo")
     )
+
+    # Drawdown Planning tab support: "resources by tax criteria" for
+    # every dollar this program knows about, not just the manual
+    # Asset-tab rows checked "In Monte Carlo?" that retirement_pools
+    # above is built from. A live Plaid investment account (Fidelity's
+    # BrokerageLink, a 401(k), a Roth IRA, ...) that's never been added
+    # as its own Asset-tab row -- and so was never part of
+    # retirement_rows/retirement_pools at all, only ever counted once
+    # inside the single lumped linked_asset_total figure above -- is
+    # surfaced here on its own, bucketed by its own Plaid subtype
+    # (source.common.linked_data.detected_tax_treatment), so Roth/IRA/
+    # 401k money at an institution like Fidelity shows up correctly
+    # without requiring the extra manual step of linking it to an
+    # Asset-tab row first. Excludes anything in linked_account_ids (an
+    # account already linked to a manual asset/real-estate row) -- that
+    # money is already in retirement_pools/re_equity_total via its own
+    # row, so including it again here would double-count it, the exact
+    # same reasoning linked_asset_total above already follows.
+    unlinked_investment_accounts = [
+        v for account_id, v in live_by_account_id.items()
+        if account_id not in linked_account_ids and (v.get("type") or "").strip().lower() == "investment"
+    ]
+    drawdown_unlinked_totals = {"tax_deferred": 0.0, "roth": 0.0, "taxable": 0.0}
+    for acc in unlinked_investment_accounts:
+        bucket = acc.get("detected_tax_treatment") or "taxable"
+        drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + acc["balance"]
+
+    # The starting pools for the Drawdown Planning tab's year-by-year
+    # projection, and the numbers behind its snapshot tiles/chart: the
+    # same tax_deferred/roth/taxable/real_estate shape as
+    # retirement_pools (already net of liabilities -- see
+    # _pools_net_of_liabilities), plus the unlinked live investment
+    # accounts just bucketed above layered on top of each of the first
+    # three pools. real_estate is carried over unchanged (an unlinked
+    # investment account is never real estate).
+    drawdown_pools = dict(retirement_pools)
+    drawdown_pools["tax_deferred"] += drawdown_unlinked_totals["tax_deferred"]
+    drawdown_pools["roth"] += drawdown_unlinked_totals["roth"]
+    drawdown_pools["taxable"] += drawdown_unlinked_totals["taxable"]
+
+    # Per-source breakdown for the Drawdown Planning tab's own table --
+    # every manual retirement row (linked or not), every unlinked live
+    # investment account, and every opted-in real-estate row, each
+    # tagged with its own tax bucket and where that classification came
+    # from, so the user can see exactly what's feeding each pool above
+    # rather than only the totals.
+    drawdown_sources = []
+    for a in retirement_rows:
+        linked_account_id = a.get("linked_account_id")
+        live = live_by_account_id.get(linked_account_id) if linked_account_id else None
+        drawdown_sources.append({
+            "name": a.get("name") or "(unnamed asset)",
+            "institution": (live or {}).get("institution", ""),
+            "origin": "Linked account (Asset tab)" if live else "Manual entry (Asset tab)",
+            "tax_bucket": effective_tax_treatment(a, live_by_account_id),
+            "balance": effective_balance(a, live_by_account_id),
+        })
+    for acc in unlinked_investment_accounts:
+        drawdown_sources.append({
+            "name": acc["label"],
+            "institution": acc["institution"],
+            "origin": "Linked account (not on Asset tab)",
+            "tax_bucket": acc.get("detected_tax_treatment") or "taxable",
+            "balance": acc["balance"],
+        })
+    for r in real_estate:
+        if r.get("include_in_monte_carlo"):
+            drawdown_sources.append({
+                "name": r.get("name") or "(unnamed property)",
+                "institution": "",
+                "origin": "Real estate (opted in)",
+                "tax_bucket": "real_estate",
+                "balance": real_estate_equity(r, loan_balance=effective_loan_balance(r, live_by_account_id)),
+            })
 
     this_year = int(assumptions.get("current_year") or date.today().year)
     from source.reporting.monte_carlo import annual_expense_need, annual_income_need
@@ -292,6 +386,9 @@ def build_summary() -> dict:
         "asset_category_subtotals": asset_category_subtotals,
         "net_liquid_asset": net_liquid_asset,
         "retirement_pools": retirement_pools,
+        "drawdown_pools": drawdown_pools,
+        "drawdown_sources": drawdown_sources,
+        "drawdown_unlinked_total": sum(drawdown_unlinked_totals.values()),
         "total_asset": total_asset,
         "this_year": this_year,
         "this_year_expense_need": this_year_need,

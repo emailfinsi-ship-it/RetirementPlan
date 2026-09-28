@@ -346,6 +346,64 @@ class TestLinkableAccounts(TempConfigTestCase):
     def test_empty_when_nothing_linked(self):
         self.assertEqual(linked_data.linkable_accounts(), [])
 
+    def test_exposes_type_subtype_and_detected_tax_treatment(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fidelity", institution_id="ins_4",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-401k", "name": "APPLE 401(K) PLAN", "official_name": None,
+            "type": "investment", "subtype": "401k", "mask": "1111",
+            "balances": {"current": 250_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        accounts = linked_data.linkable_accounts()
+        self.assertEqual(accounts[0]["type"], "investment")
+        self.assertEqual(accounts[0]["subtype"], "401k")
+        self.assertEqual(accounts[0]["detected_tax_treatment"], "tax_deferred")
+
+    def test_detected_tax_treatment_is_none_for_a_brokerage_subtype(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fidelity", institution_id="ins_4",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "BrokerageLink", "official_name": None,
+            "type": "investment", "subtype": "brokerage", "mask": "2222",
+            "balances": {"current": 80_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        accounts = linked_data.linkable_accounts()
+        self.assertIsNone(accounts[0]["detected_tax_treatment"])
+
+
+class TestDetectedTaxTreatment(unittest.TestCase):
+    """source.common.linked_data.detected_tax_treatment on its own --
+    the raw subtype -> tax-bucket mapping, independent of the database
+    (see TestLinkableAccounts above for it exposed through a real
+    linked account)."""
+
+    def test_roth_subtype_maps_to_roth(self):
+        self.assertEqual(linked_data.detected_tax_treatment("roth"), "roth")
+
+    def test_401k_subtype_maps_to_tax_deferred(self):
+        self.assertEqual(linked_data.detected_tax_treatment("401k"), "tax_deferred")
+
+    def test_ira_subtype_maps_to_tax_deferred(self):
+        self.assertEqual(linked_data.detected_tax_treatment("ira"), "tax_deferred")
+
+    def test_is_case_and_whitespace_insensitive(self):
+        self.assertEqual(linked_data.detected_tax_treatment("  ROTH  "), "roth")
+
+    def test_brokerage_stock_plan_and_crypto_are_unrecognized(self):
+        self.assertIsNone(linked_data.detected_tax_treatment("brokerage"))
+        self.assertIsNone(linked_data.detected_tax_treatment("stock plan"))
+        self.assertIsNone(linked_data.detected_tax_treatment("crypto exchange"))
+
+    def test_blank_or_none_subtype_is_unrecognized(self):
+        self.assertIsNone(linked_data.detected_tax_treatment(""))
+        self.assertIsNone(linked_data.detected_tax_treatment(None))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -215,7 +215,7 @@ def _category_table_html(
             balance_cell if is_linked else _editable_number_cell("assets", a["id"], "balance", a["balance"])
         )
         tax_treatment_td = (
-            f'<td>{_editable_select_cell("assets", a["id"], "tax_treatment", effective_tax_treatment(a), _TAX_TREATMENT_OPTIONS)}</td>'
+            f'<td>{_editable_select_cell("assets", a["id"], "tax_treatment", effective_tax_treatment(a, live_by_account_id), _TAX_TREATMENT_OPTIONS)}</td>'
             if is_asset_table else ""
         )
         mc_td = (

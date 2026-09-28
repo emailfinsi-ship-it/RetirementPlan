@@ -302,6 +302,38 @@ class TestEffectiveTaxTreatment(unittest.TestCase):
     def test_case_insensitive(self):
         self.assertEqual(effective_tax_treatment({"category": "401K", "tax_treatment": "ROTH"}), "roth")
 
+    def test_live_by_account_id_omitted_behaves_exactly_as_before(self):
+        # No live_by_account_id argument at all -- every pre-existing
+        # caller/test that only ever passed one positional arg must keep
+        # getting exactly the old category-default behavior.
+        row = {"category": "Liquid", "tax_treatment": "", "linked_account_id": "acc-roth"}
+        self.assertEqual(effective_tax_treatment(row), "taxable")
+
+    def test_linked_accounts_detected_treatment_overrides_the_category_default(self):
+        # A Roth IRA linked on the Asset tab, filed under the "Liquid"
+        # category (its category is unrelated to tax status) and never
+        # manually tagged -- the account's own Plaid subtype ("roth")
+        # should win over the "Liquid" -> taxable category guess.
+        row = {"category": "Liquid", "tax_treatment": "", "linked_account_id": "acc-roth"}
+        live_by_account_id = {"acc-roth": {"detected_tax_treatment": "roth"}}
+        self.assertEqual(effective_tax_treatment(row, live_by_account_id), "roth")
+
+    def test_explicit_tax_treatment_still_wins_over_detection(self):
+        row = {"category": "Liquid", "tax_treatment": "taxable", "linked_account_id": "acc-roth"}
+        live_by_account_id = {"acc-roth": {"detected_tax_treatment": "roth"}}
+        self.assertEqual(effective_tax_treatment(row, live_by_account_id), "taxable")
+
+    def test_unlinked_row_falls_back_to_category_default_even_with_live_by_account_id(self):
+        row = {"category": "401k", "tax_treatment": "", "linked_account_id": None}
+        self.assertEqual(effective_tax_treatment(row, {}), "tax_deferred")
+
+    def test_linked_account_with_no_detection_falls_back_to_category_default(self):
+        # e.g. a linked brokerage account -- subtype isn't a recognized
+        # retirement-account subtype, so detected_tax_treatment is None.
+        row = {"category": "Liquid", "tax_treatment": "", "linked_account_id": "acc-brokerage"}
+        live_by_account_id = {"acc-brokerage": {"detected_tax_treatment": None}}
+        self.assertEqual(effective_tax_treatment(row, live_by_account_id), "taxable")
+
 
 class TestRetirementPools(TempConfigTestCase):
     """build_summary()'s tax_deferred_total/roth_total/taxable_total and
@@ -410,6 +442,98 @@ class TestRetirementPools(TempConfigTestCase):
         db.update_line_item("real_estate", r_id, {"include_in_monte_carlo": 1})
         s = build_summary()
         self.assertEqual(s["retirement_pools"]["real_estate"], 300_000)
+
+
+class TestDrawdownPlanning(TempConfigTestCase):
+    """build_summary()'s drawdown_pools/drawdown_sources/
+    drawdown_unlinked_total -- the Drawdown Planning tab's own numbers,
+    which extend retirement_pools with linked Plaid investment accounts
+    that were never added to the Asset tab at all (source.common.
+    linked_data.detected_tax_treatment, keyed off each account's own
+    Plaid subtype)."""
+
+    def _link_fidelity_roth(self, *, account_id="acc-roth", subtype="roth", balance=50_000.0):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fidelity", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": account_id, "name": "ROTH IRA", "official_name": "ROTH IRA",
+            "type": "investment", "subtype": subtype, "mask": "4321",
+            "balances": {"current": balance, "available": None, "iso_currency_code": "USD"},
+        })
+
+    def test_drawdown_pools_matches_retirement_pools_with_nothing_unlinked(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 100_000, "include_in_monte_carlo": 1})
+        s = build_summary()
+        self.assertEqual(s["drawdown_pools"], s["retirement_pools"])
+        self.assertEqual(s["drawdown_unlinked_total"], 0)
+
+    def test_an_unlinked_investment_account_is_added_to_its_detected_bucket(self):
+        # Fidelity Roth IRA, never added to the Asset tab at all -- the
+        # exact scenario the user asked for ("account sources like Roth
+        # conversion, IRA, 401k for fidelity").
+        self._link_fidelity_roth(balance=50_000.0)
+        s = build_summary()
+        self.assertEqual(s["drawdown_pools"]["roth"], 50_000.0)
+        self.assertEqual(s["drawdown_unlinked_total"], 50_000.0)
+        # retirement_pools itself is untouched -- it only ever reflects
+        # manual Asset-tab rows checked "In Monte Carlo?".
+        self.assertEqual(s["retirement_pools"]["roth"], 0.0)
+
+    def test_an_unlinked_investment_account_with_no_detected_subtype_defaults_to_taxable(self):
+        self._link_fidelity_roth(account_id="acc-brokerage", subtype="brokerage", balance=30_000.0)
+        s = build_summary()
+        self.assertEqual(s["drawdown_pools"]["taxable"], 30_000.0)
+
+    def test_an_account_already_linked_to_an_asset_row_is_not_double_counted(self):
+        self._link_fidelity_roth(balance=50_000.0)
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Roth", "balance": 1, "include_in_monte_carlo": 1})
+        db.update_line_item("assets", item_id, {"linked_account_id": "acc-roth"})
+        s = build_summary()
+        # Already inside retirement_pools (via effective_tax_treatment's
+        # own detection) -- must not also be added a second time as an
+        # "unlinked" account.
+        self.assertEqual(s["drawdown_unlinked_total"], 0)
+        self.assertEqual(s["drawdown_pools"]["roth"], 50_000.0)
+        self.assertEqual(s["retirement_pools"]["roth"], 50_000.0)  # auto-filled from the linked subtype too
+
+    def test_a_non_investment_linked_account_is_never_pulled_into_drawdown_pools(self):
+        # A checking/credit account isn't a retirement resource -- only
+        # type == "investment" accounts are eligible for the unlinked
+        # drawdown-pool treatment.
+        db.upsert_plaid_item(
+            item_key="chase", plaid_item_id="item-chase", institution_id="ins_2",
+            institution_name="Chase", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="chase", account={
+            "account_id": "acc-checking", "name": "Checking", "official_name": "Checking",
+            "type": "depository", "subtype": "checking", "mask": "5555",
+            "balances": {"current": 10_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        s = build_summary()
+        self.assertEqual(s["drawdown_unlinked_total"], 0)
+
+    def test_drawdown_sources_lists_manual_linked_and_real_estate_rows(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Manual 401k", "balance": 100_000, "include_in_monte_carlo": 1})
+        self._link_fidelity_roth(balance=50_000.0)
+        r_id = db.add_line_item("real_estate", {"name": "Cabin", "current_value": 300_000, "loan_balance": 0, "ownership_pct": 100})
+        db.update_line_item("real_estate", r_id, {"include_in_monte_carlo": 1})
+        s = build_summary()
+        names = {src["name"]: src for src in s["drawdown_sources"]}
+        self.assertEqual(names["Manual 401k"]["tax_bucket"], "tax_deferred")
+        self.assertEqual(names["Manual 401k"]["origin"], "Manual entry (Asset tab)")
+        self.assertEqual(names["ROTH IRA"]["tax_bucket"], "roth")
+        self.assertEqual(names["ROTH IRA"]["origin"], "Linked account (not on Asset tab)")
+        self.assertEqual(names["ROTH IRA"]["institution"], "Fidelity")
+        self.assertEqual(names["Cabin"]["tax_bucket"], "real_estate")
+        self.assertEqual(names["Cabin"]["balance"], 300_000)
+
+    def test_drawdown_sources_is_empty_with_no_data(self):
+        s = build_summary()
+        self.assertEqual(s["drawdown_sources"], [])
 
 
 class TestCategorySubtotals(unittest.TestCase):

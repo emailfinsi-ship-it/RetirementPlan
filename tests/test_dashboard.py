@@ -4372,5 +4372,67 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertIn("GENERAL_MERCHANDISE", body)
 
 
+class TestDrawdownPlanningPage(DashboardTestCase):
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+        for item_key in ("fidelity", "chase"):
+            db.delete_plaid_item(item_key)
+
+    def test_nav_includes_drawdown_planning_tab(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('href="/drawdown-planning.html"', body)
+
+    def test_page_loads_with_no_data_at_all(self):
+        resp = self._get("/drawdown-planning.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Drawdown planning", body)
+        self.assertIn("No retirement/liquid resources yet", body)
+
+    def test_shows_tiles_for_each_tax_bucket(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 200_000, "include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Tax-deferred (401k/Traditional)", body)
+        self.assertIn("Roth (tax-free)", body)
+        self.assertIn("Taxable (brokerage)", body)
+        self.assertIn("200,000.00", body)
+
+    def test_unlinked_fidelity_roth_account_shows_up_with_a_detected_roth_bucket(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fidelity", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-roth", "name": "ROTH IRA", "official_name": "ROTH IRA",
+            "type": "investment", "subtype": "roth", "mask": "1234",
+            "balances": {"current": 75_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("ROTH IRA", body)
+        self.assertIn("Fidelity", body)
+        self.assertIn("Linked account (not on Asset tab)", body)
+        self.assertIn("75,000.00", body)
+        # Roth appears both as the tile and the source table's Tax bucket cell.
+        self.assertIn("Roth (tax-free)", body)
+
+    def test_year_by_year_table_is_present_with_data(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Year-by-year withdrawal sequence", body)
+        self.assertIn("<th>Year</th>", body)
+        self.assertIn("<th>Age</th>", body)
+        self.assertIn("<th class=\"num\">RMD</th>", body)
+
+    def test_opted_in_real_estate_appears_as_its_own_source_row(self):
+        r_id = db.add_line_item("real_estate", {"name": "Cabin", "current_value": 300_000, "loan_balance": 0, "ownership_pct": 100})
+        db.update_line_item("real_estate", r_id, {"include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Cabin", body)
+        self.assertIn("Real estate (opted in)", body)
+
+
 if __name__ == "__main__":
     unittest.main()
