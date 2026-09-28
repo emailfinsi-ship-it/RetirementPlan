@@ -20,7 +20,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from source.reporting.monte_carlo.assumptions import _resolve_birth_year, _resolve_gains_fraction, _truthy_assumption
+from source.reporting.monte_carlo.assumptions import (
+    _resolve_birth_year,
+    _resolve_gains_fraction,
+    _resolve_retirement_year,
+    _truthy_assumption,
+)
 from source.reporting.monte_carlo.pools import _apply_year_withdrawal
 from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need
 
@@ -36,11 +41,17 @@ def deterministic_drawdown_schedule(
     net need (Income/Expense tab totals, same as every other simulation
     method) via the shared RMD/withdrawal-order/tax engine.
 
-    Returns {"years": [...], "rows": [...], "expected_return": float} --
-    each row is {"year", "age", "need", "rmd", "tax", "shortfall",
-    "taxable", "tax_deferred", "roth", "real_estate", "total"}, the
-    pool balances AFTER that year's growth and withdrawal (so `rows[-1]`
-    is the projection's ending balance by pool)."""
+    Returns {"years": [...], "rows": [...], "expected_return": float,
+    "retirement_year": int | None} -- each row is {"year", "age", "need",
+    "rmd", "tax", "shortfall", "taxable", "tax_deferred", "roth",
+    "real_estate", "total"}, the pool balances AFTER that year's growth
+    and withdrawal (so `rows[-1]` is the projection's ending balance by
+    pool).
+
+    When the "Retirement year" assumption is set
+    (_resolve_retirement_year), every year before it withdraws nothing
+    (see annual_net_withdrawal_need's own docstring) -- the pools still
+    grow at expected_return every year regardless, retired or not."""
     expected_return = float(assumptions.get("expected_return") or 0.06)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
     income_offset = float(assumptions.get("annual_income_offset") or 0)
@@ -50,6 +61,7 @@ def deterministic_drawdown_schedule(
     current_year = int(current_year_raw) if current_year_raw not in (None, "") else date.today().year
     birth_year = _resolve_birth_year(assumptions)
     gains_fraction = _resolve_gains_fraction(assumptions)
+    retirement_year = _resolve_retirement_year(assumptions)
 
     years = [current_year + i for i in range(horizon)]
     path_pools = {
@@ -62,7 +74,7 @@ def deterministic_drawdown_schedule(
     for year in years:
         for name in path_pools:
             path_pools[name] *= (1 + expected_return)
-        need = annual_net_withdrawal_need(expenses, income or [], year, inflation_rate, income_offset)
+        need = annual_net_withdrawal_need(expenses, income or [], year, inflation_rate, income_offset, retirement_year)
         age = (year - birth_year) if birth_year is not None else None
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
@@ -82,4 +94,4 @@ def deterministic_drawdown_schedule(
             "total": sum(path_pools.values()),
         })
 
-    return {"years": years, "rows": rows, "expected_return": expected_return}
+    return {"years": years, "rows": rows, "expected_return": expected_return, "retirement_year": retirement_year}

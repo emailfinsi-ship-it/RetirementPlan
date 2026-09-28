@@ -69,6 +69,7 @@ def annual_income_need(income: list, year: int, inflation_rate: float = 0.0) -> 
 
 def annual_net_withdrawal_need(
     expenses: list, income: list, year: int, inflation_rate: float = 0.0, income_offset: float = 0.0,
+    retirement_year: int | None = None,
 ) -> float:
     """The dollar amount a plan actually needs to withdraw for `year`:
     that year's inflation-adjusted Expense total minus its
@@ -79,7 +80,21 @@ def annual_net_withdrawal_need(
     that just wants the year-by-year withdrawal schedule itself (e.g.
     the Monte Carlo tab's Yearly Drawdown column) doesn't have to run a
     full simulation to get it -- it's scenario/return-independent, so it
-    only needs to be computed once per year, not once per path."""
+    only needs to be computed once per year, not once per path.
+
+    `retirement_year` (the "Retirement year" assumption --
+    source.reporting.monte_carlo.assumptions._resolve_retirement_year)
+    is None by default, leaving every existing caller that doesn't pass
+    it byte-for-byte unchanged. Passed an actual year, any `year` before
+    it returns 0.0 outright -- no portfolio withdrawal at all pre-
+    retirement, on the assumption that while still working, income
+    covers expenses (the Expense/Income tabs' own totals for those years
+    are simply not consulted, rather than netted and possibly landing on
+    a small positive number). RMDs are a separate mechanism
+    (source.reporting.monte_carlo.pools._apply_year_withdrawal) and are
+    NOT gated by this -- the IRS doesn't care whether you've retired."""
+    if retirement_year is not None and year < retirement_year:
+        return 0.0
     return (
         annual_expense_need(expenses, year, inflation_rate)
         - annual_income_need(income, year, inflation_rate)
@@ -89,7 +104,7 @@ def annual_net_withdrawal_need(
 
 def yearly_withdrawal_schedule(
     expenses: list, income: list, years: list, inflation_rate: float = 0.0, income_offset: float = 0.0,
-    apply_drawdown_tax: bool = True,
+    apply_drawdown_tax: bool = True, retirement_year: int | None = None,
 ) -> dict:
     """The full year-by-year withdrawal picture for a plan horizon,
     shared by every simulation method below (run_simulation,
@@ -98,13 +113,18 @@ def yearly_withdrawal_schedule(
     (scenario, year) pair -- none of this depends on a path's random
     returns or a scenario's running balance, only on the year itself.
     Returns three parallel lists (one entry per `years`):
-      needs  -- annual_net_withdrawal_need (Expense - Income - offset)
+      needs  -- annual_net_withdrawal_need (Expense - Income - offset,
+                0.0 for any year before `retirement_year`, if set)
       taxes  -- estimate_annual_drawdown_tax on that year's need (every
-                entry 0.0 when apply_drawdown_tax is False)
+                entry 0.0 when apply_drawdown_tax is False, or when that
+                year's need is already 0.0 pre-retirement)
       totals -- needs[i] + taxes[i]: the actual dollar amount every
                 simulated year withdraws from the balance
     """
-    needs = [annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset) for year in years]
+    needs = [
+        annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
+        for year in years
+    ]
     if apply_drawdown_tax:
         taxes = [estimate_annual_drawdown_tax(need, year, inflation_rate) for need, year in zip(needs, years)]
     else:

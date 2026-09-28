@@ -14,7 +14,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from source.reporting.monte_carlo.assumptions import _resolve_birth_year, _resolve_gains_fraction, _truthy_assumption
+from source.reporting.monte_carlo.assumptions import (
+    _resolve_birth_year,
+    _resolve_gains_fraction,
+    _resolve_retirement_year,
+    _truthy_assumption,
+)
 from source.reporting.monte_carlo.pools import _apply_year_withdrawal
 from source.reporting.monte_carlo.withdrawal import (
     annual_expense_need,
@@ -123,6 +128,7 @@ def run_historical_stress_test(
     # directly: yearly_total_expense[i] - yearly_income[i] - offset ==
     # yearly_needs[i], every year.
     yearly_total_expense = [annual_expense_need(expenses, year, inflation_rate) for year in years]
+    retirement_year = _resolve_retirement_year(assumptions)
 
     if pools is None:
         # Scenario/return-independent -- the same withdrawal schedule every
@@ -133,7 +139,9 @@ def run_historical_stress_test(
         # (yearly_total_withdrawal[i] is yearly_needs[i] plus that year's
         # estimated drawdown tax -- the amount actually subtracted from
         # the balance below.)
-        schedule = yearly_withdrawal_schedule(expenses, income, years, inflation_rate, income_offset, apply_drawdown_tax)
+        schedule = yearly_withdrawal_schedule(
+            expenses, income, years, inflation_rate, income_offset, apply_drawdown_tax, retirement_year,
+        )
         yearly_needs = schedule["needs"]
         yearly_tax = schedule["taxes"]
         yearly_total_withdrawal = schedule["totals"]
@@ -165,7 +173,10 @@ def run_historical_stress_test(
         # yearly_needs is still shared/scenario-independent (it doesn't
         # depend on returns or pool balances at all), but tax and total
         # withdrawal are not -- see the docstring above.
-        yearly_needs = [annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset) for year in years]
+        yearly_needs = [
+            annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
+            for year in years
+        ]
         yearly_tax = None
         yearly_total_withdrawal = None
         birth_year = _resolve_birth_year(assumptions)

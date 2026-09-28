@@ -62,14 +62,32 @@ def _sources_table_html(sources: list[dict]) -> str:
 """
 
 
+def _phase_cell_html(year: int, retirement_year: int | None) -> str:
+    """Blank when no Retirement year is set at all (nothing to show);
+    otherwise "Retirement" on the exact retirement year's own row (a
+    visual anchor so the table reads at a glance where the working/
+    retired split falls) and "Working"/"Retired" muted labels either
+    side of it."""
+    if retirement_year is None:
+        return ""
+    if year == retirement_year:
+        return '<td><strong>Retirement</strong></td>'
+    if year < retirement_year:
+        return '<td class="muted">Working</td>'
+    return '<td class="muted">Retired</td>'
+
+
 def _year_by_year_table_html(schedule: dict) -> str:
     rows = schedule["rows"]
+    retirement_year = schedule.get("retirement_year")
     if not rows:
         return '<p class="muted">No projection yet.</p>'
+    phase_th = '<th>Phase</th>' if retirement_year is not None else ""
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
-        f'<td class="num">{_money(r["need"])}</td>'
+        + _phase_cell_html(r["year"], retirement_year)
+        + f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
         f'<td class="num">{_money(r["taxable"])}</td>'
@@ -84,7 +102,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
     return f"""
 <div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th>Year</th><th>Age</th><th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
+<thead><tr><th>Year</th><th>Age</th>{phase_th}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
 <th class="num">Taxable</th><th class="num">Tax-deferred</th><th class="num">Roth</th><th class="num">Real estate</th>
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
@@ -133,6 +151,14 @@ def _render_drawdown_planning_page() -> str:
         ' <span class="muted">Set a Birth year in the Monte Carlo tab\'s Assumptions to also model Required '
         "Minimum Distributions (RMDs) once you reach RMD age.</span>"
     )
+    retirement_year = schedule.get("retirement_year")
+    retirement_year_note = (
+        f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year, marked '
+        "Retirement in the Phase column below) -- income is assumed to cover expenses until then.</span>"
+        if retirement_year is not None else
+        ' <span class="muted">Set a Retirement year on the Summary or Monte Carlo tab to skip withdrawals for '
+        "the years before you retire.</span>"
+    )
 
     body = f"""
 <h2 style="margin-top:0">Drawdown planning</h2>
@@ -149,7 +175,7 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
 set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
-pool once you reach RMD age.{rmd_note}</p>
+pool once you reach RMD age.{rmd_note}{retirement_year_note}</p>
 {_year_by_year_table_html(schedule)}
 """
     return _shell(title="Drawdown Planning", active="drawdown-planning.html", body=body)

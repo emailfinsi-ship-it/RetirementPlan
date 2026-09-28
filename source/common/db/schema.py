@@ -324,6 +324,14 @@ DEFAULT_ASSUMPTIONS = {
     # set", which simply skips RMD modeling rather than blocking the
     # rest of the simulation on it. See source.reporting.rmd.
     "birth_year": "",
+    # The calendar year retirement starts -- "" means "not set", which
+    # skips retirement-year gating entirely (every simulated year is
+    # eligible for a withdrawal, matching this program's behavior before
+    # this assumption existed). Set, it zeroes out the Monte Carlo/
+    # Drawdown Planning withdrawal need for every year before it (income
+    # is assumed to cover expenses pre-retirement) -- see
+    # source.reporting.monte_carlo.annual_net_withdrawal_need.
+    "retirement_year": "",
     # What fraction of a taxable-brokerage withdrawal is assumed to be
     # capital gain (vs. return of already-taxed cost basis) -- this
     # program doesn't track per-lot cost basis, so this is a deliberate,

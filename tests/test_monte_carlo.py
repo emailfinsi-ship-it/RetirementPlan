@@ -30,6 +30,7 @@ from source.reporting.monte_carlo import (
     _pool_year_tax,
     _resolve_birth_year,
     _resolve_gains_fraction,
+    _resolve_retirement_year,
     _simulate_fill,
     _stacked_bracket_tax,
 )
@@ -132,6 +133,28 @@ class TestAnnualNetWithdrawalNeed(unittest.TestCase):
         need = annual_net_withdrawal_need(expenses, income, 2030)
         self.assertEqual(need, -40_000)
 
+    def test_retirement_year_omitted_means_no_gating(self):
+        # Default (no retirement_year kwarg at all) -- every pre-existing
+        # caller/test above this one must keep computing the need
+        # exactly as before this parameter existed.
+        expenses = [{"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        self.assertEqual(annual_net_withdrawal_need(expenses, [], 2030), 60_000)
+
+    def test_year_before_retirement_year_needs_nothing(self):
+        expenses = [{"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        need = annual_net_withdrawal_need(expenses, [], 2030, retirement_year=2035)
+        self.assertEqual(need, 0.0)
+
+    def test_year_at_or_after_retirement_year_needs_the_usual_amount(self):
+        expenses = [{"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        self.assertEqual(annual_net_withdrawal_need(expenses, [], 2035, retirement_year=2035), 60_000)
+        self.assertEqual(annual_net_withdrawal_need(expenses, [], 2040, retirement_year=2035), 60_000)
+
+    def test_retirement_year_none_means_no_gating_explicitly(self):
+        expenses = [{"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        need = annual_net_withdrawal_need(expenses, [], 2000, retirement_year=None)
+        self.assertEqual(need, 60_000)
+
 
 class TestEstimateAnnualDrawdownTax(unittest.TestCase):
     """estimate_annual_drawdown_tax -- the federal + California income
@@ -213,6 +236,22 @@ class TestYearlyWithdrawalSchedule(unittest.TestCase):
         self.assertEqual(schedule["needs"][0], -40_000.0)
         self.assertEqual(schedule["taxes"][0], 0.0)
 
+    def test_retirement_year_omitted_means_no_gating(self):
+        expenses = [{"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None}]
+        schedule = yearly_withdrawal_schedule(expenses, [], [2026, 2027], apply_drawdown_tax=False)
+        self.assertEqual(schedule["needs"], [100_000.0, 100_000.0])
+
+    def test_retirement_year_zeroes_needs_and_taxes_before_it(self):
+        expenses = [{"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None}]
+        schedule = yearly_withdrawal_schedule(
+            expenses, [], [2026, 2027, 2028], apply_drawdown_tax=True, retirement_year=2028,
+        )
+        self.assertEqual(schedule["needs"], [0.0, 0.0, 100_000.0])
+        self.assertEqual(schedule["taxes"][0], 0.0)
+        self.assertEqual(schedule["taxes"][1], 0.0)
+        self.assertGreater(schedule["taxes"][2], 0.0)
+        self.assertEqual(schedule["totals"][0], 0.0)
+
 
 class TestResolveBirthYearAndGainsFraction(unittest.TestCase):
     def test_resolve_birth_year_blank_is_none(self):
@@ -233,6 +272,22 @@ class TestResolveBirthYearAndGainsFraction(unittest.TestCase):
         self.assertEqual(_resolve_gains_fraction({"taxable_gains_fraction": "0.25"}), 0.25)
         self.assertEqual(_resolve_gains_fraction({"taxable_gains_fraction": "5"}), 1.0)
         self.assertEqual(_resolve_gains_fraction({"taxable_gains_fraction": "-1"}), 0.0)
+
+
+class TestResolveRetirementYear(unittest.TestCase):
+    """_resolve_retirement_year -- same blank/garbage-is-None parsing
+    convention as _resolve_birth_year above, for the "Retirement year"
+    assumption that gates annual_net_withdrawal_need."""
+
+    def test_blank_or_missing_is_none(self):
+        self.assertIsNone(_resolve_retirement_year({"retirement_year": ""}))
+        self.assertIsNone(_resolve_retirement_year({}))
+
+    def test_parses_string(self):
+        self.assertEqual(_resolve_retirement_year({"retirement_year": "2035"}), 2035)
+
+    def test_garbage_is_none(self):
+        self.assertIsNone(_resolve_retirement_year({"retirement_year": "not-a-year"}))
 
 
 class TestStackedBracketTax(unittest.TestCase):
@@ -778,6 +833,67 @@ class TestRunSimulationWithPools(unittest.TestCase):
         self.assertGreater(result["median_ending_balance"], 300_000)  # still holds its own real estate share
 
 
+class TestRetirementYearGatesRunSimulation(unittest.TestCase):
+    """The "Retirement year" assumption plugged into run_simulation --
+    both the single-balance (legacy) mode and the three-pool mode --
+    zeroing out every simulated year's withdrawal before it."""
+
+    def _assumptions(self, **overrides):
+        base = {
+            "expected_return": "0.0", "return_volatility": "0.0", "iterations": "5",
+            "plan_horizon_years": "5", "current_year": "2026", "annual_income_offset": "0",
+            "apply_drawdown_tax": "0",
+        }
+        base.update(overrides)
+        return base
+
+    def test_single_balance_mode_withdraws_nothing_before_retirement_year(self):
+        expenses = [{"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None}]
+        assumptions = self._assumptions(retirement_year="2029")
+        result = run_simulation(
+            starting_balance=1_000_000, expenses=expenses, assumptions=assumptions, rng=random.Random(1),
+        )
+        # 0% return, 0% volatility -- every path is identical. Years
+        # 2026-2028 (before 2029) withdraw nothing; 2029 finally withdraws
+        # 100,000.
+        band = result["band"]
+        self.assertEqual([row["median"] for row in band[:3]], [1_000_000.0, 1_000_000.0, 1_000_000.0])
+        self.assertEqual(band[3]["median"], 900_000.0)
+
+    def test_single_balance_mode_with_no_retirement_year_withdraws_from_year_one(self):
+        expenses = [{"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None}]
+        assumptions = self._assumptions()
+        result = run_simulation(
+            starting_balance=1_000_000, expenses=expenses, assumptions=assumptions, rng=random.Random(1),
+        )
+        self.assertEqual(result["band"][0]["median"], 900_000.0)
+
+    def test_pools_mode_withdraws_nothing_before_retirement_year(self):
+        expenses = [{"name": "Baseline", "annual_amount": 100_000, "start_year": None, "end_year": None}]
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 1_000_000, "real_estate": 0}
+        assumptions = self._assumptions(retirement_year="2029")
+        result = run_simulation(
+            starting_balance=1_000_000, expenses=expenses, assumptions=assumptions, rng=random.Random(1), pools=pools,
+        )
+        band = result["band"]
+        self.assertEqual([row["median"] for row in band[:3]], [1_000_000.0, 1_000_000.0, 1_000_000.0])
+        self.assertEqual(band[3]["median"], 900_000.0)
+
+    def test_pools_mode_rmd_still_fires_before_retirement_year(self):
+        # A giant tax-deferred balance well past RMD age, retirement year
+        # still a few years off -- the IRS doesn't care whether you've
+        # retired, so the RMD (and its tax, if a birth year forces one)
+        # should still force money out before retirement_year even though
+        # the plan's own spending need is gated to 0 until then.
+        pools = {"tax_deferred": 2_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        assumptions = self._assumptions(retirement_year="2029", birth_year="1940", apply_drawdown_tax="1")
+        result = run_simulation(
+            starting_balance=2_000_000, expenses=[], assumptions=assumptions, rng=random.Random(1), pools=pools,
+        )
+        self.assertLess(result["band"][0]["median"], 2_000_000.0)
+        self.assertGreater(result["first_year_tax"], 0.0)
+
+
 class TestRunHistoricalBootstrapSimulation(unittest.TestCase):
     """The S&P 500 "historical bootstrap" Monte Carlo run alongside
     run_simulation()'s Gaussian one -- same withdrawal mechanics, but
@@ -1146,6 +1262,40 @@ class TestRunHistoricalStressTestWithPools(unittest.TestCase):
         )
 
 
+class TestRetirementYearGatesHistoricalStressTest(unittest.TestCase):
+    """Same "Retirement year" gating as run_simulation, plugged into
+    run_historical_stress_test -- legacy (pools=None) mode's shared
+    yearly_needs list and pools mode's per-scenario yearly_needs both
+    zero out before the retirement year."""
+
+    def test_legacy_mode_yearly_needs_are_zero_before_retirement_year(self):
+        expenses = [{"name": "Baseline", "annual_amount": 40_000, "start_year": None, "end_year": None}]
+        assumptions = {"plan_horizon_years": 4, "current_year": 2026, "retirement_year": "2029"}
+        result = run_historical_stress_test(starting_balance=1_000_000, expenses=expenses, assumptions=assumptions)
+        self.assertEqual(result["yearly_needs"], [0.0, 0.0, 0.0, 40_000.0])
+        # yearly_total_expense is un-netted (the raw Expense-tab total)
+        # and must NOT be gated -- only the withdrawal need itself is.
+        self.assertEqual(result["yearly_total_expense"], [40_000.0, 40_000.0, 40_000.0, 40_000.0])
+
+    def test_pools_mode_yearly_needs_are_zero_before_retirement_year(self):
+        expenses = [{"name": "Baseline", "annual_amount": 40_000, "start_year": None, "end_year": None}]
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 1_000_000}
+        assumptions = {
+            "plan_horizon_years": 4, "current_year": 2026, "retirement_year": "2029", "apply_drawdown_tax": "0",
+        }
+        result = run_historical_stress_test(
+            starting_balance=1_000_000, expenses=expenses, assumptions=assumptions, pools=pools,
+        )
+        self.assertEqual(result["yearly_needs"], [0.0, 0.0, 0.0, 40_000.0])
+        for sc in result["scenarios"]:
+            # Balance shouldn't move (beyond that year's own return) in
+            # the three gated years -- only the last year draws anything.
+            self.assertEqual(sc["yearly_total_withdrawal"][0], 0.0)
+            self.assertEqual(sc["yearly_total_withdrawal"][1], 0.0)
+            self.assertEqual(sc["yearly_total_withdrawal"][2], 0.0)
+            self.assertGreater(sc["yearly_total_withdrawal"][3], 0.0)
+
+
 class TestRenderFanSvg(unittest.TestCase):
     def test_empty_band_renders_a_placeholder_not_an_error(self):
         svg = render_fan_svg({"band": []})
@@ -1383,6 +1533,29 @@ class TestDeterministicDrawdownSchedule(unittest.TestCase):
         pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
         result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions(expected_return="0.07"))
         self.assertAlmostEqual(result["expected_return"], 0.07)
+
+    def test_retirement_year_is_reported_back(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions(retirement_year="2029"))
+        self.assertEqual(result["retirement_year"], 2029)
+
+    def test_retirement_year_unset_reports_none(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions())
+        self.assertIsNone(result["retirement_year"])
+
+    def test_no_withdrawal_before_the_retirement_year(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(plan_horizon_years="4", retirement_year="2029"),
+        )
+        rows = result["rows"]
+        # current_year=2027 -> years are 2027, 2028, 2029, 2030.
+        self.assertEqual([r["need"] for r in rows], [0.0, 0.0, 50_000.0, 50_000.0])
+        self.assertEqual(rows[0]["taxable"], 300_000.0)  # untouched -- 0% return, gated need
+        self.assertEqual(rows[1]["taxable"], 300_000.0)
+        self.assertEqual(rows[2]["taxable"], 250_000.0)
 
 
 if __name__ == "__main__":

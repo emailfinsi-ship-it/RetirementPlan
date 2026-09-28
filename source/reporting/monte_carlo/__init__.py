@@ -90,6 +90,7 @@ from source.reporting.monte_carlo.assumptions import (
     _percentile,
     _resolve_birth_year,
     _resolve_gains_fraction,
+    _resolve_retirement_year,
     _truthy_assumption,
 )
 from source.reporting.monte_carlo.simulation import (
@@ -142,6 +143,7 @@ __all__ = [
     "_percentile",
     "_resolve_birth_year",
     "_resolve_gains_fraction",
+    "_resolve_retirement_year",
     "_truthy_assumption",
     "_run_random_simulation",
     "run_historical_bootstrap_simulation",

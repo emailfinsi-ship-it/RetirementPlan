@@ -3281,7 +3281,10 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
         # -- and back to its real default (DEFAULT_ASSUMPTIONS'
         # "0.4"), not "", since an empty string isn't treated the same
         # as an absent key by _pct()'s .get(key, default).
-        db.set_assumptions({"birth_year": "", "taxable_gains_fraction": "0.4", "plan_horizon_years": 40, "current_year": ""})
+        db.set_assumptions({
+            "birth_year": "", "retirement_year": "", "taxable_gains_fraction": "0.4",
+            "plan_horizon_years": 40, "current_year": "",
+        })
 
     def test_pool_tiles_show_balances_by_tax_treatment(self):
         # 401k -> tax_deferred (category default), the row explicitly
@@ -3328,6 +3331,35 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         self.assertIn("drawn Taxable first, then Tax-deferred, then Roth last", body)
+
+    def test_retirement_year_field_defaults_blank_and_shows_a_nudge(self):
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('<label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="">', body)
+        self.assertIn("Set a Retirement year in Assumptions below", body)
+
+    def test_setting_retirement_year_persists_and_removes_the_nudge(self):
+        status, _ = self._post("/api/assumptions", {"retirement_year": "2035"})
+        self.assertEqual(status, 200)
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="2035"', body)
+        self.assertNotIn("Set a Retirement year in Assumptions below", body)
+        self.assertIn("No withdrawal happens in any simulated year before 2035", body)
+
+    def test_setting_retirement_year_zeroes_the_historical_stress_tests_shared_yearly_drawdown(self):
+        db.set_assumptions({"current_year": "2026", "plan_horizon_years": "3", "retirement_year": "2028", "apply_drawdown_tax": "0"})
+        resp = self._get("/monte-carlo.html")
+        body = resp.read().decode("utf-8")
+        # Year-by-year detail table columns are Year, Total Expense,
+        # Total Income, Yearly Drawdown -- 2026/2027 (before retirement)
+        # show a $0.00 Yearly Drawdown despite the real $60,000 Total
+        # Expense (that column isn't gated, only the net need is); 2028
+        # finally shows the real $60,000 Yearly Drawdown.
+        money0, money60k = dashboard._money(0), dashboard._money(60_000)
+        self.assertIn(f'<td>2026</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
+        self.assertIn(f'<td>2027</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
+        self.assertIn(f'<td>2028</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money60k}</td>', body)
 
 
 class TestHistoricalStressTestHtmlPerScenarioTax(unittest.TestCase):
@@ -4378,6 +4410,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         db.clear_section("real_estate")
         for item_key in ("fidelity", "chase"):
             db.delete_plaid_item(item_key)
+        db.set_assumptions({"retirement_year": "", "current_year": ""})
 
     def test_nav_includes_drawdown_planning_tab(self):
         resp = self._get("/summary.html")
@@ -4432,6 +4465,57 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("Cabin", body)
         self.assertIn("Real estate (opted in)", body)
+
+    def test_no_retirement_year_set_shows_no_phase_column(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertNotIn("<th>Phase</th>", body)
+        self.assertIn("Set a Retirement year on the Summary or Monte Carlo tab", body)
+
+    def test_retirement_year_set_adds_a_phase_column_marking_the_row(self):
+        db.set_assumptions({"current_year": "2026", "retirement_year": "2028"})
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("<th>Phase</th>", body)
+        self.assertIn('<td class="muted">Working</td>', body)
+        self.assertIn('<td><strong>Retirement</strong></td>', body)
+        self.assertIn('<td class="muted">Retired</td>', body)
+        self.assertIn("No withdrawal happens before 2028", body)
+
+
+class TestSummaryRetirementYearCard(DashboardTestCase):
+    """The Summary tab's own "Retirement year" card -- where the
+    assumption gets entered (per the user's own request), plus the
+    countdown tile and note reflecting it there."""
+
+    def tearDown(self):
+        db.set_assumptions({"retirement_year": "", "current_year": ""})
+
+    def test_not_set_shows_the_not_set_tile_and_note(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Retirement year", body)
+        self.assertIn("Not set", body)
+        self.assertIn("Monte Carlo, the historical stress test, and Drawdown Planning all withdraw", body)
+
+    def test_setting_it_here_persists_and_is_readable_from_monte_carlo_tab_too(self):
+        status, _ = self._post("/api/assumptions", {"retirement_year": "2040"})
+        self.assertEqual(status, 200)
+        summary_body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('value="2040"', summary_body)
+        mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn('name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="2040"', mc_body)
+
+    def test_countdown_tile_shows_years_until_retirement(self):
+        db.set_assumptions({"current_year": "2026", "retirement_year": "2036"})
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Years until retirement", body)
+        self.assertIn("<div class=\"value\">10</div>", body)
+
+    def test_countdown_tile_shows_years_into_retirement_once_past_it(self):
+        db.set_assumptions({"current_year": "2036", "retirement_year": "2026"})
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Years into retirement", body)
+        self.assertIn("<div class=\"value\">10</div>", body)
 
 
 if __name__ == "__main__":

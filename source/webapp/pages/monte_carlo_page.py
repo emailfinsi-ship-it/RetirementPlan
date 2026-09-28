@@ -13,6 +13,7 @@ import random
 
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import (
+    _resolve_retirement_year,
     render_fan_svg,
     run_historical_bootstrap_simulation,
     run_historical_stress_test,
@@ -114,6 +115,14 @@ def _render_monte_carlo_page() -> str:
         ' <span class="muted">Set a Birth year in Assumptions below to also model Required Minimum '
         "Distributions (RMDs) from the Tax-deferred pool once you reach RMD age.</span>"
     )
+    retirement_year = _resolve_retirement_year(assumptions)
+    retirement_year_note = (
+        f' <span class="muted">No withdrawal happens in any simulated year before {retirement_year} (your set '
+        "Retirement year) -- income is assumed to cover expenses until then.</span>"
+        if retirement_year is not None else
+        ' <span class="muted">Set a Retirement year in Assumptions below (or on the Summary tab) to skip '
+        "withdrawals entirely for the years before you retire.</span>"
+    )
 
     real_estate_pool_clause = (
         f' Plus {_money(re_pool)} of real estate equity opted in on the Real Estate Analysis tab, added as a '
@@ -128,7 +137,7 @@ def _render_monte_carlo_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Monte Carlo simulation</h2>
-<p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}</p>
+<p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
 <div class="tiles">{pool_tiles}</div>
 <div class="tiles">
   <div class="tile"><div class="label">Success rate</div><div class="value">{result['success_rate'] * 100:.0f}%</div></div>
@@ -161,11 +170,12 @@ def _render_monte_carlo_page() -> str:
   <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
   <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
   <label>Birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
+  <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
   <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>
   <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
-<p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
+<p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year (also editable from the Summary tab) zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
 """
     return _shell(title="Monte Carlo Simulation", active="monte-carlo.html", body=body)
 

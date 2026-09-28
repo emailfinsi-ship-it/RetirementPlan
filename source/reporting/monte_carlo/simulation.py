@@ -20,6 +20,7 @@ from source.reporting.monte_carlo.assumptions import (
     _percentile,
     _resolve_birth_year,
     _resolve_gains_fraction,
+    _resolve_retirement_year,
     _truthy_assumption,
 )
 from source.reporting.monte_carlo.pools import _apply_year_withdrawal
@@ -64,13 +65,16 @@ def _run_random_simulation(
     current_year = int(current_year_raw) if current_year_raw not in (None, "") else date.today().year
 
     years = [current_year + i for i in range(horizon)]
+    retirement_year = _resolve_retirement_year(assumptions)
 
     if pools is None:
         # Scenario/return-independent (see yearly_withdrawal_schedule) --
         # computed once per year, not once per (path, year) pair, both for
         # speed (iterations x horizon calls collapse to just horizon) and
         # because that's genuinely what every path withdraws that year.
-        schedule = yearly_withdrawal_schedule(expenses, income, years, inflation_rate, income_offset, apply_drawdown_tax)
+        schedule = yearly_withdrawal_schedule(
+            expenses, income, years, inflation_rate, income_offset, apply_drawdown_tax, retirement_year,
+        )
         withdrawals = schedule["totals"]
         paths = []
         depleted_count = 0
@@ -99,7 +103,10 @@ def _run_random_simulation(
         # path-dependent here.
         birth_year = _resolve_birth_year(assumptions)
         gains_fraction = _resolve_gains_fraction(assumptions)
-        needs = [annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset) for year in years]
+        needs = [
+            annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
+            for year in years
+        ]
         paths = []
         path_total_taxes = []
         path_first_year_taxes = []

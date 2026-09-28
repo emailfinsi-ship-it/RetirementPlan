@@ -8,7 +8,7 @@ import html
 import random
 
 from source.reporting.aggregate import build_summary
-from source.reporting.monte_carlo import render_fan_svg, run_simulation, stable_simulation_seed
+from source.reporting.monte_carlo import _resolve_retirement_year, render_fan_svg, run_simulation, stable_simulation_seed
 from source.webapp.render_helpers import (
     _asset_category_summary_html,
     _asset_rollup_summary_html,
@@ -106,6 +106,7 @@ def _render_summary_page() -> str:
         else "real estate equity, insurance cash value, and any unchecked Asset-tab row"
     )
     insight_html = _summary_insight_html(s)
+    retirement_year_html = _retirement_year_card_html(assumptions, s["this_year"])
     sync_html = (
         _sync_now_button_html(note='Pulls current balances (and holdings, for accounts that requested "investments") from Plaid.')
         if linked["configured"] else ""
@@ -120,6 +121,7 @@ def _render_summary_page() -> str:
 {asset_summary_html}
 </div>
 {insight_html}
+{retirement_year_html}
 <div class="card">
 <h2 style="margin-top:0">Data sources</h2>
 {import_line}
@@ -148,6 +150,58 @@ def _render_summary_page() -> str:
 </div>
 """
     return _shell(title="Summary", active="summary.html", body=body)
+
+def _retirement_year_card_html(assumptions: dict, this_year: int) -> str:
+    """The one place "Retirement year" gets entered -- stored as the same
+    `retirement_year` assumption source.reporting.monte_carlo.
+    _resolve_retirement_year reads (also editable from the Monte Carlo
+    tab's own Assumptions form, same shared-storage pattern as birth_year/
+    expected_return). Once set, it doesn't just sit here: Monte Carlo,
+    the historical stress test, and Drawdown Planning's year-by-year
+    projection all stop withdrawing from the portfolio for any year
+    before it (see annual_net_withdrawal_need's own docstring) -- this
+    card's note and the countdown tile below are what make that
+    "reflected everywhere" visible from the one place most people will
+    look first."""
+    retirement_year = _resolve_retirement_year(assumptions)
+    if retirement_year is None:
+        status_tile = ('<div class="tile"><div class="label">Retirement year</div><div class="value">Not set</div></div>')
+        note = (
+            'Not set yet -- Monte Carlo, the historical stress test, and Drawdown Planning all withdraw from '
+            'your portfolio starting this year, same as before this field existed. Set a year below to model '
+            'working (and living off income, not the portfolio) until then.'
+        )
+    else:
+        years_away = retirement_year - this_year
+        if years_away > 0:
+            countdown_label, countdown_value = "Years until retirement", str(years_away)
+        elif years_away == 0:
+            countdown_label, countdown_value = "Years until retirement", "This year"
+        else:
+            countdown_label, countdown_value = "Years into retirement", str(-years_away)
+        status_tile = (
+            f'<div class="tile"><div class="label">Retirement year</div><div class="value">{retirement_year}</div></div>'
+            f'<div class="tile"><div class="label">{countdown_label}</div><div class="value">{countdown_value}</div></div>'
+        )
+        note = (
+            f'Every simulated year before {retirement_year} withdraws nothing from the portfolio in Monte Carlo, '
+            'the historical stress test, and Drawdown Planning\'s year-by-year projection -- income is assumed to '
+            'cover expenses until then. Required Minimum Distributions (if a Birth year is set) still apply '
+            'regardless of this setting.'
+        )
+    return f"""
+<div class="card">
+<h2 style="margin-top:0">Retirement year</h2>
+<p class="muted">{note}</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/assumptions', {{retirement_year: this.retirement_year.value}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
+  <button type="submit" class="primary">Save</button>
+</form>
+<div class="tiles" style="margin-top:12px">{status_tile}</div>
+</div>
+"""
 
 def _safe_pct(numerator: float, denominator: float) -> str:
     """Formats numerator/denominator as a whole-number percent, "--" when

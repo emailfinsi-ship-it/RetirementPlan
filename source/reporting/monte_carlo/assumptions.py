@@ -21,6 +21,23 @@ def _resolve_birth_year(assumptions: dict) -> int | None:
 
 
 
+def _resolve_retirement_year(assumptions: dict) -> int | None:
+    """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year
+    above, for the "Retirement year" assumption -- None means "not set",
+    which every caller (annual_net_withdrawal_need and friends) treats
+    as "no retirement-year gating at all" (every simulated year is
+    eligible for a withdrawal, the original behavior), not as an error
+    or as "already retired"."""
+    raw = assumptions.get("retirement_year")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+
 def _resolve_gains_fraction(assumptions: dict) -> float:
     raw = assumptions.get("taxable_gains_fraction")
     if raw in (None, ""):
