@@ -107,6 +107,30 @@ class TestReadLinkedAccountBalances(TempConfigTestCase):
         # an error; the dashboard shows this as "Unclassified"/"Unknown".
         self.assertEqual(rows[0]["industry"], "")
 
+    def test_institution_is_the_items_real_name_not_the_account_label(self):
+        # Regression: this used to read the holding's own account row's
+        # Plaid `name` (e.g. "Individual Brokerage") as "institution" --
+        # wrong whenever that doesn't happen to read like a bank/brokerage
+        # name, and the reason the Linked Positions tab's Institution
+        # column/chart could disagree with the Linked Accounts tab (which
+        # always used the parent Item's real institution_name) for the
+        # very same account.
+        db.upsert_plaid_account(item_key="fidelity_401k", account={
+            "account_id": "acc-brokerage", "name": "Individual Brokerage",
+            "official_name": "Fidelity Brokerage Account",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 1500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity_401k", holding={
+            "account_id": "acc-brokerage", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 10,
+            "institution_price": 150, "institution_value": 1500, "cost_basis": 1000,
+            "iso_currency_code": "USD",
+        })
+        rows = linked_data.read_linked_portfolio_positions()
+        self.assertEqual(rows[0]["institution"], "Fidelity")  # from _seed_item's institution_name
+        self.assertEqual(rows[0]["account"], "Fidelity Brokerage Account")  # still the account's own label
+
     def test_read_portfolio_positions_includes_a_classified_industry(self):
         db.upsert_plaid_account(item_key="fidelity_401k", account={
             "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",

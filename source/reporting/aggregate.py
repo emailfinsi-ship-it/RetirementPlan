@@ -262,6 +262,15 @@ def build_summary() -> dict:
     this_year_income = annual_income_need(income_for_simulation, this_year, inflation_rate)
     this_year_net_need = this_year_need - this_year_income
 
+    # A second, forward-looking figure for the Summary page's "expense
+    # need" tile -- next_year is always this_year + 1, deliberately NOT a
+    # second read of assumptions.current_year, so nothing here can drift
+    # out of step with "this year" as computed above. Every other page
+    # (Monte Carlo, Income/Expense) keeps using this_year/current_year as
+    # "now" -- this is purely an additional number, not a redefinition.
+    next_year = this_year + 1
+    next_year_need = annual_expense_need(expenses, next_year, inflation_rate)
+
     return {
         "assets": assets,
         "real_estate": real_estate,
@@ -288,6 +297,8 @@ def build_summary() -> dict:
         "this_year_expense_need": this_year_need,
         "this_year_income": this_year_income,
         "this_year_net_need": this_year_net_need,
+        "next_year": next_year,
+        "next_year_expense_need": next_year_need,
         "import_status": {
             "last_import_at": db.get_meta("last_import_at"),
             "last_import_source": db.get_meta("last_import_source"),

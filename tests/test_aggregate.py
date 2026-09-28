@@ -97,6 +97,23 @@ class TestBuildSummary(TempConfigTestCase):
         self.assertEqual(s["this_year_net_need"], 300_000 - 103_000)
         self.assertEqual(s["income"][0]["name"], "Rental")
 
+    def test_next_year_expense_need_is_one_calendar_year_ahead(self):
+        # The Summary page's tile shows next year's projected need, not
+        # this year's -- next_year is always this_year + 1, computed
+        # independently of (and without altering) current_year/this_year,
+        # which every other page still treats as "now".
+        db.set_assumption("current_year", 2026)
+        db.set_assumption("inflation_rate", 0.03)
+        db.add_line_item("expenses", {
+            "name": "Fixed cost", "category": "Fixed", "annual_amount": 100_000,
+            "base_year": 2026, "inflates": 1,
+        })
+        s = build_summary()
+        self.assertEqual(s["this_year"], 2026)
+        self.assertEqual(s["next_year"], 2027)
+        self.assertAlmostEqual(s["this_year_expense_need"], 100_000 * 1.03 ** 0, places=2)
+        self.assertAlmostEqual(s["next_year_expense_need"], 100_000 * 1.03 ** 1, places=2)
+
     def test_income_for_simulation_excludes_an_unchecked_row(self):
         db.set_assumption("current_year", 2028)
         db.set_assumption("inflation_rate", 0.0)

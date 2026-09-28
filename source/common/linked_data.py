@@ -109,6 +109,15 @@ def linkable_accounts() -> list:
 
 def read_linked_portfolio_positions() -> list:
     accounts_by_id = {a["account_id"]: a for a in db.list_plaid_accounts()}
+    # Same fix as read_linked_account_balances()/linkable_accounts() above:
+    # "institution" has to come from the parent Item's own institution_name,
+    # not the holding's account row -- an account's Plaid `name` reads like
+    # "Individual Brokerage" or "Roth IRA", not a bank/brokerage name. Before
+    # this, this function used account.get("name") here, so the Linked
+    # Positions tab's Institution column/chart could show a totally
+    # different label than the Linked Accounts tab for the very same
+    # account (a real user-reported mismatch between the two tabs).
+    items_by_key = {i["item_key"]: i for i in db.list_plaid_items()}
     # Best-effort, Yahoo-Finance-classified industry per security_id
     # (source.collector.sync_industries) -- blank for anything not yet
     # classified (a fund/ETF, or an equity synced since the last "Sync
@@ -123,9 +132,10 @@ def read_linked_portfolio_positions() -> list:
     result = []
     for h in db.list_plaid_holdings():
         account = accounts_by_id.get(h["account_id"], {})
+        item = items_by_key.get(account.get("item_key"), {})
         result.append({
             "security_id": h["security_id"],
-            "institution": account.get("name") or "",
+            "institution": item.get("institution_name") or "",
             "account": account.get("official_name") or account.get("name") or "",
             "security_name": h["security_name"] or "",
             "ticker": h["ticker_symbol"] or "",

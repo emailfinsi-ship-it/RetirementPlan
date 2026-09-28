@@ -1945,13 +1945,18 @@ class TestLinkedPositionsPage(DashboardTestCase):
                 'data-market-value="1500.0"',
                 body,
             )
+            # "Charles Schwab" (the Item's real institution_name) -- not
+            # "Schwab" (the account row's own Plaid `name`). Deliberately
+            # different strings here so this test actually exercises the
+            # institution-vs-account-label distinction (see linked_data.
+            # read_linked_portfolio_positions' own comment on this).
             self.assertIn(
-                'data-type="Fixed Income" data-institution="Schwab" data-industry="Unknown" data-sector="Unknown" '
+                'data-type="Fixed Income" data-institution="Charles Schwab" data-industry="Unknown" data-sector="Unknown" '
                 'data-market-value="500.0"',
                 body,
             )
             self.assertIn('data-values="[&quot;Fixed Income&quot;]"', body)
-            self.assertIn('data-values="[&quot;Schwab&quot;]"', body)
+            self.assertIn('data-values="[&quot;Charles Schwab&quot;]"', body)
             # Two type slices => two distinct slice ids on the type chart.
             self.assertIn('data-slice-id="type-0"', body)
             self.assertIn('data-slice-id="type-1"', body)
@@ -2674,6 +2679,7 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
     def tearDown(self):
         db.clear_section("assets")
         db.clear_section("real_estate")
+        db.clear_section("expenses")
 
     def _seed(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity 401k", "balance": 100_000, "include_in_monte_carlo": 1})
@@ -2686,6 +2692,21 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         self._seed()
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertNotIn("Manual asset total", body)
+
+    def test_linked_account_balances_tile_is_gone(self):
+        self._seed()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertNotIn("Linked account balances", body)
+
+    def test_expense_need_tile_shows_next_years_projected_number(self):
+        db.set_assumption("current_year", 2026)
+        db.set_assumption("inflation_rate", 0.0)
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 300_000})
+        body = self._get("/summary.html").read().decode("utf-8")
+        # Shows 2027 (next year), not 2026 (this year) -- and does not
+        # also show a stale "2026 expense need" tile.
+        self.assertIn('<div class="label">2027 expense need</div><div class="value">$300,000.00</div>', body)
+        self.assertNotIn("2026 expense need", body)
 
     def test_net_liquid_asset_and_total_asset_tiles_are_present(self):
         self._seed()

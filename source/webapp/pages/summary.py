@@ -37,8 +37,7 @@ def _render_summary_page() -> str:
         ("Total Asset", _money(s["total_asset"])),
         ("Real estate equity", _money(s["real_estate_equity_total"])),
         ("Liabilities", _money(-s["liability_total"])),
-        ("Linked account balances", _money(s["linked_asset_total"])),
-        (f"{s['this_year']} expense need", _money(s["this_year_expense_need"])),
+        (f"{s['next_year']} expense need", _money(s["next_year_expense_need"])),
         ("Expected rate of return", f"{_pct(assumptions, 'expected_return', 0.06)}%"),
     ]
     tiles_html = "".join(
