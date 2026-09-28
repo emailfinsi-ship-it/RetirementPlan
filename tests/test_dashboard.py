@@ -4412,7 +4412,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         db.clear_section("real_estate")
         for item_key in ("fidelity", "chase"):
             db.delete_plaid_item(item_key)
-        db.set_assumptions({"retirement_year": "", "current_year": ""})
+        db.set_assumptions({"retirement_year": "", "current_year": "", "early_tax_deferred_age": "", "birth_year": ""})
 
     def test_nav_includes_drawdown_planning_tab(self):
         resp = self._get("/summary.html")
@@ -4515,6 +4515,28 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("Withdrawn: Real estate", body)
         self.assertIn("Ending: Taxable", body)
         self.assertIn("Ending: Tax-deferred", body)
+
+    def test_withdrawal_order_card_is_present_with_an_empty_field_by_default(self):
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Withdrawal order", body)
+        self.assertIn('name="early_tax_deferred_age"', body)
+        self.assertIn("Right now the plan uses the default order", body)
+
+    def test_setting_the_early_tax_deferred_age_persists_and_is_reflected_in_the_field(self):
+        status, _ = self._post("/api/assumptions", {"early_tax_deferred_age": "60"})
+        self.assertEqual(status, 200)
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn('name="early_tax_deferred_age" type="number" step="1" min="0" placeholder="e.g. 60" value="60"', body)
+        self.assertIn("Right now, spending draws Tax-deferred FIRST", body)
+
+    def test_setting_the_early_tax_deferred_age_changes_the_plan_and_table(self):
+        db.set_assumptions({"current_year": "2027", "birth_year": "1967", "early_tax_deferred_age": "60"})
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Brokerage", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("from Tax-deferred", body)
+        self.assertIn("Once you reach age 60, spending draws Tax-deferred first", body)
 
 
 class TestLegacyPlanningPage(DashboardTestCase):

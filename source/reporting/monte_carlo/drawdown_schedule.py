@@ -22,11 +22,12 @@ from datetime import date
 
 from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
+    _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal
 from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need
 
 
@@ -42,16 +43,23 @@ def deterministic_drawdown_schedule(
     method) via the shared RMD/withdrawal-order/tax engine.
 
     Returns {"years": [...], "rows": [...], "expected_return": float,
-    "retirement_year": int | None} -- each row is {"year", "age", "need",
-    "rmd", "tax", "shortfall", "taxable", "tax_deferred", "roth",
-    "real_estate", "total"}, the pool balances AFTER that year's growth
-    and withdrawal (so `rows[-1]` is the projection's ending balance by
-    pool).
+    "retirement_year": int | None, "early_tax_deferred_age": int | None}
+    -- each row is {"year", "age", "need", "rmd", "tax", "shortfall",
+    "taxable", "tax_deferred", "roth", "real_estate", "total"}, the pool
+    balances AFTER that year's growth and withdrawal (so `rows[-1]` is
+    the projection's ending balance by pool).
 
     When the "Retirement year" assumption is set
     (_resolve_retirement_year), every year before it withdraws nothing
     (see annual_net_withdrawal_need's own docstring) -- the pools still
-    grow at expected_return every year regardless, retired or not."""
+    grow at expected_return every year regardless, retired or not.
+
+    When the "Start drawing Tax-deferred at age" assumption is set
+    (_resolve_early_tax_deferred_age), every year from that age on draws
+    spending Tax-deferred FIRST instead of Taxable first (the plan's
+    default order otherwise) -- see pools._TAX_DEFERRED_FIRST_ORDER and
+    _apply_year_withdrawal's own `order` parameter. Left unset (the
+    default), this changes nothing."""
     expected_return = float(assumptions.get("expected_return") or 0.06)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
     income_offset = float(assumptions.get("annual_income_offset") or 0)
@@ -62,6 +70,7 @@ def deterministic_drawdown_schedule(
     birth_year = _resolve_birth_year(assumptions)
     gains_fraction = _resolve_gains_fraction(assumptions)
     retirement_year = _resolve_retirement_year(assumptions)
+    early_tax_deferred_age = _resolve_early_tax_deferred_age(assumptions)
 
     years = [current_year + i for i in range(horizon)]
     path_pools = {
@@ -76,9 +85,14 @@ def deterministic_drawdown_schedule(
             path_pools[name] *= (1 + expected_return)
         need = annual_net_withdrawal_need(expenses, income or [], year, inflation_rate, income_offset, retirement_year)
         age = (year - birth_year) if birth_year is not None else None
+        spend_order = (
+            _TAX_DEFERRED_FIRST_ORDER
+            if early_tax_deferred_age is not None and age is not None and age >= early_tax_deferred_age
+            else None
+        )
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
-            year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax,
+            year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
         )
         withdrawn = result["withdrawn"]
         rows.append({
@@ -106,4 +120,7 @@ def deterministic_drawdown_schedule(
             "total": sum(path_pools.values()),
         })
 
-    return {"years": years, "rows": rows, "expected_return": expected_return, "retirement_year": retirement_year}
+    return {
+        "years": years, "rows": rows, "expected_return": expected_return,
+        "retirement_year": retirement_year, "early_tax_deferred_age": early_tax_deferred_age,
+    }

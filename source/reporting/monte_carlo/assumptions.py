@@ -38,6 +38,23 @@ def _resolve_retirement_year(assumptions: dict) -> int | None:
 
 
 
+def _resolve_early_tax_deferred_age(assumptions: dict) -> int | None:
+    """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year
+    above, for the "Start drawing Tax-deferred at age" assumption --
+    None means "not set", which drawdown_schedule.py treats as "use the
+    default Taxable-first withdrawal order for the whole plan" (the
+    original behavior, unchanged unless a user explicitly opts in by
+    setting an age on the Drawdown Planning tab)."""
+    raw = assumptions.get("early_tax_deferred_age")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+
 def _resolve_gains_fraction(assumptions: dict) -> float:
     raw = assumptions.get("taxable_gains_fraction")
     if raw in (None, ""):

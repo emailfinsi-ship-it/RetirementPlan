@@ -332,6 +332,15 @@ DEFAULT_ASSUMPTIONS = {
     # is assumed to cover expenses pre-retirement) -- see
     # source.reporting.monte_carlo.annual_net_withdrawal_need.
     "retirement_year": "",
+    # Drawdown Planning tab -- the age spending switches to drawing
+    # Tax-deferred FIRST instead of Taxable first (401k/IRA withdrawals
+    # are already penalty-free from 59 1/2, well before RMDs would force
+    # them at 73/75). "" means "not set", which keeps the plan's default
+    # Taxable-first order for the whole horizon -- this only changes
+    # anything once the user explicitly opts in by setting an age. See
+    # source.reporting.monte_carlo.assumptions._resolve_early_tax_deferred_age
+    # and drawdown_schedule.deterministic_drawdown_schedule.
+    "early_tax_deferred_age": "",
     # What fraction of a taxable-brokerage withdrawal is assumed to be
     # capital gain (vs. return of already-taxed cost basis) -- this
     # program doesn't track per-lot cost basis, so this is a deliberate,

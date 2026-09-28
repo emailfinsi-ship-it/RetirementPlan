@@ -31,6 +31,7 @@ from source.reporting.monte_carlo import (
     _bracket_tax,
     _pool_year_tax,
     _resolve_birth_year,
+    _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_retirement_year,
     _simulate_fill,
@@ -299,6 +300,23 @@ class TestResolveRetirementYear(unittest.TestCase):
 
     def test_garbage_is_none(self):
         self.assertIsNone(_resolve_retirement_year({"retirement_year": "not-a-year"}))
+
+
+class TestResolveEarlyTaxDeferredAge(unittest.TestCase):
+    """_resolve_early_tax_deferred_age -- same blank/garbage-is-None
+    parsing convention as _resolve_birth_year/_resolve_retirement_year
+    above, for the "Start drawing Tax-deferred at age" assumption on the
+    Drawdown Planning tab."""
+
+    def test_blank_or_missing_is_none(self):
+        self.assertIsNone(_resolve_early_tax_deferred_age({"early_tax_deferred_age": ""}))
+        self.assertIsNone(_resolve_early_tax_deferred_age({}))
+
+    def test_parses_string(self):
+        self.assertEqual(_resolve_early_tax_deferred_age({"early_tax_deferred_age": "60"}), 60)
+
+    def test_garbage_is_none(self):
+        self.assertIsNone(_resolve_early_tax_deferred_age({"early_tax_deferred_age": "not-an-age"}))
 
 
 class TestStackedBracketTax(unittest.TestCase):
@@ -1633,6 +1651,49 @@ class TestDeterministicDrawdownSchedule(unittest.TestCase):
         self.assertEqual(rows[0]["taxable"], 300_000.0)  # untouched -- 0% return, gated need
         self.assertEqual(rows[1]["taxable"], 300_000.0)
         self.assertEqual(rows[2]["taxable"], 250_000.0)
+
+    def test_early_tax_deferred_age_is_reported_back(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions(early_tax_deferred_age="60"))
+        self.assertEqual(result["early_tax_deferred_age"], 60)
+
+    def test_early_tax_deferred_age_unset_reports_none(self):
+        pools = {"tax_deferred": 0, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(pools=pools, expenses=[], assumptions=self._assumptions())
+        self.assertIsNone(result["early_tax_deferred_age"])
+
+    def test_early_tax_deferred_age_draws_tax_deferred_before_taxable_once_reached(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(birth_year="1967", early_tax_deferred_age="60"),
+        )
+        # current_year=2027, birth_year=1967 -> age 60 in the very first row.
+        first = result["rows"][0]
+        self.assertEqual(first["age"], 60)
+        self.assertAlmostEqual(first["drawn_tax_deferred"], 50_000.0)
+        self.assertEqual(first["drawn_taxable"], 0.0)
+
+    def test_early_tax_deferred_age_left_unset_keeps_the_default_taxable_first_order(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(birth_year="1967"),
+        )
+        first = result["rows"][0]
+        self.assertAlmostEqual(first["drawn_taxable"], 50_000.0)
+        self.assertEqual(first["drawn_tax_deferred"], 0.0)
+
+    def test_early_tax_deferred_age_has_no_effect_before_the_threshold_is_reached(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(birth_year="1990", early_tax_deferred_age="60"),
+        )
+        # birth_year=1990, current_year=2027 -> age 37, nowhere near 60.
+        first = result["rows"][0]
+        self.assertAlmostEqual(first["drawn_taxable"], 50_000.0)
+        self.assertEqual(first["drawn_tax_deferred"], 0.0)
 
 
 class TestCombinedMarginalRate(unittest.TestCase):

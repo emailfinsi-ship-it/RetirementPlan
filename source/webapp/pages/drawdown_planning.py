@@ -62,6 +62,41 @@ def _sources_table_html(sources: list[dict]) -> str:
 """
 
 
+def _early_tax_deferred_card_html(assumptions: dict, early_tax_deferred_age: int | None) -> str:
+    """The selector for the "start withdrawing 401k/Tax-deferred early"
+    lever, per the user's own request ("if it makes sense we can start
+    withdraw of 401k from 60" -- "Can you add option to select and
+    see"). Unlike the Legacy Planning tab's own version of this idea
+    (a what-if comparison against several strategies, unrelated to this
+    plan's own actual numbers), setting an age here changes THIS page's
+    own "Your plan" callout and year-by-year table directly -- the plan
+    the user actually sees is the plan that reflects their choice."""
+    raw = assumptions.get("early_tax_deferred_age")
+    value = html.escape(str(raw)) if raw not in (None, "") else ""
+    status = (
+        f"Right now, spending draws Tax-deferred FIRST (instead of Taxable first) starting at age {early_tax_deferred_age} -- "
+        "see the plan and table below reflect it."
+        if early_tax_deferred_age is not None else
+        "Right now the plan uses the default order below -- Taxable first, Tax-deferred only once Taxable runs out -- "
+        "leave this blank to keep that."
+    )
+    return f"""
+<div class="card">
+<h3 style="font-size:13px; margin-top:0;">Withdrawal order</h3>
+<p class="muted">401k/IRA withdrawals are already penalty-free from age 59&#189;, well before Required Minimum
+Distributions would force them at 73 or 75. Set an age below to have this plan draw Tax-deferred money FIRST
+starting then, instead of waiting until Taxable runs out. {status}</p>
+<form class="inline" onsubmit="event.preventDefault();
+  var fields = {{}};
+  new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});
+  postJSON('/api/assumptions', fields).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Start drawing Tax-deferred at age<input name="early_tax_deferred_age" type="number" step="1" min="0" placeholder="e.g. 60" value="{value}"></label>
+  <button type="submit" class="primary">Save &amp; re-run</button>
+</form>
+</div>
+"""
+
+
 def _this_years_plan_html(rows: list[dict]) -> str:
     """A plain-language callout for the FIRST visible row -- "withdraw
     $X from here, $Y from there, this year" -- so the direct answer to
@@ -214,6 +249,12 @@ def _render_drawdown_planning_page() -> str:
         ' <span class="muted">Set a Retirement year on the Summary or Monte Carlo tab to skip withdrawals for '
         "the years before you retire.</span>"
     )
+    early_tax_deferred_age = schedule.get("early_tax_deferred_age")
+    early_tax_deferred_note = (
+        f' <span class="muted">Once you reach age {early_tax_deferred_age}, spending draws Tax-deferred first '
+        "instead of Taxable first (see the Withdrawal order card above).</span>"
+        if early_tax_deferred_age is not None else ""
+    )
 
     body = f"""
 <h2 style="margin-top:0">Drawdown planning</h2>
@@ -225,12 +266,13 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {donut}
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Resources by source</h3>
 {_sources_table_html(sources)}
+{_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 <h2>Year-by-year withdrawal sequence</h2>
 <p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
 set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
-pool once you reach RMD age.{rmd_note}{retirement_year_note}</p>
+pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
 {_year_by_year_table_html(schedule)}
 """

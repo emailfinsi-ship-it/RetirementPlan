@@ -89,6 +89,7 @@ from source.reporting.monte_carlo.pools import (
 from source.reporting.monte_carlo.assumptions import (
     _percentile,
     _resolve_birth_year,
+    _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
@@ -149,6 +150,7 @@ __all__ = [
     "_simulate_fill",
     "_percentile",
     "_resolve_birth_year",
+    "_resolve_early_tax_deferred_age",
     "_resolve_gains_fraction",
     "_resolve_retirement_year",
     "_truthy_assumption",
