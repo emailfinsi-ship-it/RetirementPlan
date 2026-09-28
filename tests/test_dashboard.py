@@ -2042,6 +2042,67 @@ class TestLinkedPositionsPage(DashboardTestCase):
                 conn.execute("DELETE FROM security_industries WHERE security_id = ?", ("sec-aapl",))
 
 
+class TestLinkedPositionsVestedValue(DashboardTestCase):
+    """A stock-plan holding (an employer RSU/ESPP grant) is reported by
+    Plaid at its FULL institution_value, unvested shares included, with
+    vested_value as a separate optional field the institution may or may
+    not provide -- the Linked Positions tab shows the vested-only figure
+    whenever it's present (see linked_data.read_linked_portfolio_positions'
+    own comment), with a small marker + tooltip so it doesn't just look
+    like the position silently shrank."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="etrade", plaid_item_id="item-etrade", institution_id="ins_1",
+            institution_name="E*TRADE from Morgan Stanley", products=["investments"],
+            environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="etrade", account={
+            "account_id": "acc-stockplan", "name": "Stock Plan (AAPL) -2013",
+            "type": "investment", "subtype": "stock plan", "mask": "2013",
+            "balances": {"current": 150_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+
+    def tearDown(self):
+        db.delete_plaid_item("etrade")
+
+    def test_market_value_shown_is_vested_only_with_a_marker_and_tooltip(self):
+        db.upsert_plaid_holding(item_key="etrade", holding={
+            "account_id": "acc-stockplan", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 1000,
+            "institution_price": 150, "institution_value": 150_000, "cost_basis": 100_000,
+            "vested_quantity": 400, "vested_value": 60_000,
+        })
+        body = self._get("/linked-positions.html").read().decode("utf-8")
+        self.assertIn("$60,000.00", body)  # the vested figure shown as the Market Value
+        self.assertIn("(vested)", body)
+        self.assertIn("full grant (incl. unvested) is $150,000.00", body)
+        # The unfiltered full grant total must not appear as the row's
+        # own displayed value/table total (it's only in the tooltip).
+        self.assertNotIn('>$150,000.00<', body)
+
+    def test_market_value_total_and_charts_use_the_vested_figure_too(self):
+        db.upsert_plaid_holding(item_key="etrade", holding={
+            "account_id": "acc-stockplan", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 1000,
+            "institution_price": 150, "institution_value": 150_000,
+            "vested_quantity": 400, "vested_value": 60_000,
+        })
+        body = self._get("/linked-positions.html").read().decode("utf-8")
+        self.assertIn('id="linked-positions-total">$60,000.00</td>', body)
+        self.assertIn('data-market-value="60000.0"', body)
+
+    def test_an_ordinary_holding_with_no_vested_split_shows_no_marker(self):
+        db.upsert_plaid_holding(item_key="etrade", holding={
+            "account_id": "acc-stockplan", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 1000,
+            "institution_price": 150, "institution_value": 150_000,
+        })
+        body = self._get("/linked-positions.html").read().decode("utf-8")
+        self.assertIn("$150,000.00", body)
+        self.assertNotIn("(vested)", body)
+
+
 class TestOtherTypeSubcategorization(DashboardTestCase):
     """Plaid's "security_type" folds a lot of distinct real-world holdings
     (REITs, private funds, etc.) into one generic "other" value -- the

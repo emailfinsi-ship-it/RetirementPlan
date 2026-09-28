@@ -142,7 +142,20 @@ def read_linked_portfolio_positions() -> list:
             "security_type": (h["security_type"] or "").replace("_", " ").title(),
             "industry": industries_by_security_id.get(h["security_id"]) or "",
             "manual_sector": sectors_by_security_id.get(h["security_id"]) or "",
-            "market_value": h["institution_value"] or 0.0,
+            # Plaid only ever populates vested_value for a stock-plan
+            # holding (an employer RSU/ESPP grant) whose institution
+            # actually reports the vested/unvested split -- NULL for
+            # every ordinary brokerage/401k holding, and even for some
+            # stock-plan holdings if the institution doesn't provide it.
+            # When it IS present, it's what's shown/summed/charted here
+            # as "market_value" instead of the raw institution_value
+            # (which is the FULL grant, unvested shares included) --
+            # total_value/is_vested_only are exposed alongside so the
+            # dashboard can still show the full total on hover rather
+            # than silently hiding it.
+            "market_value": (h["vested_value"] if h["vested_value"] is not None else h["institution_value"]) or 0.0,
+            "total_value": h["institution_value"] or 0.0,
+            "is_vested_only": h["vested_value"] is not None,
             "position_as_of": h["updated_at"] or "",
         })
     return result

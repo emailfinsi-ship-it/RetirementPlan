@@ -103,9 +103,53 @@ class TestReadLinkedAccountBalances(TempConfigTestCase):
         self.assertEqual(rows[0]["ticker"], "AAPL")
         self.assertEqual(rows[0]["market_value"], 1500.0)
         self.assertEqual(rows[0]["institution"], "Fidelity")
+        # An ordinary (non-stock-plan) holding never carries Plaid's
+        # vested_value -- market_value falls back to the plain
+        # institution_value, and total_value/is_vested_only reflect that.
+        self.assertEqual(rows[0]["total_value"], 1500.0)
+        self.assertFalse(rows[0]["is_vested_only"])
         # Not classified yet (no security_industries row) -- blank, not
         # an error; the dashboard shows this as "Unclassified"/"Unknown".
         self.assertEqual(rows[0]["industry"], "")
+
+    def test_market_value_uses_vested_value_when_plaid_provides_it(self):
+        # A stock-plan holding (an employer RSU/ESPP grant) is reported
+        # by Plaid at its FULL institution_value, unvested shares
+        # included, with vested_value as a separate, optional field --
+        # market_value here should prefer the vested-only figure, while
+        # total_value keeps the full grant so a caller can still show it.
+        db.upsert_plaid_account(item_key="fidelity_401k", account={
+            "account_id": "acc-stockplan", "name": "Stock Plan (AAPL) -2013",
+            "type": "investment", "subtype": "stock plan", "mask": "2013",
+            "balances": {"current": 1_352_943.76, "available": None, "iso_currency_code": "USD"},
+        })
+        db.upsert_plaid_holding(item_key="fidelity_401k", holding={
+            "account_id": "acc-stockplan", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 1000,
+            "institution_price": 150, "institution_value": 150_000, "cost_basis": 100_000,
+            "vested_quantity": 400, "vested_value": 60_000,
+        })
+        rows = linked_data.read_linked_portfolio_positions()
+        self.assertEqual(rows[0]["market_value"], 60_000)
+        self.assertEqual(rows[0]["total_value"], 150_000)
+        self.assertTrue(rows[0]["is_vested_only"])
+
+    def test_market_value_falls_back_to_institution_value_when_vested_value_is_explicitly_zero(self):
+        # 0.0 is a real, meaningful vested_value (nothing has vested
+        # yet), distinct from None ("Plaid doesn't provide this split") --
+        # must not be treated as falsy/missing.
+        db.upsert_plaid_account(item_key="fidelity_401k", account={
+            "account_id": "acc-stockplan", "name": "New Grant", "type": "investment",
+            "subtype": "stock plan", "mask": "9999", "balances": {"current": 50_000.0},
+        })
+        db.upsert_plaid_holding(item_key="fidelity_401k", holding={
+            "account_id": "acc-stockplan", "security_id": "sec-aapl", "ticker_symbol": "AAPL",
+            "security_name": "Apple Inc", "security_type": "equity", "quantity": 500,
+            "institution_price": 150, "institution_value": 75_000, "vested_quantity": 0, "vested_value": 0,
+        })
+        rows = linked_data.read_linked_portfolio_positions()
+        self.assertEqual(rows[0]["market_value"], 0.0)
+        self.assertTrue(rows[0]["is_vested_only"])
 
     def test_institution_is_the_items_real_name_not_the_account_label(self):
         # Regression: this used to read the holding's own account row's

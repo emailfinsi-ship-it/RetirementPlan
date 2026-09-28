@@ -217,20 +217,22 @@ def upsert_plaid_holding(*, item_key: str, holding: dict) -> None:
             """
             INSERT INTO plaid_holdings (item_key, account_id, security_id, ticker_symbol, security_name,
                                          security_type, quantity, institution_price, institution_value,
-                                         cost_basis, iso_currency_code, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         cost_basis, iso_currency_code, vested_quantity, vested_value, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, security_id) DO UPDATE SET
                 ticker_symbol=excluded.ticker_symbol, security_name=excluded.security_name,
                 security_type=excluded.security_type, quantity=excluded.quantity,
                 institution_price=excluded.institution_price, institution_value=excluded.institution_value,
                 cost_basis=excluded.cost_basis, iso_currency_code=excluded.iso_currency_code,
+                vested_quantity=excluded.vested_quantity, vested_value=excluded.vested_value,
                 updated_at=excluded.updated_at
             """,
             (
                 item_key, holding["account_id"], holding["security_id"], holding.get("ticker_symbol"),
                 holding.get("security_name"), holding.get("security_type"), holding.get("quantity"),
                 holding.get("institution_price"), holding.get("institution_value"), holding.get("cost_basis"),
-                holding.get("iso_currency_code"), _now(),
+                holding.get("iso_currency_code"), holding.get("vested_quantity"), holding.get("vested_value"),
+                _now(),
             ),
         )
 

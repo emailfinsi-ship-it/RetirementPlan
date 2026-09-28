@@ -84,3 +84,17 @@ def _migrate_schema(conn) -> None:
         # for the first time (see plaid_items.transactions_cursor's own
         # column comment in schema.py).
         conn.execute("ALTER TABLE plaid_items ADD COLUMN transactions_cursor TEXT")
+    existing_ph = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_holdings)").fetchall()}
+    if "vested_quantity" not in existing_ph:
+        # Plaid's own Holding object carries vested_quantity/vested_value
+        # for stock-plan accounts (an employer RSU/ESPP plan's holding is
+        # otherwise reported at its FULL quantity/value, unvested shares
+        # included) -- NULL for every pre-existing row and for any
+        # ordinary brokerage/401k holding, where Plaid never populates
+        # these fields in the first place. See linked_data.
+        # read_linked_portfolio_positions' own comment on how this is
+        # used: vested_value stands in for institution_value on the
+        # Linked Positions tab whenever it's present, not just here.
+        conn.execute("ALTER TABLE plaid_holdings ADD COLUMN vested_quantity REAL")
+    if "vested_value" not in existing_ph:
+        conn.execute("ALTER TABLE plaid_holdings ADD COLUMN vested_value REAL")

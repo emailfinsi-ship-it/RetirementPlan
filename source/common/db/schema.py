@@ -176,6 +176,8 @@ CREATE TABLE IF NOT EXISTS plaid_holdings (
     institution_value REAL,
     cost_basis REAL,
     iso_currency_code TEXT,
+    vested_quantity REAL,        -- Plaid-provided, stock-plan holdings only (see migrations.py's comment)
+    vested_value REAL,           -- ditto -- NULL whenever Plaid doesn't split vested/unvested for this holding
     updated_at TEXT NOT NULL,
     UNIQUE(account_id, security_id)
 );

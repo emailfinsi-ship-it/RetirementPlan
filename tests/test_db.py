@@ -810,6 +810,56 @@ class TestPlaidAccountsAndHoldings(TempConfigTestCase):
         ok = db.set_plaid_account_numbers("acc-9", account_number="1", routing_number="2")
         self.assertTrue(ok)
 
+    def test_init_db_migrates_a_plaid_holdings_table_created_before_vested_columns_existed(self):
+        with db.connect() as conn:
+            conn.execute("ALTER TABLE plaid_holdings RENAME TO plaid_holdings_old")
+            conn.execute("""
+                CREATE TABLE plaid_holdings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, item_key TEXT NOT NULL, account_id TEXT NOT NULL,
+                    security_id TEXT NOT NULL, ticker_symbol TEXT, security_name TEXT, security_type TEXT,
+                    quantity REAL, institution_price REAL, institution_value REAL, cost_basis REAL,
+                    iso_currency_code TEXT, updated_at TEXT NOT NULL, UNIQUE(account_id, security_id)
+                )
+            """)
+            conn.execute("DROP TABLE plaid_holdings_old")
+        db.init_db()
+        with db.connect() as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_holdings)").fetchall()}
+        self.assertIn("vested_quantity", columns)
+        self.assertIn("vested_value", columns)
+        # And the migrated table is still usable for a real write.
+        db.upsert_plaid_account(item_key="k", account={"account_id": "acc-1", "name": "Stock Plan"})
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 100,
+            "vested_quantity": 5, "vested_value": 50,
+        })
+        self.assertEqual(db.list_plaid_holdings()[0]["vested_value"], 50)
+
+    def test_upsert_holding_stores_vested_quantity_and_value_when_plaid_provides_them(self):
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Stock Plan", "balances": {"current": 100_000},
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 1500,
+            "vested_quantity": 7.0, "vested_value": 700.0,
+        })
+        row = db.list_plaid_holdings()[0]
+        self.assertEqual(row["vested_quantity"], 7.0)
+        self.assertEqual(row["vested_value"], 700.0)
+
+    def test_upsert_holding_leaves_vested_fields_null_when_plaid_omits_them(self):
+        # Ordinary (non-stock-plan) holdings -- the overwhelming majority
+        # -- never carry these fields at all.
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 100,
+        })
+        row = db.list_plaid_holdings()[0]
+        self.assertIsNone(row["vested_quantity"])
+        self.assertIsNone(row["vested_value"])
+
     def test_upsert_holding_is_idempotent_on_account_and_security(self):
         db.upsert_plaid_account(item_key="k", account={
             "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},

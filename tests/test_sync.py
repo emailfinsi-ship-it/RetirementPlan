@@ -139,6 +139,31 @@ class TestSyncOneItem(PlaidVaultTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["account_id"], "acc-2")
 
+    def test_vested_quantity_and_value_pass_through_when_plaid_provides_them(self):
+        # Plaid's own Holding object carries vested_quantity/vested_value
+        # for a stock-plan holding whose institution reports the vested/
+        # unvested split -- _sync_one_item spreads Plaid's raw holding
+        # dict into what it stores (merged = {**holding, ...}), so these
+        # ride along automatically; this pins that down explicitly so a
+        # future rewrite of that merge can't silently drop them.
+        _seed_item(products=("investments",))
+        client = MagicMock()
+        client.accounts_balance_get.return_value.to_dict.return_value = {
+            "accounts": [{"account_id": "acc-1", "name": "Stock Plan", "type": "investment",
+                          "subtype": "stock plan", "mask": "2013", "balances": {"current": 150000.0}}],
+        }
+        client.investments_holdings_get.return_value.to_dict.return_value = {
+            "securities": [{"security_id": "sec-1", "ticker_symbol": "AAPL", "name": "Apple Inc", "type": "equity"}],
+            "holdings": [{"account_id": "acc-1", "security_id": "sec-1", "quantity": 1000,
+                          "institution_price": 150, "institution_value": 150000, "cost_basis": 100000,
+                          "vested_quantity": 400, "vested_value": 60000}],
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            sync._sync_one_item(db.get_plaid_item("fidelity_401k"))
+        row = db.list_plaid_holdings()[0]
+        self.assertEqual(row["vested_quantity"], 400)
+        self.assertEqual(row["vested_value"], 60000)
+
     def test_syncs_with_the_items_own_credential_profile(self):
         _seed_item("second_app_item", products=(), credential_profile="secondary")
         client = MagicMock()

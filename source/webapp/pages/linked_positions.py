@@ -110,6 +110,22 @@ def _render_linked_positions_page() -> str:
     known_sectors = sorted(set(_SECTOR_INDUSTRIES) | {p["manual_sector"].strip() for p in linked_positions if p["manual_sector"]})
     sector_datalist_html = "".join(f"<option>{html.escape(s)}</option>" for s in known_sectors)
 
+    def _market_value_cell(p) -> str:
+        # Plaid only splits a holding into vested_value/vested_quantity
+        # for a stock-plan grant (and only when the institution actually
+        # reports that split -- see linked_data.
+        # read_linked_portfolio_positions' own comment) -- when it does,
+        # market_value here is already the vested-only figure, not the
+        # full grant, so a small marker (with the full total on hover)
+        # keeps that from reading like the whole position just shrank.
+        if not p["is_vested_only"]:
+            return f'<td class="num">{_money(p["market_value"])}</td>'
+        title = html.escape(f'Vested only -- full grant (incl. unvested) is {_money(p["total_value"])}')
+        return (
+            f'<td class="num">{_money(p["market_value"])} '
+            f'<span class="muted" style="font-size:10px;" title="{title}">(vested)</span></td>'
+        )
+
     linked_positions_html = "".join(
         f'<tr data-type="{html.escape(p["type_chart_label"])}" data-institution="{html.escape(p["institution"])}" '
         f'data-industry="{html.escape(_industry_attr(p))}" data-sector="{html.escape(p["sector"])}" '
@@ -119,7 +135,7 @@ def _render_linked_positions_page() -> str:
         f'<td>{html.escape(p["institution"])}</td><td>{html.escape(p["account"])}</td>'
         f'<td>{html.escape(p["security_name"])}</td><td>{html.escape(p["ticker"])}</td>'
         f'<td>{html.escape(p["type_chart_label"])}</td><td>{html.escape(p["industry"] or "Unclassified")}</td>'
-        f'<td class="num">{_money(p["market_value"])}</td>'
+        f'{_market_value_cell(p)}'
         f'<td>{html.escape(p["position_as_of"])}</td></tr>'
         for p in linked_positions
     ) or '<tr><td colspan="9" class="muted">No linked portfolio positions yet -- connect a Plaid investments account on Setup.</td></tr>'
