@@ -159,6 +159,7 @@ def _sync_one_item(item_row: dict) -> tuple:
             InvestmentsHoldingsGetRequest(access_token=access_token)
         ).to_dict()
         securities_by_id = {s["security_id"]: s for s in holdings_response.get("securities", [])}
+        synced_keys = set()
         for holding in holdings_response.get("holdings", []):
             security = securities_by_id.get(holding["security_id"], {})
             merged = {
@@ -168,7 +169,20 @@ def _sync_one_item(item_row: dict) -> tuple:
                 "security_type": security.get("type"),
             }
             db.upsert_plaid_holding(item_key=item_key, holding=merged)
+            synced_keys.add((holding["account_id"], holding["security_id"]))
             holding_count += 1
+        # This response is a full snapshot across every investment
+        # account under this Item -- anything previously synced for
+        # this item_key that ISN'T in today's response any more has
+        # been sold, transferred out, or the account closed, so it has
+        # to be removed here too. Without this, a sold-off position
+        # just stayed in plaid_holdings forever at its last-known
+        # value -- e.g. this is exactly what made one real account's
+        # AAPL/other positions here look "duplicated" against a sibling
+        # account under the same Item: those rows hadn't been touched
+        # by the last several syncs (see prune_plaid_holdings' own
+        # docstring for why Net Worth itself was never affected).
+        db.prune_plaid_holdings(item_key=item_key, keep_pairs=synced_keys)
 
     transaction_count = 0
     if "transactions" in _item_products(item_row):

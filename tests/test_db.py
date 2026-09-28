@@ -824,6 +824,57 @@ class TestPlaidAccountsAndHoldings(TempConfigTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["institution_value"], 250)
 
+    def test_prune_plaid_holdings_removes_a_pair_not_in_keep_pairs(self):
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-sold", "institution_value": 100,
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-kept", "institution_value": 200,
+        })
+        removed = db.prune_plaid_holdings(item_key="k", keep_pairs={("acc-1", "sec-kept")})
+        self.assertEqual(removed, 1)
+        rows = db.list_plaid_holdings()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["security_id"], "sec-kept")
+
+    def test_prune_plaid_holdings_only_touches_its_own_item_key(self):
+        db.upsert_plaid_item(
+            item_key="other", plaid_item_id="item-2", institution_id=None, institution_name="Fidelity",
+            products=["investments"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},
+        })
+        db.upsert_plaid_account(item_key="other", account={
+            "account_id": "acc-2", "name": "401k", "balances": {"current": 2000},
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 100,
+        })
+        db.upsert_plaid_holding(item_key="other", holding={
+            "account_id": "acc-2", "security_id": "sec-2", "institution_value": 200,
+        })
+        # Pruning item "k" down to nothing must not touch item "other"'s
+        # own holding, even though neither pair is in keep_pairs.
+        removed = db.prune_plaid_holdings(item_key="k", keep_pairs=set())
+        self.assertEqual(removed, 1)
+        remaining = {(r["item_key"], r["security_id"]) for r in db.list_plaid_holdings()}
+        self.assertEqual(remaining, {("other", "sec-2")})
+
+    def test_prune_plaid_holdings_with_every_pair_kept_deletes_nothing(self):
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},
+        })
+        db.upsert_plaid_holding(item_key="k", holding={
+            "account_id": "acc-1", "security_id": "sec-1", "institution_value": 100,
+        })
+        removed = db.prune_plaid_holdings(item_key="k", keep_pairs={("acc-1", "sec-1")})
+        self.assertEqual(removed, 0)
+        self.assertEqual(len(db.list_plaid_holdings()), 1)
+
     def test_get_plaid_account_by_id(self):
         db.upsert_plaid_account(item_key="k", account={
             "account_id": "acc-1", "name": "Brokerage", "balances": {"current": 1000},

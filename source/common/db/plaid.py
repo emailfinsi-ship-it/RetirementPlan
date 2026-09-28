@@ -240,3 +240,38 @@ def list_plaid_holdings() -> list[dict]:
     with connect() as conn:
         rows = conn.execute("SELECT * FROM plaid_holdings ORDER BY item_key, security_name").fetchall()
         return [dict(r) for r in rows]
+
+
+def prune_plaid_holdings(*, item_key: str, keep_pairs: set) -> int:
+    """Deletes any plaid_holdings row for this item_key whose
+    (account_id, security_id) pair is NOT in keep_pairs. Called once per
+    sync, right after upsert_plaid_holding has written every holding
+    Plaid's investments/holdings response for this item just returned
+    (source.collector.sync._sync_one_item) -- that response is a full
+    snapshot across every investment account under an Item, so anything
+    for this item_key missing from keep_pairs has genuinely left the
+    account (sold, transferred out, or the account itself closed) and
+    must be deleted here, not just left at its last-synced value
+    forever. Before this existed, upsert_plaid_holding only ever
+    inserted/updated -- a sold-off or transferred-out position stayed in
+    plaid_holdings indefinitely at a stale quantity/value, silently
+    overstating that account on the Linked Positions tab (its own
+    total, and its by-institution/type/sector/industry charts) and the
+    standalone portfolio-positions export -- though never Net Worth/
+    Total Asset on the Summary or Asset tabs, since those use each
+    account's own live current_balance, not a sum of its holdings."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT account_id, security_id FROM plaid_holdings WHERE item_key = ?", (item_key,)
+        ).fetchall()
+        deleted = 0
+        for r in rows:
+            pair = (r["account_id"], r["security_id"])
+            if pair in keep_pairs:
+                continue
+            cur = conn.execute(
+                "DELETE FROM plaid_holdings WHERE account_id = ? AND security_id = ?",
+                pair,
+            )
+            deleted += cur.rowcount
+        return deleted

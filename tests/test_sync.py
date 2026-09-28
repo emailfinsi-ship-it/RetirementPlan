@@ -50,6 +50,95 @@ class TestSyncOneItem(PlaidVaultTestCase):
         self.assertEqual(rows[0]["ticker_symbol"], "AAPL")
         self.assertEqual(rows[0]["security_name"], "Apple Inc")
 
+    def test_a_holding_missing_from_a_later_sync_is_removed_not_left_stale(self):
+        # Regression: a sold-off or transferred-out position used to
+        # stay in plaid_holdings forever at its last-known value, since
+        # upsert_plaid_holding only ever inserts/updates. Plaid's
+        # investments/holdings response for an Item is a full snapshot
+        # across all of that Item's investment accounts, so a security
+        # missing from a later sync's response has genuinely left the
+        # account and must be pruned.
+        _seed_item(products=("investments",))
+        client = MagicMock()
+        client.accounts_balance_get.return_value.to_dict.return_value = {
+            "accounts": [{"account_id": "acc-1", "name": "Brokerage", "type": "investment",
+                          "subtype": "brokerage", "mask": "5678", "balances": {"current": 1500.0}}],
+        }
+        client.investments_holdings_get.return_value.to_dict.return_value = {
+            "securities": [
+                {"security_id": "sec-aapl", "ticker_symbol": "AAPL", "name": "Apple Inc", "type": "equity"},
+                {"security_id": "sec-voo", "ticker_symbol": "VOO", "name": "Vanguard S&P 500 ETF", "type": "etf"},
+            ],
+            "holdings": [
+                {"account_id": "acc-1", "security_id": "sec-aapl", "quantity": 10,
+                 "institution_price": 150, "institution_value": 1500, "cost_basis": 1000},
+                {"account_id": "acc-1", "security_id": "sec-voo", "quantity": 5,
+                 "institution_price": 400, "institution_value": 2000, "cost_basis": 1800},
+            ],
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            sync._sync_one_item(db.get_plaid_item("fidelity_401k"))
+        self.assertEqual({r["ticker_symbol"] for r in db.list_plaid_holdings()}, {"AAPL", "VOO"})
+
+        # Next sync: AAPL was sold -- Plaid's response no longer includes
+        # it at all for this account.
+        client.investments_holdings_get.return_value.to_dict.return_value = {
+            "securities": [{"security_id": "sec-voo", "ticker_symbol": "VOO", "name": "Vanguard S&P 500 ETF", "type": "etf"}],
+            "holdings": [
+                {"account_id": "acc-1", "security_id": "sec-voo", "quantity": 5,
+                 "institution_price": 410, "institution_value": 2050, "cost_basis": 1800},
+            ],
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            accounts, holdings, numbers, transactions = sync._sync_one_item(db.get_plaid_item("fidelity_401k"))
+        self.assertEqual(holdings, 1)  # only VOO was in this sync's response
+        rows = db.list_plaid_holdings()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["ticker_symbol"], "VOO")
+
+    def test_pruning_a_sold_holding_does_not_touch_a_sibling_accounts_holdings(self):
+        # Two accounts under the same Item -- syncing (and pruning) one
+        # security out of account acc-1 must not touch acc-2's own
+        # holdings, even though acc-2's pair also isn't in this sync's
+        # per-account holdings for acc-1.
+        _seed_item(products=("investments",))
+        client = MagicMock()
+        client.accounts_balance_get.return_value.to_dict.return_value = {
+            "accounts": [
+                {"account_id": "acc-1", "name": "Brokerage 1", "type": "investment",
+                 "subtype": "brokerage", "mask": "1111", "balances": {"current": 1500.0}},
+                {"account_id": "acc-2", "name": "Brokerage 2", "type": "investment",
+                 "subtype": "brokerage", "mask": "2222", "balances": {"current": 500.0}},
+            ],
+        }
+        client.investments_holdings_get.return_value.to_dict.return_value = {
+            "securities": [{"security_id": "sec-aapl", "ticker_symbol": "AAPL", "name": "Apple Inc", "type": "equity"}],
+            "holdings": [
+                {"account_id": "acc-1", "security_id": "sec-aapl", "quantity": 10,
+                 "institution_price": 150, "institution_value": 1500, "cost_basis": 1000},
+                {"account_id": "acc-2", "security_id": "sec-aapl", "quantity": 3,
+                 "institution_price": 150, "institution_value": 450, "cost_basis": 300},
+            ],
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            sync._sync_one_item(db.get_plaid_item("fidelity_401k"))
+        self.assertEqual(len(db.list_plaid_holdings()), 2)
+
+        # acc-1 sold its AAPL; acc-2's holding of the same security is
+        # unrelated and must survive.
+        client.investments_holdings_get.return_value.to_dict.return_value = {
+            "securities": [{"security_id": "sec-aapl", "ticker_symbol": "AAPL", "name": "Apple Inc", "type": "equity"}],
+            "holdings": [
+                {"account_id": "acc-2", "security_id": "sec-aapl", "quantity": 3,
+                 "institution_price": 155, "institution_value": 465, "cost_basis": 300},
+            ],
+        }
+        with patch("source.collector.sync.build_client", return_value=client):
+            sync._sync_one_item(db.get_plaid_item("fidelity_401k"))
+        rows = db.list_plaid_holdings()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["account_id"], "acc-2")
+
     def test_syncs_with_the_items_own_credential_profile(self):
         _seed_item("second_app_item", products=(), credential_profile="secondary")
         client = MagicMock()
