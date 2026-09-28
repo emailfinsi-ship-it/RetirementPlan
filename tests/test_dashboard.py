@@ -4484,6 +4484,38 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertNotIn("<td>2027</td>", body)
         self.assertIn("<td>2028</td>", body)
 
+    def test_this_years_plan_callout_names_the_first_visible_years_withdrawal(self):
+        db.set_assumptions({"current_year": "2027"})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Brokerage", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Your plan for 2027", body)
+        self.assertIn("from Taxable", body)
+
+    def test_this_years_plan_callout_respects_the_retirement_year_gate(self):
+        # The callout's "first visible row" must be the same 2028 row the
+        # table itself leads with -- not the (hidden, $0-need) 2026 row.
+        db.set_assumptions({"current_year": "2026", "retirement_year": "2028"})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Brokerage", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Your plan for 2028", body)
+        self.assertNotIn("Your plan for 2026", body)
+
+    def test_this_years_plan_callout_says_nothing_needed_when_pools_are_empty(self):
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Nothing needs to come out of the portfolio this year", body)
+
+    def test_year_by_year_table_includes_withdrawn_and_ending_columns(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Withdrawn: Taxable", body)
+        self.assertIn("Withdrawn: Tax-deferred", body)
+        self.assertIn("Withdrawn: Roth", body)
+        self.assertIn("Withdrawn: Real estate", body)
+        self.assertIn("Ending: Taxable", body)
+        self.assertIn("Ending: Tax-deferred", body)
+
 
 class TestLegacyPlanningPage(DashboardTestCase):
     def tearDown(self):
@@ -4543,6 +4575,27 @@ class TestLegacyPlanningPage(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("Strategy comparison", body)
         self.assertIn(dashboard._money(0.0), body)  # "Total converted" is $0.00 for every strategy
+
+    def test_this_years_plan_callout_appears_before_the_heir_assumptions_card(self):
+        db.set_assumptions({"current_year": "2027"})
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Your plan for 2027", body)
+        self.assertLess(body.index("Your plan for 2027"), body.index("Heir assumptions"))
+
+    def test_this_years_plan_callout_states_a_roth_conversion_amount(self):
+        db.set_assumptions({"current_year": "2027"})
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Brokerage", "balance": 200_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertTrue("Convert " in body or "No Roth conversion this year" in body)
+
+    def test_year_by_year_drilldown_includes_withdrawn_and_ending_columns(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Withdrawn: Taxable", body)
+        self.assertIn("Withdrawn: Tax-deferred", body)
+        self.assertIn("Ending: Taxable", body)
 
 
 class TestSummaryRetirementYearCard(DashboardTestCase):

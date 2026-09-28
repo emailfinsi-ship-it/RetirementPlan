@@ -59,6 +59,61 @@ rate) -- type over it if you have a better estimate of your heir's own income.</
 """
 
 
+def _this_years_plan_html(result: dict) -> str:
+    """A plain-language callout naming the RECOMMENDED strategy's first
+    year in one place -- which source to draw from and how much, PLUS
+    how much to convert to Roth this year -- so the direct answer to
+    the user's own question ("how much I need to plan to convert to
+    Roth") doesn't require reading the 6-strategy comparison table
+    below it. Per the user's own feedback on the first version of this
+    page ("I dont know this tab. All I wanted to know..."), this is
+    deliberately the very first thing on the page, before even the
+    Heir assumptions card."""
+    strategies = result["strategies"]
+    if not strategies:
+        return ""
+    top = strategies[0]
+    rows = top["rows"]
+    if not rows:
+        return ""
+    r = rows[0]
+    parts = []
+    if r["drawn_taxable"] > 0.01:
+        parts.append(f"{_money(r['drawn_taxable'])} from Taxable")
+    if r["drawn_tax_deferred"] > 0.01:
+        rmd_clause = f" (of which {_money(r['rmd'])} is a mandatory RMD)" if r["rmd"] > 0.01 else ""
+        parts.append(f"{_money(r['drawn_tax_deferred'])} from Tax-deferred{rmd_clause}")
+    elif r["rmd"] > 0.01:
+        parts.append(f"{_money(r['rmd'])} from Tax-deferred (a mandatory RMD, even though nothing else is needed this year)")
+    if r["drawn_roth"] > 0.01:
+        parts.append(f"{_money(r['drawn_roth'])} from Roth")
+    if r["drawn_real_estate"] > 0.01:
+        parts.append(f"{_money(r['drawn_real_estate'])} from Real estate")
+    if parts:
+        withdrawal_text = "Withdraw " + ", plus ".join(parts) + " to cover this year's spending."
+    else:
+        withdrawal_text = "Nothing needs to come out of the portfolio for spending this year."
+    if r["conversion"] > 0.01:
+        conversion_text = (
+            f"Convert {_money(r['conversion'])} from Tax-deferred to Roth "
+            f"(costs about {_money(r['conversion_tax'])} in tax today, paid from Taxable)."
+        )
+    else:
+        conversion_text = "No Roth conversion this year under the recommended strategy."
+    baseline_key = result["baseline_key"]
+    strategy_clause = (
+        "" if top["key"] == baseline_key
+        else f" -- the recommended strategy is “{html.escape(top['label'])}”, not today's default order"
+    )
+    return f"""
+<div class="card" style="border: 2px solid #2a78d6;">
+<h2 style="margin-top:0">Your plan for {r['year']}{strategy_clause}</h2>
+<p style="font-size:15px;">{withdrawal_text}</p>
+<p style="font-size:15px; margin-bottom:0;">{conversion_text}</p>
+</div>
+"""
+
+
 def _strategy_bar_html(value: float, max_value: float) -> str:
     """A single horizontal magnitude bar for one strategy's net
     after-tax legacy -- same "div bar on a shared axis" construction as
@@ -124,6 +179,10 @@ def _recommended_year_by_year_html(result: dict) -> str:
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["conversion"])}</td>'
         f'<td class="num">{_money(r["tax"] + r["conversion_tax"])}</td>'
+        f'<td class="num">{_money(r["drawn_taxable"])}</td>'
+        f'<td class="num">{_money(r["drawn_tax_deferred"])}</td>'
+        f'<td class="num">{_money(r["drawn_roth"])}</td>'
+        f'<td class="num">{_money(r["drawn_real_estate"])}</td>'
         f'<td class="num">{_money(r["taxable"])}</td>'
         f'<td class="num">{_money(r["tax_deferred"])}</td>'
         f'<td class="num">{_money(r["roth"])}</td>'
@@ -140,7 +199,8 @@ that year's conversion tax combined).</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th><th class="num">RMD</th><th class="num">Conversion</th><th class="num">Tax</th>
-<th class="num">Taxable</th><th class="num">Tax-deferred</th><th class="num">Roth</th><th class="num">Total</th><th></th></tr></thead>
+<th class="num">Withdrawn: Taxable</th><th class="num">Withdrawn: Tax-deferred</th><th class="num">Withdrawn: Roth</th><th class="num">Withdrawn: Real estate</th>
+<th class="num">Ending: Taxable</th><th class="num">Ending: Tax-deferred</th><th class="num">Ending: Roth</th><th class="num">Ending: Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
 </div>
@@ -169,6 +229,7 @@ money in the family's hands than doing nothing would -- but not always, since th
 otherwise keep compounding. The table below runs the actual numbers for your plan (starting from
 {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the Drawdown Planning tab)
 rather than assuming either answer.</p>
+{_this_years_plan_html(result)}
 {_heir_assumptions_card_html(result, assumptions)}
 <h2>Strategy comparison</h2>
 <p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no

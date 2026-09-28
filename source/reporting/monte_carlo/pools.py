@@ -93,10 +93,15 @@ def _apply_year_withdrawal(
     skips RMDs (rmd_amount stays 0) rather than blocking the rest of the
     simulation on it.
 
-    Returns {"rmd": ..., "tax": ..., "shortfall": ...} -- shortfall > 0
-    means every pool combined couldn't cover this year's need + tax,
-    the three-pool equivalent of the single-balance model's "balance
-    went negative, clamp to 0, mark depleted"."""
+    Returns {"rmd": ..., "tax": ..., "shortfall": ..., "withdrawn": ...}
+    -- shortfall > 0 means every pool combined couldn't cover this
+    year's need + tax, the three-pool equivalent of the single-balance
+    model's "balance went negative, clamp to 0, mark depleted".
+    `withdrawn` is the {"taxable", "tax_deferred", "roth", "real_estate"}
+    breakdown of the "beyond the RMD" draw (extra_withdrawn) -- a
+    caller that wants "how much actually came out of each pool this
+    year" adds `rmd` to withdrawn["tax_deferred"] itself, since the RMD
+    is a separate, mandatory draw from that same pool."""
     rmd_amount = 0.0
     if birth_year is not None and age is not None:
         rmd_amount = rmd.required_minimum_distribution(pools["tax_deferred"], age, birth_year)
@@ -151,4 +156,4 @@ def _apply_year_withdrawal(
         if pools[name] < 0:
             pools[name] = 0.0
 
-    return {"rmd": rmd_amount, "tax": tax, "shortfall": shortfall}
+    return {"rmd": rmd_amount, "tax": tax, "shortfall": shortfall, "withdrawn": extra_withdrawn}

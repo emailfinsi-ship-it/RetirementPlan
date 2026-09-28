@@ -308,6 +308,7 @@ def _run_conversion_schedule(
                 total_lifetime_tax += conversion_tax
                 total_converted += conversion
 
+        withdrawn = result["withdrawn"]
         rows.append({
             "year": year,
             "age": age,
@@ -317,6 +318,14 @@ def _run_conversion_schedule(
             "conversion": conversion,
             "conversion_tax": conversion_tax,
             "shortfall": result["shortfall"],
+            # Same "what actually came out of each pool this year" shape
+            # as deterministic_drawdown_schedule's own rows -- see that
+            # module's row-building comment for why the RMD folds into
+            # drawn_tax_deferred rather than standing apart from it.
+            "drawn_taxable": withdrawn.get("taxable", 0.0),
+            "drawn_tax_deferred": result["rmd"] + withdrawn.get("tax_deferred", 0.0),
+            "drawn_roth": withdrawn.get("roth", 0.0),
+            "drawn_real_estate": withdrawn.get("real_estate", 0.0),
             "taxable": path_pools["taxable"],
             "tax_deferred": path_pools["tax_deferred"],
             "roth": path_pools["roth"],

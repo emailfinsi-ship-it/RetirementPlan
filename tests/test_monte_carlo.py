@@ -538,6 +538,30 @@ class TestApplyYearWithdrawal(unittest.TestCase):
         self.assertGreater(result["shortfall"], 0.0)
         self.assertEqual(pools["real_estate"], 0.0)
 
+    def test_withdrawn_breaks_down_the_extra_draw_by_pool(self):
+        pools = self._pools(tax_deferred=500_000, taxable=10_000)
+        result = _apply_year_withdrawal(
+            pools, need=50_000, age=None, birth_year=None, gains_fraction=0.4,
+            year=2026, inflation_rate=0.0, apply_drawdown_tax=False,
+        )
+        self.assertAlmostEqual(result["withdrawn"]["taxable"], 10_000)
+        self.assertAlmostEqual(result["withdrawn"]["tax_deferred"], 40_000)
+        self.assertEqual(result["withdrawn"]["roth"], 0.0)
+        self.assertEqual(result["withdrawn"]["real_estate"], 0.0)
+
+    def test_withdrawn_tax_deferred_excludes_the_rmd_itself(self):
+        # The RMD is reported separately as result["rmd"] -- withdrawn["tax_deferred"]
+        # is only the ADDITIONAL amount drawn beyond it, so a caller that
+        # wants the whole pool movement has to add the two together itself
+        # (see deterministic_drawdown_schedule's own "drawn_tax_deferred").
+        pools = self._pools(tax_deferred=1_000_000)
+        result = _apply_year_withdrawal(
+            pools, need=0, age=75, birth_year=1950, gains_fraction=0.4,
+            year=2026, inflation_rate=0.0, apply_drawdown_tax=False,
+        )
+        self.assertGreater(result["rmd"], 0.0)
+        self.assertEqual(result["withdrawn"]["tax_deferred"], 0.0)
+
 
 class TestRunSimulation(unittest.TestCase):
     def test_deterministic_with_seeded_rng(self):
@@ -1474,8 +1498,31 @@ class TestDeterministicDrawdownSchedule(unittest.TestCase):
         self.assertEqual(result["years"], [2027, 2028, 2029])
         self.assertEqual(len(result["rows"]), 3)
         for row in result["rows"]:
-            for key in ("year", "age", "need", "rmd", "tax", "shortfall", "taxable", "tax_deferred", "roth", "real_estate", "total"):
+            for key in (
+                "year", "age", "need", "rmd", "tax", "shortfall",
+                "drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate",
+                "taxable", "tax_deferred", "roth", "real_estate", "total",
+            ):
                 self.assertIn(key, row)
+
+    def test_drawn_taxable_reflects_what_actually_came_out_for_spending(self):
+        pools = {"tax_deferred": 500_000, "roth": 200_000, "taxable": 300_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        result = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=self._assumptions())
+        first = result["rows"][0]
+        self.assertAlmostEqual(first["drawn_taxable"], 50_000.0)
+        self.assertEqual(first["drawn_tax_deferred"], 0.0)
+        self.assertEqual(first["drawn_roth"], 0.0)
+        self.assertEqual(first["drawn_real_estate"], 0.0)
+
+    def test_drawn_tax_deferred_includes_the_rmd(self):
+        pools = {"tax_deferred": 1_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        result = deterministic_drawdown_schedule(
+            pools=pools, expenses=[], assumptions=self._assumptions(birth_year="1950"),
+        )
+        first = result["rows"][0]
+        self.assertAlmostEqual(first["drawn_tax_deferred"], first["rmd"])
+        self.assertGreater(first["drawn_tax_deferred"], 0.0)
 
     def test_zero_return_zero_need_leaves_the_total_unchanged(self):
         pools = {"tax_deferred": 500_000, "roth": 200_000, "taxable": 300_000, "real_estate": 0}
@@ -1744,6 +1791,17 @@ class TestRunConversionSchedule(unittest.TestCase):
             pools=pools, expenses=[], income=[], assumptions=self._assumptions(birth_year="1945"), target_rate="aggressive",
         )
         self.assertGreater(schedule["rows"][0]["rmd"], 0.0)
+
+    def test_rows_carry_the_same_drawn_by_pool_breakdown_as_the_deterministic_schedule(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 40_000, "start_year": None, "end_year": None}]
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=[], assumptions=self._assumptions(apply_drawdown_tax="0"), target_rate=None,
+        )
+        first = schedule["rows"][0]
+        for key in ("drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate"):
+            self.assertIn(key, first)
+        self.assertAlmostEqual(first["drawn_taxable"], 40_000.0)
 
 
 class TestCompareRothConversionStrategies(unittest.TestCase):

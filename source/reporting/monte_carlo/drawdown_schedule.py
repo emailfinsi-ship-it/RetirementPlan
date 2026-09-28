@@ -80,6 +80,7 @@ def deterministic_drawdown_schedule(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax,
         )
+        withdrawn = result["withdrawn"]
         rows.append({
             "year": year,
             "age": age,
@@ -87,6 +88,17 @@ def deterministic_drawdown_schedule(
             "rmd": result["rmd"],
             "tax": result["tax"],
             "shortfall": result["shortfall"],
+            # How much actually came OUT of each pool this year -- the
+            # RMD is folded into "drawn_tax_deferred" (it's a mandatory
+            # draw from that same pool, not a separate pot of money), so
+            # drawn_taxable + drawn_tax_deferred + drawn_roth +
+            # drawn_real_estate + rmd's OWN reinvested surplus (if any
+            # wasn't needed for spending) accounts for the whole year's
+            # movement out of tax_deferred, taxable, roth, real_estate.
+            "drawn_taxable": withdrawn.get("taxable", 0.0),
+            "drawn_tax_deferred": result["rmd"] + withdrawn.get("tax_deferred", 0.0),
+            "drawn_roth": withdrawn.get("roth", 0.0),
+            "drawn_real_estate": withdrawn.get("real_estate", 0.0),
             "taxable": path_pools["taxable"],
             "tax_deferred": path_pools["tax_deferred"],
             "roth": path_pools["roth"],

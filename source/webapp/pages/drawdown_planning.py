@@ -62,9 +62,58 @@ def _sources_table_html(sources: list[dict]) -> str:
 """
 
 
-def _year_by_year_table_html(schedule: dict) -> str:
+def _this_years_plan_html(rows: list[dict]) -> str:
+    """A plain-language callout for the FIRST visible row -- "withdraw
+    $X from here, $Y from there, this year" -- so the direct answer to
+    "which source do I draw from and how much" doesn't require reading
+    the whole year-by-year table below it. Per the user's own request
+    ("All I wanted to know from which source I need to draw down and
+    how much each year"), this is deliberately the first thing on the
+    page after the intro paragraph, not the last."""
+    if not rows:
+        return ""
+    r = rows[0]
+    parts = []
+    if r["drawn_taxable"] > 0.01:
+        parts.append(f"{_money(r['drawn_taxable'])} from Taxable")
+    if r["drawn_tax_deferred"] > 0.01:
+        rmd_clause = f" (of which {_money(r['rmd'])} is a mandatory RMD)" if r["rmd"] > 0.01 else ""
+        parts.append(f"{_money(r['drawn_tax_deferred'])} from Tax-deferred{rmd_clause}")
+    elif r["rmd"] > 0.01:
+        parts.append(f"{_money(r['rmd'])} from Tax-deferred (a mandatory RMD, even though nothing else is needed this year)")
+    if r["drawn_roth"] > 0.01:
+        parts.append(f"{_money(r['drawn_roth'])} from Roth")
+    if r["drawn_real_estate"] > 0.01:
+        parts.append(f"{_money(r['drawn_real_estate'])} from Real estate")
+    tax_clause = f" (that total already includes {_money(r['tax'])} of estimated tax on the withdrawal itself)" if r["tax"] > 0.01 else ""
+    if not parts:
+        plan_text = "Nothing needs to come out of the portfolio this year -- Income-tab rows are assumed to cover spending on their own."
+    else:
+        plan_text = "Withdraw " + ", plus ".join(parts) + f".{tax_clause}"
+    return f"""
+<div class="card" style="border: 2px solid #2a78d6;">
+<h2 style="margin-top:0">Your plan for {r['year']}</h2>
+<p style="font-size:15px; margin-bottom:0;">{plan_text}</p>
+</div>
+"""
+
+
+def _visible_schedule_rows(schedule: dict) -> list[dict]:
+    """The rows _year_by_year_table_html actually renders -- shared here so
+    _this_years_plan_html's "first visible row" agrees with the table
+    below it (both hide pre-retirement $0-need rows the same way, with
+    the same empty-table fallback). See _year_by_year_table_html's own
+    comment for why these rows are hidden rather than shown as $0."""
     rows = schedule["rows"]
     retirement_year = schedule.get("retirement_year")
+    if not rows:
+        return []
+    visible_rows = rows if retirement_year is None else [r for r in rows if r["year"] >= retirement_year]
+    return visible_rows or rows
+
+
+def _year_by_year_table_html(schedule: dict) -> str:
+    rows = schedule["rows"]
     if not rows:
         return '<p class="muted">No projection yet.</p>'
     # Rows actually rendered below. Every year in `rows` is still walked in
@@ -75,9 +124,8 @@ def _year_by_year_table_html(schedule: dict) -> str:
     # per the user's own request. Falls back to every row if that would
     # hide the whole table (e.g. a Retirement year past this plan's
     # horizon), so the table is never left empty.
-    visible_rows = rows if retirement_year is None else [r for r in rows if r["year"] >= retirement_year]
-    if not visible_rows:
-        visible_rows = rows
+    visible_rows = _visible_schedule_rows(schedule)
+    retirement_year = schedule.get("retirement_year")
     hidden_row_count = len(rows) - len(visible_rows)
     hidden_years_note_html = (
         f'<p class="muted">Years before {retirement_year} (your set Retirement year) are omitted below -- '
@@ -91,6 +139,10 @@ def _year_by_year_table_html(schedule: dict) -> str:
         f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
+        f'<td class="num">{_money(r["drawn_taxable"])}</td>'
+        f'<td class="num">{_money(r["drawn_tax_deferred"])}</td>'
+        f'<td class="num">{_money(r["drawn_roth"])}</td>'
+        f'<td class="num">{_money(r["drawn_real_estate"])}</td>'
         f'<td class="num">{_money(r["taxable"])}</td>'
         f'<td class="num">{_money(r["tax_deferred"])}</td>'
         f'<td class="num">{_money(r["roth"])}</td>'
@@ -105,7 +157,8 @@ def _year_by_year_table_html(schedule: dict) -> str:
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th><th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
-<th class="num">Taxable</th><th class="num">Tax-deferred</th><th class="num">Roth</th><th class="num">Real estate</th>
+<th class="num">Withdrawn: Taxable</th><th class="num">Withdrawn: Tax-deferred</th><th class="num">Withdrawn: Roth</th><th class="num">Withdrawn: Real estate</th>
+<th class="num">Ending: Taxable</th><th class="num">Ending: Tax-deferred</th><th class="num">Ending: Roth</th><th class="num">Ending: Real estate</th>
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
@@ -178,6 +231,7 @@ that) over the next {horizon} years at your plan's own Expected return assumptio
 set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}</p>
+{_this_years_plan_html(_visible_schedule_rows(schedule))}
 {_year_by_year_table_html(schedule)}
 """
     return _shell(title="Drawdown Planning", active="drawdown-planning.html", body=body)
