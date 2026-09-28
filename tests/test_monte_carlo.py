@@ -41,9 +41,11 @@ from source.reporting.monte_carlo import (
     estimate_heir_tax_on_tax_deferred,
 )
 from source.reporting.monte_carlo.legacy_planning import (
+    _DEFAULT_HEIR_SPREAD_YEARS,
     _cap_conversion_by_affordability,
     _combined_marginal_rate,
     _federal_bracket_ceiling,
+    _resolve_heir_spread_years,
     _run_conversion_schedule,
 )
 
@@ -1766,25 +1768,43 @@ class TestEstimateDefaultHeirBaseIncome(unittest.TestCase):
 
 
 class TestEstimateHeirTaxOnTaxDeferred(unittest.TestCase):
+    """estimate_heir_tax_on_tax_deferred -- unified math for both heir
+    types now (see the function's own docstring): the balance is spread
+    across `spread_years` even annual distributions regardless of
+    heir_type. heir_type itself no longer changes the calculation
+    directly -- see _resolve_heir_spread_years for how it drives the
+    default spread_years a caller passes in instead."""
+
     def test_zero_balance_owes_no_tax(self):
         tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=0.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         self.assertEqual(tax, 0.0)
 
-    def test_non_spouse_owes_some_tax_on_a_real_balance(self):
+    def test_zero_spread_years_owes_no_tax(self):
         tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=1_000_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=0,
+        )
+        self.assertEqual(tax, 0.0)
+
+    def test_owes_some_tax_on_a_real_balance(self):
+        tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=1_000_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         self.assertGreater(tax, 0.0)
         self.assertLess(tax, 1_000_000.0)
 
-    def test_a_larger_balance_means_a_larger_non_spouse_tax_bill(self):
+    def test_a_larger_balance_means_a_larger_tax_bill(self):
         small = estimate_heir_tax_on_tax_deferred(
             remaining_balance=200_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         large = estimate_heir_tax_on_tax_deferred(
             remaining_balance=2_000_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         self.assertGreater(large, small)
 
@@ -1795,18 +1815,64 @@ class TestEstimateHeirTaxOnTaxDeferred(unittest.TestCase):
         balance = 2_000_000.0
         spread_tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=balance, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         lump_tax = _pool_year_tax(ordinary_income=balance, gains_income=0.0, year=2026, inflation_rate=0.0)
         self.assertLess(spread_tax, lump_tax)
 
-    def test_spouse_and_non_spouse_give_different_answers_for_a_large_balance(self):
+    def test_a_longer_spread_owes_strictly_less_tax_for_the_same_balance(self):
+        balance = 2_000_000.0
+        ten_year = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=balance, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
+        )
+        twenty_year = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=balance, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+            spread_years=20,
+        )
+        self.assertLess(twenty_year, ten_year)
+
+    def test_heir_type_no_longer_changes_the_math_once_spread_years_matches(self):
         spouse_tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=2_000_000.0, heir_type="spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
         )
         non_spouse_tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=2_000_000.0, heir_type="non_spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+            spread_years=10,
+        )
+        self.assertAlmostEqual(spouse_tax, non_spouse_tax)
+
+    def test_different_default_spread_years_give_different_answers_for_the_two_heir_types(self):
+        # The observable difference between heir types now comes from
+        # _resolve_heir_spread_years' own per-type default (10 vs. 20),
+        # not from estimate_heir_tax_on_tax_deferred itself.
+        spouse_tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=2_000_000.0, heir_type="spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+            spread_years=_DEFAULT_HEIR_SPREAD_YEARS["spouse"],
+        )
+        non_spouse_tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=2_000_000.0, heir_type="non_spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+            spread_years=_DEFAULT_HEIR_SPREAD_YEARS["non_spouse"],
         )
         self.assertNotAlmostEqual(spouse_tax, non_spouse_tax)
+
+
+class TestResolveHeirSpreadYears(unittest.TestCase):
+    def test_blank_falls_back_to_the_heir_type_default(self):
+        self.assertEqual(_resolve_heir_spread_years({}, "non_spouse"), 10)
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": ""}, "spouse"), 20)
+
+    def test_explicit_value_is_honored(self):
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": "15"}, "non_spouse"), 15)
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": "5"}, "spouse"), 5)
+
+    def test_garbage_falls_back_to_the_default(self):
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": "not-a-number"}, "non_spouse"), 10)
+
+    def test_zero_or_negative_falls_back_to_the_default(self):
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": "0"}, "non_spouse"), 10)
+        self.assertEqual(_resolve_heir_spread_years({"heir_spread_years": "-5"}, "spouse"), 20)
 
 
 class TestRunConversionSchedule(unittest.TestCase):

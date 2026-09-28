@@ -364,4 +364,15 @@ DEFAULT_ASSUMPTIONS = {
     # figure rather than a bare percentage so it can be typed over with
     # an actual estimate of the heir's own income.
     "heir_base_income": "",
+    # How many years the heir's own inherited Tax-deferred balance is
+    # assumed to be spread across as even annual distributions -- ""
+    # falls back to a heir_type-appropriate default (10 for non_spouse,
+    # matching the SECURE Act's own forced window; 20 for spouse, this
+    # program's own placeholder guess at "a long remaining lifetime").
+    # See legacy_planning._resolve_heir_spread_years and
+    # estimate_heir_tax_on_tax_deferred for why this is user-editable
+    # rather than hardcoded (a spouse has no forced window at all, and
+    # some non-spouse heirs -- a minor child, a disabled or chronically
+    # ill beneficiary -- are exempt from the flat 10-year rule too).
+    "heir_spread_years": "",
 }

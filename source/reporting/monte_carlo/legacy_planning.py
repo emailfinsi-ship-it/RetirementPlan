@@ -159,40 +159,73 @@ def _resolve_heir_type(assumptions: dict) -> str:
     return raw if raw in _HEIR_TYPES else "non_spouse"
 
 
+# Fallback "spread heir's withdrawals over N years" per heir type, used
+# by _resolve_heir_spread_years whenever the user hasn't typed over it.
+# 10 for a non-spouse heir matches the SECURE Act's own default forced
+# window; 20 for a spouse is this program's own placeholder guess at "a
+# long remaining lifetime" (a spouse has no forced window at all -- see
+# estimate_heir_tax_on_tax_deferred's own docstring). Neither is a legal
+# requirement for every real situation, which is exactly why this is a
+# user-editable assumption rather than hardcoded math.
+_DEFAULT_HEIR_SPREAD_YEARS = {"non_spouse": 10, "spouse": 20}
+
+
+def _resolve_heir_spread_years(assumptions: dict, heir_type: str) -> int:
+    """How many years the heir's own inherited Tax-deferred balance is
+    assumed to be spread across as even annual distributions -- "" (or
+    garbage, or anything below 1) falls back to
+    _DEFAULT_HEIR_SPREAD_YEARS[heir_type]. Always user-editable (see the
+    Heir assumptions card on the Legacy Planning page) because the
+    "right" number varies by real situation: a surviving spouse can
+    roll the account and draw it down on whatever schedule they choose;
+    a non-spouse heir is forced to empty it within 10 years by the
+    SECURE Act UNLESS they qualify as an "eligible designated
+    beneficiary" (a minor child of the decedent, until they reach
+    majority; a disabled or chronically ill beneficiary; someone not
+    more than 10 years younger than the decedent) exempting them from
+    that flat 10-year rule and letting them stretch distributions over
+    their own life expectancy instead."""
+    raw = assumptions.get("heir_spread_years")
+    if raw not in (None, ""):
+        try:
+            parsed = int(float(raw))
+            if parsed >= 1:
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    return _DEFAULT_HEIR_SPREAD_YEARS.get(heir_type, 10)
+
+
 def estimate_heir_tax_on_tax_deferred(
     *, remaining_balance: float, heir_type: str, heir_base_income: float, year: int, inflation_rate: float,
+    spread_years: int,
 ) -> float:
     """The estimated tax the heir owes on inheriting `remaining_balance`
     of Tax-deferred (401k/Traditional) money, given their own assumed
-    base ordinary income (heir_base_income) and which of the two
-    inherited-IRA regimes applies:
+    base ordinary income (heir_base_income) and `spread_years` (see
+    _resolve_heir_spread_years) -- both heir types are modeled the same
+    way: `remaining_balance` spread across `spread_years` even annual
+    distributions, each its own tax year, every one stacked on the SAME
+    assumed heir_base_income (held flat across the window -- a
+    documented simplification: brackets and the heir's own income would
+    really keep moving over that many real years, but holding both flat
+    keeps this a single, explainable number rather than a multi-year
+    simulation of the heir's own life). Because tax years reset every
+    year, splitting the balance evenly across `spread_years` separate
+    tax years is dramatically cheaper than dumping it all into one --
+    this rewards spreading out distributions instead of ignoring it.
 
-    "spouse" -- a surviving spouse can roll the account into their own
-    IRA and take RMDs on their own life-expectancy schedule rather than
-    a forced short window. Modeled as a flat tax at the heir's own
-    marginal rate on the whole balance (no bunching -- it's spread over
-    what's typically a long remaining lifetime), a deliberately gentler
-    and simpler estimate than the non-spouse case below.
-
-    "non_spouse" -- SECURE Act 2.0 forces the ENTIRE balance out within
-    10 years of your death. Modeled as 10 even annual distributions
-    (remaining_balance / 10 each), each its own tax year, every one
-    stacked on the SAME assumed heir_base_income (held flat across the
-    decade -- a documented simplification: brackets and the heir's own
-    income would really keep moving over 10 real years, but holding
-    both flat keeps this a single, explainable number rather than a
-    second decade-long simulation). Because tax years reset every year,
-    splitting the balance evenly across 10 separate tax years is
-    dramatically cheaper than dumping it all into one -- this rewards
-    the SECURE Act's own 10-year window instead of ignoring it."""
-    if remaining_balance <= 0:
+    `heir_type` no longer changes the math directly (an earlier version
+    of this function gave a spouse a flat rate on the whole balance
+    instead) -- it's kept as a parameter because callers still use it
+    to pick spread_years' own default and to drive the page's
+    explanatory text; the two heir types can converge on identical math
+    once spread_years is set to the same number for both."""
+    if remaining_balance <= 0 or spread_years <= 0:
         return 0.0
-    if heir_type == "spouse":
-        rate = _combined_marginal_rate(heir_base_income, year, inflation_rate)
-        return remaining_balance * rate
-    annual_distribution = remaining_balance / 10.0
+    annual_distribution = remaining_balance / spread_years
     per_year_tax = _stacked_tax_on_amount(heir_base_income, annual_distribution, year, inflation_rate)
-    return per_year_tax * 10.0
+    return per_year_tax * spread_years
 
 
 def _federal_bracket_ceiling(target_rate: float, year: int, inflation_rate: float) -> float:
@@ -398,6 +431,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
     income = income or []
     heir_type = _resolve_heir_type(assumptions)
     heir_base_income = _resolve_heir_base_income(assumptions, expenses, income)
+    heir_spread_years = _resolve_heir_spread_years(assumptions, heir_type)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
 
     strategy_configs = [
@@ -419,6 +453,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         heir_tax = estimate_heir_tax_on_tax_deferred(
             remaining_balance=schedule["ending_tax_deferred"], heir_type=heir_type,
             heir_base_income=heir_base_income, year=death_year, inflation_rate=inflation_rate,
+            spread_years=heir_spread_years,
         )
         net_legacy = (
             schedule["ending_taxable"] + schedule["ending_roth"] + schedule["ending_real_estate"]
@@ -454,6 +489,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         "heir_type": heir_type,
         "heir_base_income": heir_base_income,
         "heir_marginal_rate": _combined_marginal_rate(heir_base_income, _current_year(assumptions), inflation_rate),
+        "heir_spread_years": heir_spread_years,
         "baseline_key": "no_conversions",
         "death_year": results[0]["rows"][-1]["year"] if results and results[0]["rows"] else _current_year(assumptions),
         "strategies": results,

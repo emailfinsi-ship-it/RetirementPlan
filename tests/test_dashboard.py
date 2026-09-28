@@ -4543,7 +4543,9 @@ class TestLegacyPlanningPage(DashboardTestCase):
     def tearDown(self):
         db.clear_section("assets")
         db.clear_section("real_estate")
-        db.set_assumptions({"retirement_year": "", "current_year": "", "heir_type": "", "heir_base_income": ""})
+        db.set_assumptions({
+            "retirement_year": "", "current_year": "", "heir_type": "", "heir_base_income": "", "heir_spread_years": "",
+        })
 
     def test_nav_includes_legacy_planning_tab(self):
         resp = self._get("/summary.html")
@@ -4623,6 +4625,42 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertIn("Withdrawn: Taxable", body)
         self.assertIn("Withdrawn: Tax-deferred", body)
         self.assertIn("Ending: Taxable", body)
+
+    def test_no_retirement_year_set_shows_every_year(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Set a Retirement year on the Summary or Monte Carlo tab", body)
+        self.assertNotIn("are omitted below", body)
+
+    def test_retirement_year_set_hides_the_years_before_it_same_as_drawdown_planning(self):
+        db.set_assumptions({"current_year": "2026", "retirement_year": "2028"})
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("No withdrawal happens before 2028", body)
+        self.assertIn("Years before 2028 (your set Retirement year) are omitted below", body)
+        self.assertIn("Your plan for 2028", body)
+        self.assertNotIn("Your plan for 2026", body)
+        self.assertNotIn("<td>2026</td>", body)
+        self.assertNotIn("<td>2027</td>", body)
+        self.assertIn("<td>2028</td>", body)
+
+    def test_heir_spread_years_field_defaults_per_heir_type(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('name="heir_spread_years"', body)
+        self.assertIn('placeholder="10"', body)  # non_spouse default
+
+        status, _ = self._post("/api/assumptions", {"heir_type": "spouse"})
+        self.assertEqual(status, 200)
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('placeholder="20"', body)  # spouse default
+
+    def test_setting_heir_spread_years_persists_and_is_reflected(self):
+        status, _ = self._post("/api/assumptions", {"heir_spread_years": "15"})
+        self.assertEqual(status, 200)
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('name="heir_spread_years" type="number" step="1" min="1" placeholder="15" value="15"', body)
 
 
 class TestSummaryRetirementYearCard(DashboardTestCase):
