@@ -120,6 +120,12 @@ from source.reporting.monte_carlo.chart import (
 from source.reporting.monte_carlo.drawdown_schedule import (
     deterministic_drawdown_schedule,
 )
+from source.reporting.monte_carlo.legacy_planning import (
+    ROTH_CONVERSION_STRATEGIES,
+    compare_roth_conversion_strategies,
+    estimate_default_heir_base_income,
+    estimate_heir_tax_on_tax_deferred,
+)
 
 __all__ = [
     "annual_expense_need",
@@ -162,4 +168,8 @@ __all__ = [
     "_money_short",
     "render_fan_svg",
     "deterministic_drawdown_schedule",
+    "ROTH_CONVERSION_STRATEGIES",
+    "compare_roth_conversion_strategies",
+    "estimate_default_heir_base_income",
+    "estimate_heir_tax_on_tax_deferred",
 ]

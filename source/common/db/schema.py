@@ -339,4 +339,20 @@ DEFAULT_ASSUMPTIONS = {
     # lot accounting. See source.reporting.monte_carlo's module
     # docstring for how it's used.
     "taxable_gains_fraction": "0.4",
+    # Legacy Planning tab -- source.reporting.monte_carlo.legacy_planning.
+    # "non_spouse" (adult child, etc. -- SECURE Act's forced 10-year
+    # drawdown, taxed as their own ordinary income) or "spouse" (can roll
+    # an inherited Traditional IRA into their own, no forced short
+    # window). Defaults to "non_spouse", the more complex and more
+    # tax-costly case, rather than silently understating a heir's tax
+    # bill for the more common non-spouse-heir estate plan.
+    "heir_type": "non_spouse",
+    # The heir's own assumed ordinary taxable income, used to estimate
+    # what tax bracket an inherited Tax-deferred distribution stacks
+    # into -- "" means "not set", which auto-fills from this plan's own
+    # current Yearly Drawdown need (estimate_default_heir_base_income;
+    # "use my own current bracket as a stand-in"). Left as a real dollar
+    # figure rather than a bare percentage so it can be typed over with
+    # an actual estimate of the heir's own income.
+    "heir_base_income": "",
 }

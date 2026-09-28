@@ -4485,6 +4485,66 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("<td>2028</td>", body)
 
 
+class TestLegacyPlanningPage(DashboardTestCase):
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+        db.set_assumptions({"retirement_year": "", "current_year": "", "heir_type": "", "heir_base_income": ""})
+
+    def test_nav_includes_legacy_planning_tab(self):
+        resp = self._get("/summary.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn('href="/legacy-planning.html"', body)
+
+    def test_page_loads_with_no_data_at_all(self):
+        resp = self._get("/legacy-planning.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Legacy planning", body)
+        self.assertIn("Strategy comparison", body)
+
+    def test_shows_a_row_for_every_named_strategy(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("No Roth conversions (today&#x27;s default order)", body)
+        self.assertIn("Convert up to the 12% federal bracket each year", body)
+        self.assertIn("Convert up to the 22% federal bracket each year", body)
+        self.assertIn("Convert as much as the Taxable pool can afford the tax on", body)
+        self.assertIn("today&#x27;s default", body)
+        self.assertIn("Recommended", body)
+
+    def test_defaults_to_non_spouse_heir_and_shows_the_field_selected(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('<option value="non_spouse" selected>', body)
+
+    def test_setting_heir_type_to_spouse_persists_and_is_reflected(self):
+        status, _ = self._post("/api/assumptions", {"heir_type": "spouse"})
+        self.assertEqual(status, 200)
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('<option value="spouse" selected>', body)
+
+    def test_setting_an_explicit_heir_base_income_persists(self):
+        status, _ = self._post("/api/assumptions", {"heir_base_income": "180000"})
+        self.assertEqual(status, 200)
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('name="heir_base_income" type="number" step="0.01" placeholder="$180,000.00" value="180000"', body)
+
+    def test_year_by_year_drilldown_for_the_recommended_strategy_is_present(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Year-by-year:", body)
+        self.assertIn(">Conversion</th>", body)
+
+    def test_a_plan_with_no_tax_deferred_money_still_renders_cleanly(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Brokerage", "balance": 500_000, "include_in_monte_carlo": 1})
+        resp = self._get("/legacy-planning.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Strategy comparison", body)
+        self.assertIn(dashboard._money(0.0), body)  # "Total converted" is $0.00 for every strategy
+
+
 class TestSummaryRetirementYearCard(DashboardTestCase):
     """The Summary tab's own "Retirement year" card -- where the
     assumption gets entered (per the user's own request), plus the

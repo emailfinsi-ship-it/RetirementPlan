@@ -65,6 +65,7 @@ from source.webapp.pages.asset import _group_by_category, _render_asset_page, _s
 from source.webapp.pages.budget_vs_actual import _render_budget_vs_actual_page
 from source.webapp.pages.drawdown_planning import _render_drawdown_planning_page
 from source.webapp.pages.expense import _render_expense_page
+from source.webapp.pages.legacy_planning import _render_legacy_planning_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
@@ -340,6 +341,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_monte_carlo_page())
             elif path == "/drawdown-planning.html":
                 self._send_html(_render_drawdown_planning_page())
+            elif path == "/legacy-planning.html":
+                self._send_html(_render_legacy_planning_page())
             elif path == "/setup.html":
                 self._send_html(_render_setup_page())
             elif path == "/account-balances.html":

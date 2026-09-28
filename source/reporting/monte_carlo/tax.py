@@ -74,6 +74,22 @@ def _bracket_tax(taxable_income: float, brackets: tuple) -> float:
 
 
 
+def _marginal_rate(taxable_income: float, brackets: tuple) -> float:
+    """The rate that applies to the NEXT dollar of `taxable_income` in
+    `brackets` -- i.e. which bucket taxable_income itself falls into,
+    not the average/effective rate _bracket_tax's total implies.
+    Negative or zero income is pinned to the bottom bracket's own rate
+    (every bracket table here starts at 0, so there's no rate below the
+    first one to return instead) -- used by source.reporting.
+    monte_carlo.legacy_planning to show 'what bracket is this income
+    level in' as a single readable number."""
+    for upper, rate in brackets:
+        if upper is None or taxable_income <= upper:
+            return rate
+    return brackets[-1][1]
+
+
+
 def _stacked_bracket_tax(base_taxable: float, additional: float, brackets: tuple) -> float:
     """Tax on just the `additional` slice of income, given that
     `base_taxable` of some OTHER kind of income already fills the

@@ -24,6 +24,7 @@ from source.reporting.monte_carlo import (
 )
 from source.reporting.monte_carlo import (
     FEDERAL_LTCG_BRACKETS_MFJ_2026,
+    ROTH_CONVERSION_STRATEGIES,
     _SP500_ANNUAL_RETURNS,
     _apply_year_withdrawal,
     _bracket_tax,
@@ -33,6 +34,15 @@ from source.reporting.monte_carlo import (
     _resolve_retirement_year,
     _simulate_fill,
     _stacked_bracket_tax,
+    compare_roth_conversion_strategies,
+    estimate_default_heir_base_income,
+    estimate_heir_tax_on_tax_deferred,
+)
+from source.reporting.monte_carlo.legacy_planning import (
+    _cap_conversion_by_affordability,
+    _combined_marginal_rate,
+    _federal_bracket_ceiling,
+    _run_conversion_schedule,
 )
 
 
@@ -1556,6 +1566,254 @@ class TestDeterministicDrawdownSchedule(unittest.TestCase):
         self.assertEqual(rows[0]["taxable"], 300_000.0)  # untouched -- 0% return, gated need
         self.assertEqual(rows[1]["taxable"], 300_000.0)
         self.assertEqual(rows[2]["taxable"], 250_000.0)
+
+
+class TestCombinedMarginalRate(unittest.TestCase):
+    def test_zero_income_is_the_bottom_bracket_of_each_table(self):
+        rate = _combined_marginal_rate(0.0, 2026, 0.0)
+        self.assertAlmostEqual(rate, 0.10 + 0.01)
+
+    def test_high_income_is_the_top_bracket_of_each_table(self):
+        rate = _combined_marginal_rate(5_000_000.0, 2026, 0.0)
+        self.assertAlmostEqual(rate, 0.37 + 0.133)
+
+    def test_a_mid_bracket_income_lands_between_the_extremes(self):
+        rate = _combined_marginal_rate(150_000.0, 2026, 0.0)
+        self.assertGreater(rate, 0.10 + 0.01)
+        self.assertLess(rate, 0.37 + 0.133)
+
+
+class TestFederalBracketCeiling(unittest.TestCase):
+    def test_matches_the_published_2026_bracket_table(self):
+        self.assertAlmostEqual(_federal_bracket_ceiling(0.12, 2026, 0.0), 100_800.0)
+        self.assertAlmostEqual(_federal_bracket_ceiling(0.22, 2026, 0.0), 211_400.0)
+
+    def test_grows_with_inflation_in_a_later_year(self):
+        ceiling_2026 = _federal_bracket_ceiling(0.12, 2026, 0.03)
+        ceiling_2030 = _federal_bracket_ceiling(0.12, 2030, 0.03)
+        self.assertGreater(ceiling_2030, ceiling_2026)
+
+    def test_unmatched_rate_is_unbounded(self):
+        self.assertEqual(_federal_bracket_ceiling(0.99, 2026, 0.0), float("inf"))
+
+
+class TestCapConversionByAffordability(unittest.TestCase):
+    def test_returns_full_candidate_when_taxable_easily_covers_the_tax(self):
+        amount = _cap_conversion_by_affordability(10_000.0, 0.0, 1_000_000.0, 2026, 0.0)
+        self.assertAlmostEqual(amount, 10_000.0)
+
+    def test_zero_taxable_means_no_conversion_at_all(self):
+        amount = _cap_conversion_by_affordability(50_000.0, 0.0, 0.0, 2026, 0.0)
+        self.assertEqual(amount, 0.0)
+
+    def test_shrinks_the_conversion_to_what_taxable_can_afford(self):
+        amount = _cap_conversion_by_affordability(500_000.0, 0.0, 20_000.0, 2026, 0.0)
+        self.assertLess(amount, 500_000.0)
+        self.assertGreater(amount, 0.0)
+        tax_on_it = _pool_year_tax(ordinary_income=amount, gains_income=0.0, year=2026, inflation_rate=0.0)
+        self.assertLessEqual(tax_on_it, 20_000.0 + 1.0)  # within bisection tolerance
+
+    def test_zero_or_negative_candidate_is_always_zero(self):
+        self.assertEqual(_cap_conversion_by_affordability(0.0, 0.0, 100_000.0, 2026, 0.0), 0.0)
+        self.assertEqual(_cap_conversion_by_affordability(-5.0, 0.0, 100_000.0, 2026, 0.0), 0.0)
+
+
+class TestEstimateDefaultHeirBaseIncome(unittest.TestCase):
+    def test_uses_the_current_years_net_withdrawal_need(self):
+        expenses = [{"name": "Baseline", "annual_amount": 80_000, "start_year": None, "end_year": None}]
+        income = [{"name": "SS", "annual_amount": 20_000, "start_year": None, "end_year": None}]
+        assumptions = {"current_year": "2027", "inflation_rate": "0.0", "annual_income_offset": "0"}
+        self.assertAlmostEqual(estimate_default_heir_base_income(assumptions, expenses, income), 60_000.0)
+
+    def test_floors_at_zero_rather_than_going_negative(self):
+        expenses = []
+        income = [{"name": "Pension", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        assumptions = {"current_year": "2027", "inflation_rate": "0.0", "annual_income_offset": "0"}
+        self.assertEqual(estimate_default_heir_base_income(assumptions, expenses, income), 0.0)
+
+    def test_zero_before_retirement_year_matches_the_gating_rule(self):
+        expenses = [{"name": "Baseline", "annual_amount": 80_000, "start_year": None, "end_year": None}]
+        assumptions = {"current_year": "2027", "inflation_rate": "0.0", "annual_income_offset": "0", "retirement_year": "2030"}
+        self.assertEqual(estimate_default_heir_base_income(assumptions, expenses, []), 0.0)
+
+
+class TestEstimateHeirTaxOnTaxDeferred(unittest.TestCase):
+    def test_zero_balance_owes_no_tax(self):
+        tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=0.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+        )
+        self.assertEqual(tax, 0.0)
+
+    def test_non_spouse_owes_some_tax_on_a_real_balance(self):
+        tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=1_000_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+        )
+        self.assertGreater(tax, 0.0)
+        self.assertLess(tax, 1_000_000.0)
+
+    def test_a_larger_balance_means_a_larger_non_spouse_tax_bill(self):
+        small = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=200_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+        )
+        large = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=2_000_000.0, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+        )
+        self.assertGreater(large, small)
+
+    def test_ten_year_spread_beats_dumping_it_all_in_one_year(self):
+        # Splitting into 10 separate tax years should owe strictly less
+        # than taxing the whole balance as one lump year at the same
+        # base income, since progressive brackets reset each tax year.
+        balance = 2_000_000.0
+        spread_tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=balance, heir_type="non_spouse", heir_base_income=0.0, year=2026, inflation_rate=0.0,
+        )
+        lump_tax = _pool_year_tax(ordinary_income=balance, gains_income=0.0, year=2026, inflation_rate=0.0)
+        self.assertLess(spread_tax, lump_tax)
+
+    def test_spouse_and_non_spouse_give_different_answers_for_a_large_balance(self):
+        spouse_tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=2_000_000.0, heir_type="spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+        )
+        non_spouse_tax = estimate_heir_tax_on_tax_deferred(
+            remaining_balance=2_000_000.0, heir_type="non_spouse", heir_base_income=50_000.0, year=2026, inflation_rate=0.0,
+        )
+        self.assertNotAlmostEqual(spouse_tax, non_spouse_tax)
+
+
+class TestRunConversionSchedule(unittest.TestCase):
+    def _assumptions(self, **overrides):
+        base = {
+            "expected_return": "0.0", "plan_horizon_years": "3", "current_year": "2027",
+            "annual_income_offset": "0", "apply_drawdown_tax": "1",
+        }
+        base.update(overrides)
+        return base
+
+    def test_no_conversions_matches_deterministic_drawdown_schedule_exactly(self):
+        pools = {"tax_deferred": 500_000, "roth": 100_000, "taxable": 300_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        assumptions = self._assumptions(birth_year="1950")
+        baseline = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=assumptions)
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=[], assumptions=assumptions, target_rate=None,
+        )
+        for base_row, row in zip(baseline["rows"], schedule["rows"]):
+            self.assertAlmostEqual(base_row["taxable"], row["taxable"])
+            self.assertAlmostEqual(base_row["tax_deferred"], row["tax_deferred"])
+            self.assertAlmostEqual(base_row["roth"], row["roth"])
+            self.assertAlmostEqual(base_row["tax"], row["tax"])
+            self.assertEqual(row["conversion"], 0.0)
+            self.assertEqual(row["conversion_tax"], 0.0)
+        self.assertFalse(schedule["depletes"])
+        self.assertEqual(schedule["total_converted"], 0.0)
+
+    def test_fill_bracket_strategy_actually_converts_something(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=[], income=[], assumptions=self._assumptions(), target_rate=0.12,
+        )
+        self.assertGreater(schedule["total_converted"], 0.0)
+        self.assertGreater(schedule["ending_roth"], 0.0)
+        self.assertLess(schedule["ending_tax_deferred"], 500_000 * 3)  # some got converted away, not just grown
+
+    def test_no_taxable_pool_means_no_conversion_regardless_of_target_rate(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=[], income=[], assumptions=self._assumptions(), target_rate=0.12,
+        )
+        self.assertEqual(schedule["total_converted"], 0.0)
+
+    def test_aggressive_strategy_converts_more_than_a_bracket_capped_one(self):
+        pools = {"tax_deferred": 2_000_000, "roth": 0, "taxable": 2_000_000, "real_estate": 0}
+        assumptions = self._assumptions(plan_horizon_years="1")
+        mild = _run_conversion_schedule(pools=pools, expenses=[], income=[], assumptions=assumptions, target_rate=0.12)
+        aggressive = _run_conversion_schedule(pools=pools, expenses=[], income=[], assumptions=assumptions, target_rate="aggressive")
+        self.assertGreater(aggressive["total_converted"], mild["total_converted"])
+
+    def test_conversion_tax_is_included_in_total_lifetime_tax(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        assumptions = self._assumptions(apply_drawdown_tax="0")  # isolate: no ordinary drawdown tax, only conversion tax
+        schedule = _run_conversion_schedule(pools=pools, expenses=[], income=[], assumptions=assumptions, target_rate=0.12)
+        self.assertGreater(schedule["total_converted"], 0.0)
+        self.assertGreater(schedule["total_lifetime_tax"], 0.0)
+
+    def test_rmd_is_still_forced_even_under_an_aggressive_conversion_strategy(self):
+        pools = {"tax_deferred": 1_000_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=[], income=[], assumptions=self._assumptions(birth_year="1945"), target_rate="aggressive",
+        )
+        self.assertGreater(schedule["rows"][0]["rmd"], 0.0)
+
+
+class TestCompareRothConversionStrategies(unittest.TestCase):
+    def _assumptions(self, **overrides):
+        base = {
+            "expected_return": "0.0", "plan_horizon_years": "3", "current_year": "2027",
+            "annual_income_offset": "0", "apply_drawdown_tax": "1",
+        }
+        base.update(overrides)
+        return base
+
+    def test_returns_one_result_per_named_strategy(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
+        self.assertEqual(len(result["strategies"]), len(ROTH_CONVERSION_STRATEGIES))
+        keys = {s["key"] for s in result["strategies"]}
+        self.assertEqual(keys, {key for key, _, _ in ROTH_CONVERSION_STRATEGIES})
+
+    def test_baseline_has_zero_legacy_gain_against_itself(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
+        baseline = next(s for s in result["strategies"] if s["key"] == "no_conversions")
+        self.assertAlmostEqual(baseline["legacy_gain_vs_baseline"], 0.0)
+
+    def test_results_are_sorted_best_net_legacy_first(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
+        legacies = [s["net_after_tax_legacy"] for s in result["strategies"]]
+        self.assertEqual(legacies, sorted(legacies, reverse=True))
+
+    def test_a_tied_net_legacy_breaks_in_favor_of_lower_lifetime_tax(self):
+        # A fully-depleted plan (huge expense vs. a small pool) drives
+        # every strategy's net_after_tax_legacy to the same $0.00 --
+        # among that tie, the strategy that cost the least in lifetime
+        # tax to get there (here, "no_conversions", since every
+        # conversion strategy pays extra conversion tax for no legacy
+        # benefit once everything's spent down anyway) should rank first.
+        pools = {"tax_deferred": 50_000, "roth": 0, "taxable": 20_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 200_000, "start_year": None, "end_year": None}]
+        result = compare_roth_conversion_strategies(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(plan_horizon_years="5"),
+        )
+        legacies = {s["net_after_tax_legacy"] for s in result["strategies"]}
+        self.assertEqual(legacies, {0.0})  # sanity: this scenario really does tie every strategy at $0
+        self.assertEqual(result["strategies"][0]["key"], "no_conversions")
+        taxes = [s["total_lifetime_tax"] for s in result["strategies"]]
+        self.assertEqual(taxes, sorted(taxes))
+
+    def test_defaults_to_non_spouse_heir_type(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
+        self.assertEqual(result["heir_type"], "non_spouse")
+
+    def test_heir_type_assumption_is_honored(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions(heir_type="spouse"))
+        self.assertEqual(result["heir_type"], "spouse")
+
+    def test_explicit_heir_base_income_overrides_the_auto_fill(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(
+            pools=pools, expenses=[], assumptions=self._assumptions(heir_base_income="250000"),
+        )
+        self.assertAlmostEqual(result["heir_base_income"], 250_000.0)
+
+    def test_a_plan_with_no_tax_deferred_money_at_all_has_nothing_to_convert(self):
+        pools = {"tax_deferred": 0, "roth": 100_000, "taxable": 300_000, "real_estate": 0}
+        result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
+        for s in result["strategies"]:
+            self.assertEqual(s["total_converted"], 0.0)
 
 
 if __name__ == "__main__":

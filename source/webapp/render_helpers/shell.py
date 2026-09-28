@@ -24,6 +24,7 @@ NAV_ITEMS = (
     ("real-estate.html", "Real Estate Analysis"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
     ("drawdown-planning.html", "Drawdown Planning"),
+    ("legacy-planning.html", "Legacy Planning"),
     ("setup.html", "Setup"),
 )
 
