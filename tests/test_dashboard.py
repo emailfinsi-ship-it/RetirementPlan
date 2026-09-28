@@ -4515,6 +4515,15 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("Withdrawn: Real estate", body)
         self.assertIn("Ending: Taxable", body)
         self.assertIn("Ending: Tax-deferred", body)
+        self.assertIn("Ending: Real estate", body)
+
+    def test_links_to_the_legacy_planning_tab_for_the_heir_tax_question(self):
+        # The two tabs cross-link each other's own content instead of
+        # duplicating it, per the user's own request ("remove duplicates
+        # from Legacy and Drawdown"). This checks the in-body link, not
+        # just the nav bar (which links every tab from every page).
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn('<a href="/legacy-planning.html">Legacy Planning</a>', body)
 
     def test_withdrawal_order_card_is_present_with_an_empty_field_by_default(self):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
@@ -4625,6 +4634,13 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertIn("Withdrawn: Taxable", body)
         self.assertIn("Withdrawn: Tax-deferred", body)
         self.assertIn("Ending: Taxable", body)
+        # Previously missing on this tab even though Drawdown Planning had
+        # it -- both tabs now share the same Withdrawn:/Ending: column set.
+        self.assertIn("Ending: Real estate", body)
+
+    def test_links_back_to_the_drawdown_planning_tab(self):
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn('<a href="/drawdown-planning.html">Drawdown\nPlanning</a>', body)
 
     def test_no_retirement_year_set_shows_every_year(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})

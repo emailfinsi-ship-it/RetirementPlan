@@ -9,8 +9,15 @@ See source.reporting.monte_carlo.legacy_planning's own module docstring
 for the modeling: why a Roth-heavy ending balance beats a Tax-deferred-
 heavy one for legacy purposes even though today's default order
 (Taxable first) is the one that minimizes YOUR OWN lifetime tax, and
-the spouse-vs-non-spouse-heir/10-year-SECURE-Act-window math behind the
+the "N even annual distributions" math (spouse and non-spouse alike,
+editable "Spread withdrawals over ___ years" per heir type) behind the
 "Estimated heir tax" column.
+
+This tab shares its "hide pre-retirement rows"/"describe a row's own
+withdrawal"/"Withdrawn: and Ending: table columns" building blocks with
+the Drawdown Planning tab -- see source.webapp.render_helpers.drawdown_rows
+-- since both tabs walk the same row shape; only the strategy-comparison
+and heir-tax content below is unique to this tab.
 """
 
 from __future__ import annotations
@@ -19,7 +26,14 @@ import html
 
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import _resolve_retirement_year, compare_roth_conversion_strategies
-from source.webapp.render_helpers import _money, _shell
+from source.webapp.render_helpers import (
+    _money,
+    _shell,
+    _visible_rows_by_year,
+    _withdrawal_parts,
+    _withdrawn_ending_cells_html,
+    _withdrawn_ending_header_html,
+)
 
 _HEIR_TYPE_LABELS = {
     "non_spouse": "Non-spouse (adult child, etc.)",
@@ -68,22 +82,6 @@ better estimate of your heir's own income.</p>
 """
 
 
-def _visible_rows(rows: list[dict], retirement_year: int | None) -> list[dict]:
-    """Same hiding rule as drawdown_planning._visible_schedule_rows --
-    once a Retirement year is set, rows before it (which have nothing
-    to spend, though a conversion could in principle still happen) are
-    left out of what's SHOWN, per the user's own request ("legacy
-    planning should match retirement year"). Every underlying total
-    (lifetime tax, ending balances, net legacy) is still computed from
-    the FULL row history regardless -- this only changes which rows the
-    callout/table below pick from. Falls back to every row if that
-    would hide them all, so nothing's ever left empty."""
-    if not rows:
-        return []
-    visible = rows if retirement_year is None else [r for r in rows if r["year"] >= retirement_year]
-    return visible or rows
-
-
 def _this_years_plan_html(result: dict, retirement_year: int | None) -> str:
     """A plain-language callout naming the RECOMMENDED strategy's first
     VISIBLE year in one place -- which source to draw from and how
@@ -98,22 +96,11 @@ def _this_years_plan_html(result: dict, retirement_year: int | None) -> str:
     if not strategies:
         return ""
     top = strategies[0]
-    rows = _visible_rows(top["rows"], retirement_year)
+    rows = _visible_rows_by_year(top["rows"], retirement_year)
     if not rows:
         return ""
     r = rows[0]
-    parts = []
-    if r["drawn_taxable"] > 0.01:
-        parts.append(f"{_money(r['drawn_taxable'])} from Taxable")
-    if r["drawn_tax_deferred"] > 0.01:
-        rmd_clause = f" (of which {_money(r['rmd'])} is a mandatory RMD)" if r["rmd"] > 0.01 else ""
-        parts.append(f"{_money(r['drawn_tax_deferred'])} from Tax-deferred{rmd_clause}")
-    elif r["rmd"] > 0.01:
-        parts.append(f"{_money(r['rmd'])} from Tax-deferred (a mandatory RMD, even though nothing else is needed this year)")
-    if r["drawn_roth"] > 0.01:
-        parts.append(f"{_money(r['drawn_roth'])} from Roth")
-    if r["drawn_real_estate"] > 0.01:
-        parts.append(f"{_money(r['drawn_real_estate'])} from Real estate")
+    parts = _withdrawal_parts(r)
     if parts:
         withdrawal_text = "Withdraw " + ", plus ".join(parts) + " to cover this year's spending."
     else:
@@ -198,7 +185,7 @@ def _recommended_year_by_year_html(result: dict, retirement_year: int | None) ->
         return ""
     top = strategies[0]
     all_rows = top["rows"]
-    rows = _visible_rows(all_rows, retirement_year)
+    rows = _visible_rows_by_year(all_rows, retirement_year)
     hidden_row_count = len(all_rows) - len(rows)
     hidden_years_note_html = (
         f'<p class="muted">Years before {retirement_year} (your set Retirement year) are omitted below, same as the '
@@ -212,14 +199,8 @@ def _recommended_year_by_year_html(result: dict, retirement_year: int | None) ->
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["conversion"])}</td>'
         f'<td class="num">{_money(r["tax"] + r["conversion_tax"])}</td>'
-        f'<td class="num">{_money(r["drawn_taxable"])}</td>'
-        f'<td class="num">{_money(r["drawn_tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["drawn_roth"])}</td>'
-        f'<td class="num">{_money(r["drawn_real_estate"])}</td>'
-        f'<td class="num">{_money(r["taxable"])}</td>'
-        f'<td class="num">{_money(r["tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["roth"])}</td>'
-        f'<td class="num">{_money(r["total"])}</td>'
+        + _withdrawn_ending_cells_html(r)
+        + f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
         + '</tr>'
         for r in rows
@@ -233,8 +214,8 @@ that year's conversion tax combined).</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th><th class="num">RMD</th><th class="num">Conversion</th><th class="num">Tax</th>
-<th class="num">Withdrawn: Taxable</th><th class="num">Withdrawn: Tax-deferred</th><th class="num">Withdrawn: Roth</th><th class="num">Withdrawn: Real estate</th>
-<th class="num">Ending: Taxable</th><th class="num">Ending: Tax-deferred</th><th class="num">Ending: Roth</th><th class="num">Ending: Total</th><th></th></tr></thead>
+{_withdrawn_ending_header_html()}
+<th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
 </div>
@@ -285,5 +266,8 @@ lifetime) is flagged rather than hidden -- a smaller legacy from a strategy that
 paper that only looks that way because the money ran out.</p>
 {_comparison_table_html(result)}
 {_recommended_year_by_year_html(result, retirement_year)}
+<p class="muted">This compares strategies against each other for legacy purposes. For your day-to-day plan under
+today's default order (or your own Withdrawal order choice), see the <a href="/drawdown-planning.html">Drawdown
+Planning</a> tab.</p>
 """
     return _shell(title="Legacy Planning", active="legacy-planning.html", body=body)

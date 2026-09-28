@@ -25,7 +25,16 @@ import html
 
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
-from source.webapp.render_helpers import _donut_chart_html, _grouped_slices, _money, _shell
+from source.webapp.render_helpers import (
+    _donut_chart_html,
+    _grouped_slices,
+    _money,
+    _shell,
+    _visible_rows_by_year,
+    _withdrawal_parts,
+    _withdrawn_ending_cells_html,
+    _withdrawn_ending_header_html,
+)
 
 _BUCKET_LABELS = {
     "tax_deferred": "Tax-deferred (401k/Traditional)",
@@ -108,18 +117,7 @@ def _this_years_plan_html(rows: list[dict]) -> str:
     if not rows:
         return ""
     r = rows[0]
-    parts = []
-    if r["drawn_taxable"] > 0.01:
-        parts.append(f"{_money(r['drawn_taxable'])} from Taxable")
-    if r["drawn_tax_deferred"] > 0.01:
-        rmd_clause = f" (of which {_money(r['rmd'])} is a mandatory RMD)" if r["rmd"] > 0.01 else ""
-        parts.append(f"{_money(r['drawn_tax_deferred'])} from Tax-deferred{rmd_clause}")
-    elif r["rmd"] > 0.01:
-        parts.append(f"{_money(r['rmd'])} from Tax-deferred (a mandatory RMD, even though nothing else is needed this year)")
-    if r["drawn_roth"] > 0.01:
-        parts.append(f"{_money(r['drawn_roth'])} from Roth")
-    if r["drawn_real_estate"] > 0.01:
-        parts.append(f"{_money(r['drawn_real_estate'])} from Real estate")
+    parts = _withdrawal_parts(r)
     tax_clause = f" (that total already includes {_money(r['tax'])} of estimated tax on the withdrawal itself)" if r["tax"] > 0.01 else ""
     if not parts:
         plan_text = "Nothing needs to come out of the portfolio this year -- Income-tab rows are assumed to cover spending on their own."
@@ -138,13 +136,10 @@ def _visible_schedule_rows(schedule: dict) -> list[dict]:
     _this_years_plan_html's "first visible row" agrees with the table
     below it (both hide pre-retirement $0-need rows the same way, with
     the same empty-table fallback). See _year_by_year_table_html's own
-    comment for why these rows are hidden rather than shown as $0."""
-    rows = schedule["rows"]
-    retirement_year = schedule.get("retirement_year")
-    if not rows:
-        return []
-    visible_rows = rows if retirement_year is None else [r for r in rows if r["year"] >= retirement_year]
-    return visible_rows or rows
+    comment for why these rows are hidden rather than shown as $0. The
+    actual hiding rule lives in render_helpers._visible_rows_by_year,
+    shared with the Legacy Planning tab's own equivalent."""
+    return _visible_rows_by_year(schedule["rows"], schedule.get("retirement_year"))
 
 
 def _year_by_year_table_html(schedule: dict) -> str:
@@ -174,15 +169,8 @@ def _year_by_year_table_html(schedule: dict) -> str:
         f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
-        f'<td class="num">{_money(r["drawn_taxable"])}</td>'
-        f'<td class="num">{_money(r["drawn_tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["drawn_roth"])}</td>'
-        f'<td class="num">{_money(r["drawn_real_estate"])}</td>'
-        f'<td class="num">{_money(r["taxable"])}</td>'
-        f'<td class="num">{_money(r["tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["roth"])}</td>'
-        f'<td class="num">{_money(r["real_estate"])}</td>'
-        f'<td class="num">{_money(r["total"])}</td>'
+        + _withdrawn_ending_cells_html(r)
+        + f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
         + '</tr>'
         for r in visible_rows
@@ -192,8 +180,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th><th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
-<th class="num">Withdrawn: Taxable</th><th class="num">Withdrawn: Tax-deferred</th><th class="num">Withdrawn: Roth</th><th class="num">Withdrawn: Real estate</th>
-<th class="num">Ending: Taxable</th><th class="num">Ending: Tax-deferred</th><th class="num">Ending: Roth</th><th class="num">Ending: Real estate</th>
+{_withdrawn_ending_header_html()}
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
@@ -275,5 +262,8 @@ last -- the conventional tax-efficient order -- with Required Minimum Distributi
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
 {_year_by_year_table_html(schedule)}
+<p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).
+Looking to also minimize what an heir owes in tax, or considering a Roth conversion? See the
+<a href="/legacy-planning.html">Legacy Planning</a> tab, which compares several strategies against this one.</p>
 """
     return _shell(title="Drawdown Planning", active="drawdown-planning.html", body=body)

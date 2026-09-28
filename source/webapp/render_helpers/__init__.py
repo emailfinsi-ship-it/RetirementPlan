@@ -9,9 +9,9 @@ one page's tables -- lives in exactly one place.
 
 This used to be a single ~1100-line render_helpers.py file; it's now a
 package of small, single-purpose modules (styles/shell/formatting/cells/
-tables/charts) so each piece of chrome can be found and changed on its
-own. Nothing outside this package should need to change: every name any
-page module or test previously imported with
+tables/charts/drawdown_rows) so each piece of chrome can be found and
+changed on its own. Nothing outside this package should need to change:
+every name any page module or test previously imported with
 `from source.webapp.render_helpers import X` is re-exported here
 unchanged, from the same place.
 """
@@ -46,6 +46,12 @@ from source.webapp.render_helpers.tables import (
     _asset_category_summary_html,
     _asset_rollup_summary_html,
 )
+from source.webapp.render_helpers.drawdown_rows import (
+    _visible_rows_by_year,
+    _withdrawal_parts,
+    _withdrawn_ending_cells_html,
+    _withdrawn_ending_header_html,
+)
 from source.webapp.render_helpers.charts import (
     _DONUT_COLORS,
     _DONUT_OTHER_COLOR,
@@ -76,6 +82,10 @@ __all__ = [
     "_loan_cell_html",
     "_asset_category_summary_html",
     "_asset_rollup_summary_html",
+    "_visible_rows_by_year",
+    "_withdrawal_parts",
+    "_withdrawn_ending_cells_html",
+    "_withdrawn_ending_header_html",
     "_DONUT_COLORS",
     "_DONUT_OTHER_COLOR",
     "_bar_chart_html",
