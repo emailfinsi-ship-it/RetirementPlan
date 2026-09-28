@@ -290,7 +290,7 @@ def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, d
 
     return f"""
 <div class="card" style="flex:2 1 480px;">
-<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span class="muted" style="font-weight:400;">-- {html.escape(_money_short(total))} total</span></h3>
+<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span class="muted bar-chart-total-label" style="font-weight:400;">-- {html.escape(_money_short(total))} total</span></h3>
 <div class="bar-chart">{"".join(rows)}</div>
 </div>
 """

@@ -432,6 +432,81 @@ function applyPositionFilters() {{
     totalCell.textContent = '$' + total.toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
   }}
   renderFilterChips('positions-filter-bar', __filtersSubset(['type', 'institution', 'industry', 'sector']), clearPositionFilter, clearPositionFilters);
+  refreshLinkedPositionsBarCharts();
+}}
+function moneyShort(value) {{
+  // JS mirror of source.webapp.render_helpers.formatting._money_short --
+  // used by refreshLinkedPositionsBarCharts() below since that recompute
+  // has to match the same "$1.2M"/"$340K" style the server-rendered bar
+  // labels started with.
+  var sign = value < 0 ? '-' : '';
+  value = Math.abs(value || 0);
+  if (value >= 1000000) return sign + '$' + (value / 1000000).toFixed(1) + 'M';
+  if (value >= 1000) return sign + '$' + Math.round(value / 1000) + 'K';
+  return sign + '$' + Math.round(value);
+}}
+function refreshLinkedPositionsBarCharts() {{
+  // The Linked Positions tab's "Positions by sector"/"Positions by
+  // industry" bar charts are rendered server-side from the FULL,
+  // unfiltered holdings list -- picking an Institution (or Type) slice
+  // above only ever filtered the table rows below it, leaving these two
+  // charts showing every sector/industry across every account, not just
+  // the one just selected. This recomputes each bar's value/width/label
+  // (and the chart's own total) from whichever rows are currently
+  // visible under every OTHER active filter (so selecting Institution
+  // narrows Sector/Industry down to that institution's own holdings,
+  // and vice versa), hides a bar that drops to $0 under the current
+  // filter, and re-sorts the remaining bars largest-first -- with no
+  // filter active this reproduces the exact server-rendered chart, so
+  // there's nothing special-cased for the "no filter" state.
+  var table = document.getElementById('linked-positions-table');
+  if (!table) return;
+  var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+  ['sector', 'industry'].forEach(function(chartDim) {{
+    var bars = Array.prototype.slice.call(document.querySelectorAll('.bar-row.pie-seg[data-dim="' + chartDim + '"]'));
+    if (!bars.length) return;
+    var otherDims = Object.keys(__positionsFilters).filter(function(d) {{ return d !== chartDim; }});
+    var values = {{}};
+    bars.forEach(function(bar) {{ values[bar.dataset.sliceId] = 0; }});
+    rows.forEach(function(row) {{
+      if (!(chartDim in row.dataset)) return;  // the "no data" placeholder row
+      var visible = otherDims.every(function(d) {{
+        return __positionsFilters[d].values.indexOf(row.dataset[d]) !== -1;
+      }});
+      if (!visible) return;
+      bars.forEach(function(bar) {{
+        if (JSON.parse(bar.dataset.values).indexOf(row.dataset[chartDim]) !== -1) {{
+          values[bar.dataset.sliceId] += parseFloat(row.dataset.marketValue) || 0;
+        }}
+      }});
+    }});
+    var total = 0, maxVal = 0;
+    bars.forEach(function(bar) {{
+      var v = values[bar.dataset.sliceId];
+      total += v;
+      if (v > maxVal) maxVal = v;
+    }});
+    bars.forEach(function(bar) {{
+      var v = values[bar.dataset.sliceId];
+      var pct = total > 0 ? (v / total * 100) : 0;
+      var widthPct = maxVal > 0 ? Math.max(v / maxVal * 100, 1.5) : 0;
+      var label = bar.querySelector('.bar-label');
+      var fill = bar.querySelector('.bar-fill');
+      var valueLabel = bar.querySelector('.bar-value');
+      if (fill) {{
+        fill.style.width = widthPct.toFixed(1) + '%';
+        fill.title = (label ? label.textContent : '') + ': ' + formatSignedMoney(v) +
+          ' (' + pct.toFixed(0) + '%) -- click to filter the list below';
+      }}
+      if (valueLabel) {{ valueLabel.textContent = moneyShort(v) + ' (' + pct.toFixed(0) + '%)'; }}
+      bar.style.display = v > 0 ? '' : 'none';
+    }});
+    var container = bars[0].parentElement;
+    bars.slice().sort(function(a, b) {{ return values[b.dataset.sliceId] - values[a.dataset.sliceId]; }})
+      .forEach(function(bar) {{ container.appendChild(bar); }});
+    var totalLabel = bars[0].closest('.card').querySelector('.bar-chart-total-label');
+    if (totalLabel) {{ totalLabel.textContent = '-- ' + moneyShort(total) + ' total'; }}
+  }});
 }}
 function applyExpenditureFilters() {{
   // Real Expenditure tab's own click-to-filter: clicking a "by

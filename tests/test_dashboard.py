@@ -259,6 +259,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
                 self.assertIn("function handlePieSegKeydown(", body)
                 self.assertIn("function applyPositionFilters(", body)
                 self.assertIn("function clearPositionFilters(", body)
+                self.assertIn("function refreshLinkedPositionsBarCharts(", body)
 
 
 class TestLineItemEndpoints(DashboardTestCase):
@@ -1801,6 +1802,11 @@ class TestLinkedPositionsPage(DashboardTestCase):
         self.assertIn("Positions by sector (market value)", body)
         self.assertIn("Positions by industry (market value)", body)
         self.assertIn('class="bar-chart"', body)
+        # JS hook refreshLinkedPositionsBarCharts() (shell.py) uses to
+        # rewrite each bar chart's own "-- $X total" header when Sector/
+        # Industry recomputes against another active filter (e.g.
+        # Institution) -- see that function's own comment.
+        self.assertEqual(body.count('class="muted bar-chart-total-label"'), 2)
         # The single holding is an "Equity" at "Fidelity", not yet
         # industry-classified -- the type/institution donuts should show
         # a legend row (single slice, no "Other" fold), and the sector/
