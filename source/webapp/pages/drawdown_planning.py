@@ -10,7 +10,13 @@ same pool math the Monte Carlo tab's own three-pool mode runs on.
 Two sections, per the user's own request ("include resources by tax
 criteria" + a full drawdown *plan*, not just a snapshot):
   1. A snapshot -- tiles, a donut chart, and a per-source table showing
-     exactly which account/row lands in which bucket and why.
+     exactly which account/row lands in which bucket and why, plus a
+     "Split a linked account across tax buckets" card (per the user's
+     own request, "for fidelity can i segregate the sources manually" /
+     "give me option to break up one sum to parts") for the case a
+     single linked account actually mixes tax treatments -- a 401k
+     holding pre-tax, Roth, and after-tax money all at once, the way an
+     institution's own "Sources" breakdown shows it.
   2. A year-by-year detail table tracing RMDs, the withdrawal order, and
      the estimated tax bill forward from today, at the plan's own
      Expected return assumption (no randomness -- see
@@ -27,9 +33,13 @@ from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
 from source.webapp.render_helpers import (
     _donut_chart_html,
+    _editable_number_cell,
+    _editable_select_cell,
+    _editable_text_cell,
     _grouped_slices,
     _money,
     _shell,
+    _TAX_TREATMENT_OPTIONS,
     _visible_rows_by_year,
     _withdrawal_parts,
     _withdrawn_ending_cells_html,
@@ -67,6 +77,106 @@ def _sources_table_html(sources: list[dict]) -> str:
 <tbody>{rows_html}</tbody>
 <tfoot><tr><td colspan="4">Total</td><td class="num">{_money(total)}</td></tr></tfoot>
 </table>
+</div>
+"""
+
+
+def _account_splits_card_html(
+    unlinked_investment_accounts: list[dict], account_tax_splits: list[dict], account_split_mismatches: list[dict],
+) -> str:
+    """"Split a linked account across tax buckets" -- per the user's own
+    request ("for fidelity can i segregate the sources manually" / "give
+    me option to break up one sum to parts"). A single Plaid investment
+    account has exactly one subtype (see linked_data.detected_tax_
+    treatment), so the "Resources by source" table above puts its WHOLE
+    balance in one tax bucket -- but a real 401k often holds several at
+    once (an institution's own "Sources" breakdown, e.g. Fidelity's Base
+    Pay Traditional/Apple Match/Rollover/Roth In-Plan Conversion/Base Pay
+    Roth/Catch-up/After-tax). This card lets the user name and bucket
+    each piece by hand; source.reporting.aggregate.build_summary then
+    replaces that account's single lumped source row with these split
+    rows instead, everywhere the Drawdown Planning tab uses them.
+
+    Only offers accounts not yet added to the Asset tab (unlinked_
+    investment_accounts) -- an account already linked to a manual Asset
+    row has its own Tax treatment field there instead (still just one
+    bucket for the whole row, but that's a separate, smaller change from
+    this one)."""
+    mismatch_by_account = {m["account_id"]: m for m in account_split_mismatches}
+    unlinked_by_id = {acc["account_id"]: acc for acc in unlinked_investment_accounts}
+
+    splits_by_account: dict[str, list[dict]] = {}
+    for split in account_tax_splits:
+        splits_by_account.setdefault(split["account_id"], []).append(split)
+
+    groups_html = ""
+    for account_id, splits in splits_by_account.items():
+        acc = unlinked_by_id.get(account_id)
+        header = (
+            f'{html.escape(acc["institution"])} -- {html.escape(acc["label"])}' if acc else
+            f"(account no longer linked or not on the Asset tab -- id {html.escape(account_id[:12])}...)"
+        )
+        split_total = sum(s["amount"] or 0.0 for s in splits)
+        mismatch = mismatch_by_account.get(account_id)
+        reconcile_note = (
+            f'<p class="status-warn" style="margin:2px 0 8px 0;">Your splits add up to {_money(split_total)}, '
+            f'but this account\'s own live balance is {_money(mismatch["live_balance"])} -- adjust the amounts '
+            f"below so they match (new contributions since you last set this up are the usual cause).</p>"
+            if mismatch else
+            f'<p class="muted" style="margin:2px 0 8px 0;">Splits total {_money(split_total)}'
+            + (f', matching this account\'s own live balance.' if acc else '.') + '</p>'
+        )
+        rows_html = "".join(
+            f'<tr><td class="check-col"><input type="checkbox" class="row-check" '
+            f'data-section="account_tax_splits" data-id="{s["id"]}"></td>'
+            f'<td>{_editable_text_cell("account_tax_splits", s["id"], "name", s["name"], width="160px")}</td>'
+            f'<td>{_editable_select_cell("account_tax_splits", s["id"], "tax_treatment", s["tax_treatment"], _TAX_TREATMENT_OPTIONS)}</td>'
+            f'<td class="num">{_editable_number_cell("account_tax_splits", s["id"], "amount", s["amount"])}</td></tr>'
+            for s in splits
+        )
+        groups_html += f"""
+<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">{header}</div>
+{reconcile_note}
+<div style="overflow-x:auto">
+<table class="sortable">
+<thead><tr><th class="check-col"></th><th>Name</th><th>Tax bucket</th><th class="num">Amount</th></tr></thead>
+<tbody>{rows_html}</tbody>
+<tfoot><tr><td colspan="3">Total</td><td class="num">{_money(split_total)}</td></tr></tfoot>
+</table>
+</div>
+"""
+
+    if unlinked_investment_accounts:
+        account_options = "".join(
+            f'<option value="{html.escape(acc["account_id"])}">{html.escape(acc["institution"])} -- {html.escape(acc["label"])} '
+            f'({_money(acc["balance"])})</option>'
+            for acc in unlinked_investment_accounts
+        )
+        add_form_html = f"""
+<form class="inline" onsubmit="event.preventDefault(); addLineItem('account_tax_splits', this);">
+  <label>Account<select name="account_id" required>{account_options}</select></label>
+  <label>Name<input name="name" placeholder="e.g. Roth in-plan conversion" required></label>
+  <label>Tax bucket<select name="tax_treatment">{"".join(f'<option value="{v}">{html.escape(l)}</option>' for v, l in _TAX_TREATMENT_OPTIONS)}</select></label>
+  <label>Amount<input name="amount" type="number" step="0.01" required></label>
+  <button type="submit" class="primary">Add split</button>
+</form>
+"""
+    else:
+        add_form_html = (
+            '<p class="muted">No linked investment accounts are available to split -- link one first (see '
+            '<a href="/linked-accounts.html">Linked Accounts</a>), or if it\'s already on the Asset tab, use that '
+            "row's own Tax treatment field instead.</p>"
+        )
+
+    return f"""
+<div class="card">
+<h3 style="font-size:13px; margin-top:0;">Split a linked account across tax buckets</h3>
+<p class="muted">One linked account has exactly one auto-detected tax bucket above -- but a real 401k often mixes
+pre-tax, Roth, and after-tax money in a single account (check your institution's own "Sources" breakdown to see the
+split, e.g. Fidelity's NetBenefits). Name each piece and its amount below, and the tax bucket you pick for it
+replaces that account's single lumped entry everywhere on this tab.</p>
+{groups_html}
+{add_form_html}
 </div>
 """
 
@@ -253,6 +363,7 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {donut}
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Resources by source</h3>
 {_sources_table_html(sources)}
+{_account_splits_card_html(s["unlinked_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 <h2>Year-by-year withdrawal sequence</h2>
 <p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for

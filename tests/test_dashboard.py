@@ -4410,9 +4410,22 @@ class TestDrawdownPlanningPage(DashboardTestCase):
     def tearDown(self):
         db.clear_section("assets")
         db.clear_section("real_estate")
+        db.clear_section("account_tax_splits")
         for item_key in ("fidelity", "chase"):
             db.delete_plaid_item(item_key)
         db.set_assumptions({"retirement_year": "", "current_year": "", "early_tax_deferred_age": "", "birth_year": ""})
+
+    def _link_fidelity_401k(self, *, account_id="acc-401k", balance=100_000.0):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-fidelity", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": account_id, "name": "401(K) PLAN", "official_name": "401(K) PLAN",
+            "type": "investment", "subtype": "401k", "mask": "1234",
+            "balances": {"current": balance, "available": None, "iso_currency_code": "USD"},
+        })
 
     def test_nav_includes_drawdown_planning_tab(self):
         resp = self._get("/summary.html")
@@ -4452,6 +4465,48 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("75,000.00", body)
         # Roth appears both as the tile and the source table's Tax bucket cell.
         self.assertIn("Roth (tax-free)", body)
+
+    def test_split_card_offers_an_unlinked_investment_account_to_split(self):
+        self._link_fidelity_401k(balance=100_000.0)
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Split a linked account across tax buckets", body)
+        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000.00)</option>', body)
+
+    def test_no_unlinked_investment_accounts_shows_a_helpful_message_instead_of_the_add_form(self):
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("No linked investment accounts are available to split", body)
+
+    def test_adding_splits_replaces_the_lump_source_row_with_named_pieces(self):
+        # The user's own scenario: a Fidelity 401k that mixes pre-tax and
+        # Roth money in one account ("for fidelity can i segregate the
+        # sources manually" / "give me option to break up one sum to
+        # parts").
+        self._link_fidelity_401k(balance=100_000.0)
+        status, _ = self._post("/api/line-item/add", {
+            "section": "account_tax_splits",
+            "fields": {"account_id": "acc-401k", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": "70000"},
+        })
+        self.assertEqual(status, 200)
+        status, _ = self._post("/api/line-item/add", {
+            "section": "account_tax_splits",
+            "fields": {"account_id": "acc-401k", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": "30000"},
+        })
+        self.assertEqual(status, 200)
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("401(K) PLAN -- Base Pay Traditional", body)
+        self.assertIn("401(K) PLAN -- Roth In-Plan Conversion", body)
+        self.assertNotIn(">401(K) PLAN</td>", body)  # the lump source row is gone
+        self.assertNotIn("adjust the amounts below so they match", body)  # 70k + 30k == the account's own balance
+
+    def test_mismatched_split_total_shows_a_warning(self):
+        self._link_fidelity_401k(balance=100_000.0)
+        status, _ = self._post("/api/line-item/add", {
+            "section": "account_tax_splits",
+            "fields": {"account_id": "acc-401k", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": "40000"},
+        })
+        self.assertEqual(status, 200)
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("adjust the amounts below so they match", body)
 
     def test_year_by_year_table_is_present_with_data(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})

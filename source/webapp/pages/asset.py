@@ -25,19 +25,7 @@ from source.webapp.render_helpers import (
     _link_select_html,
     _money,
     _shell,
-)
-
-# (stored value, label) pairs for the Tax treatment column below --
-# fixed order matters here (Tax-deferred first) since
-# _editable_select_cell falls back to the first option when a row's
-# effective_tax_treatment doesn't match any of them, which shouldn't
-# ever actually happen (effective_tax_treatment always returns one of
-# these three) but keeps a future 4th option's fallback sane by
-# construction rather than by luck.
-_TAX_TREATMENT_OPTIONS = (
-    ("tax_deferred", "Tax-deferred (401k/Traditional)"),
-    ("roth", "Roth (tax-free)"),
-    ("taxable", "Taxable (brokerage)"),
+    _TAX_TREATMENT_OPTIONS,
 )
 
 

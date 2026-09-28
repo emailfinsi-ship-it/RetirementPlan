@@ -9,6 +9,19 @@ from __future__ import annotations
 
 import html
 
+# (stored value, label) pairs for any "Tax treatment" dropdown -- shared
+# by the Asset tab's own per-row Tax treatment column and the Drawdown
+# Planning tab's "split a linked account across tax buckets" feature, so
+# the same three choices (and the same fixed order -- Tax-deferred
+# first, since _editable_select_cell falls back to the first option
+# when a stored value matches none of them) are offered everywhere a
+# user picks one, rather than two lists that could drift apart.
+_TAX_TREATMENT_OPTIONS = (
+    ("tax_deferred", "Tax-deferred (401k/Traditional)"),
+    ("roth", "Roth (tax-free)"),
+    ("taxable", "Taxable (brokerage)"),
+)
+
 
 def _money(value) -> str:
     try:

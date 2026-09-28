@@ -1,8 +1,10 @@
 """Generic line-item CRUD shared by every editable table with the same
-shape (assets / real_estate / expenses / income: add, list, update,
-delete by id) -- one implementation parameterized by `section` instead
-of four near-identical copies, backing the Asset/Real Estate/Expense/
-Income tabs' add/edit/delete actions alike.
+shape (assets / real_estate / expenses / income / account_tax_splits:
+add, list, update, delete by id) -- one implementation parameterized by
+`section` instead of five near-identical copies, backing the Asset/Real
+Estate/Expense/Income tabs' add/edit/delete actions, plus the Drawdown
+Planning tab's "split a linked account across tax buckets" feature,
+alike.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ _TABLE_COLUMNS = {
     "real_estate": ("name", "purchase_price", "current_value", "ownership_pct", "loan_balance", "annual_income", "notes", "source", "linked_account_id", "include_in_monte_carlo"),
     "expenses": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source"),
     "income": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source", "include_in_monte_carlo"),
+    "account_tax_splits": ("account_id", "name", "tax_treatment", "amount"),
 }
 
 
@@ -41,7 +44,7 @@ _NULLABLE_INT_FIELDS = {"start_year", "end_year", "base_year"}
 
 _NUMERIC_FIELDS = {
     "balance", "purchase_price", "current_value", "ownership_pct",
-    "loan_balance", "annual_income", "annual_amount",
+    "loan_balance", "annual_income", "annual_amount", "amount",
 }
 
 _INT_FLAG_FIELDS = {"inflates", "include_in_monte_carlo"}

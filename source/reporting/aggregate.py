@@ -281,10 +281,60 @@ def build_summary() -> dict:
         v for account_id, v in live_by_account_id.items()
         if account_id not in linked_account_ids and (v.get("type") or "").strip().lower() == "investment"
     ]
+
+    # Manual per-account splits (source.common.db "account_tax_splits" --
+    # see the Drawdown Planning tab's own "Split a linked account across
+    # tax buckets" card): a single Plaid investment account's subtype is
+    # one bucket for the WHOLE balance (see detected_tax_treatment
+    # above), but a real 401k can hold pre-tax, Roth, and after-tax money
+    # all at once (an institution's own "Sources" breakdown, e.g.
+    # Fidelity's Base Pay Traditional/Roth In-Plan Conversion/After-tax/
+    # ...) -- per the user's own request ("for fidelity can i segregate
+    # the sources manually" / "give me option to break up one sum to
+    # parts"), an account with 1+ splits recorded has its lump balance
+    # replaced below by those named, individually-bucketed pieces
+    # instead. Grouped by account_id so every split for one account is
+    # handled together; only applies to an unlinked investment account
+    # (the case the splits feature covers) -- a split recorded for an
+    # account that's since been added to the Asset tab, unlinked
+    # entirely, or disconnected is simply not applied here (it still
+    # exists in storage -- the Drawdown Planning tab's own management
+    # card lists every split regardless, so an orphaned one can always
+    # be seen and deleted there).
+    splits_by_account: dict[str, list[dict]] = {}
+    for split in db.list_line_items("account_tax_splits"):
+        splits_by_account.setdefault(split["account_id"], []).append(split)
+    unlinked_account_ids = {acc["account_id"] for acc in unlinked_investment_accounts}
+    split_unlinked_account_ids = unlinked_account_ids & splits_by_account.keys()
+
+    # A quick reconciliation note per split account -- the splits are
+    # manually typed, so they can drift from the account's own live
+    # balance (new contributions since the split was last set, a typo,
+    # ...) -- surfaced so the Drawdown Planning tab can flag it rather
+    # than silently using a total that no longer matches Plaid's own
+    # figure.
+    account_split_mismatches = []
+    for account_id in split_unlinked_account_ids:
+        acc = live_by_account_id[account_id]
+        split_total = sum(s["amount"] or 0.0 for s in splits_by_account[account_id])
+        if abs(split_total - acc["balance"]) > 0.01:
+            account_split_mismatches.append({
+                "account_id": account_id,
+                "label": acc["label"],
+                "institution": acc["institution"],
+                "live_balance": acc["balance"],
+                "split_total": split_total,
+            })
+
     drawdown_unlinked_totals = {"tax_deferred": 0.0, "roth": 0.0, "taxable": 0.0}
     for acc in unlinked_investment_accounts:
-        bucket = acc.get("detected_tax_treatment") or "taxable"
-        drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + acc["balance"]
+        if acc["account_id"] in split_unlinked_account_ids:
+            for split in splits_by_account[acc["account_id"]]:
+                bucket = split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable"
+                drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + (split["amount"] or 0.0)
+        else:
+            bucket = acc.get("detected_tax_treatment") or "taxable"
+            drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + acc["balance"]
 
     # The starting pools for the Drawdown Planning tab's year-by-year
     # projection, and the numbers behind its snapshot tiles/chart: the
@@ -317,13 +367,23 @@ def build_summary() -> dict:
             "balance": effective_balance(a, live_by_account_id),
         })
     for acc in unlinked_investment_accounts:
-        drawdown_sources.append({
-            "name": acc["label"],
-            "institution": acc["institution"],
-            "origin": "Linked account (not on Asset tab)",
-            "tax_bucket": acc.get("detected_tax_treatment") or "taxable",
-            "balance": acc["balance"],
-        })
+        if acc["account_id"] in split_unlinked_account_ids:
+            for split in splits_by_account[acc["account_id"]]:
+                drawdown_sources.append({
+                    "name": f'{acc["label"]} -- {split["name"]}',
+                    "institution": acc["institution"],
+                    "origin": "Linked account (not on Asset tab, manually split)",
+                    "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
+                    "balance": split["amount"] or 0.0,
+                })
+        else:
+            drawdown_sources.append({
+                "name": acc["label"],
+                "institution": acc["institution"],
+                "origin": "Linked account (not on Asset tab)",
+                "tax_bucket": acc.get("detected_tax_treatment") or "taxable",
+                "balance": acc["balance"],
+            })
     for r in real_estate:
         if r.get("include_in_monte_carlo"):
             drawdown_sources.append({
@@ -389,6 +449,15 @@ def build_summary() -> dict:
         "drawdown_pools": drawdown_pools,
         "drawdown_sources": drawdown_sources,
         "drawdown_unlinked_total": sum(drawdown_unlinked_totals.values()),
+        # The Drawdown Planning tab's own "Split a linked account across
+        # tax buckets" card: every unlinked investment account (so the
+        # user can pick one to split), every split recorded so far
+        # (regardless of whether its account is still unlinked/live --
+        # see the comment above splits_by_account), and any account
+        # whose splits no longer add up to its own live balance.
+        "unlinked_investment_accounts": unlinked_investment_accounts,
+        "account_tax_splits": [s for splits in splits_by_account.values() for s in splits],
+        "account_split_mismatches": account_split_mismatches,
         "total_asset": total_asset,
         "this_year": this_year,
         "this_year_expense_need": this_year_need,

@@ -32,6 +32,7 @@ from source.webapp.render_helpers.formatting import (
     _money,
     _money_short,
     _pct,
+    _TAX_TREATMENT_OPTIONS,
 )
 from source.webapp.render_helpers.cells import (
     _editable_checkbox_cell,
@@ -73,6 +74,7 @@ __all__ = [
     "_money",
     "_money_short",
     "_pct",
+    "_TAX_TREATMENT_OPTIONS",
     "_editable_checkbox_cell",
     "_editable_number_cell",
     "_editable_select_cell",

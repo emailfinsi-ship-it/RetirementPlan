@@ -535,6 +535,59 @@ class TestDrawdownPlanning(TempConfigTestCase):
         s = build_summary()
         self.assertEqual(s["drawdown_sources"], [])
 
+    def test_splits_replace_the_lump_source_with_named_pieces_and_their_own_buckets(self):
+        # Per the user's own request ("for fidelity can i segregate the
+        # sources manually" / "give me option to break up one sum to
+        # parts") -- a single Plaid account/subtype is one bucket for the
+        # whole balance, but a real 401k can mix pre-tax and Roth money.
+        self._link_fidelity_roth(subtype="401k", balance=100_000.0)
+        db.add_line_item("account_tax_splits", {
+            "account_id": "acc-roth", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": 70_000,
+        })
+        db.add_line_item("account_tax_splits", {
+            "account_id": "acc-roth", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": 30_000,
+        })
+        s = build_summary()
+        self.assertEqual(s["drawdown_pools"]["tax_deferred"], 70_000.0)
+        self.assertEqual(s["drawdown_pools"]["roth"], 30_000.0)
+        self.assertEqual(s["drawdown_unlinked_total"], 100_000.0)
+        names = {src["name"]: src for src in s["drawdown_sources"]}
+        self.assertNotIn("ROTH IRA", names)  # the lump entry is gone, replaced by its own pieces below
+        self.assertEqual(names["ROTH IRA -- Base Pay Traditional"]["tax_bucket"], "tax_deferred")
+        self.assertEqual(names["ROTH IRA -- Base Pay Traditional"]["balance"], 70_000.0)
+        self.assertEqual(names["ROTH IRA -- Roth In-Plan Conversion"]["tax_bucket"], "roth")
+        self.assertEqual(names["ROTH IRA -- Roth In-Plan Conversion"]["origin"], "Linked account (not on Asset tab, manually split)")
+        self.assertEqual(s["account_split_mismatches"], [])
+
+    def test_split_mismatch_with_the_live_balance_is_flagged(self):
+        self._link_fidelity_roth(subtype="401k", balance=100_000.0)
+        db.add_line_item("account_tax_splits", {
+            "account_id": "acc-roth", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": 40_000,
+        })
+        s = build_summary()
+        self.assertEqual(len(s["account_split_mismatches"]), 1)
+        mismatch = s["account_split_mismatches"][0]
+        self.assertEqual(mismatch["account_id"], "acc-roth")
+        self.assertEqual(mismatch["live_balance"], 100_000.0)
+        self.assertEqual(mismatch["split_total"], 40_000.0)
+
+    def test_a_split_for_an_account_already_added_to_the_asset_tab_is_not_applied(self):
+        # Splitting only covers the "unlinked investment account" case
+        # (a single lump entry in drawdown_sources) -- once the account
+        # is linked to its own manual Asset row, that row's own Tax
+        # treatment field is the one bucket that applies instead; the
+        # split row itself isn't deleted (still listed for the
+        # management card), just not folded into the pools/sources here.
+        self._link_fidelity_roth(subtype="401k", balance=100_000.0)
+        db.add_line_item("account_tax_splits", {
+            "account_id": "acc-roth", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": 100_000,
+        })
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
+        db.update_line_item("assets", item_id, {"linked_account_id": "acc-roth"})
+        s = build_summary()
+        self.assertEqual(s["account_split_mismatches"], [])
+        self.assertEqual(len(s["account_tax_splits"]), 1)
+
 
 class TestCategorySubtotals(unittest.TestCase):
     """The shared helper behind build_summary()'s asset_category_subtotals

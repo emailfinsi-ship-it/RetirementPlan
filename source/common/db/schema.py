@@ -37,6 +37,26 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS account_tax_splits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL,                      -- plaid_accounts.account_id this split applies to --
+                                                    -- one linked investment account (typically a 401k not yet
+                                                    -- added to the Asset tab) broken into several named pieces,
+                                                    -- per the user's own request ("for fidelity can i segregate
+                                                    -- the sources manually" -- a single Plaid account/subtype
+                                                    -- can hold pre-tax, Roth, and after-tax money all at once,
+                                                    -- e.g. Fidelity's own "Sources" breakdown: Base Pay
+                                                    -- Traditional, Roth In-Plan Conversion, After-tax, ...).
+    name TEXT NOT NULL,                            -- this split's own label, e.g. "Roth in-plan conversion" --
+                                                    -- purely descriptive (matches the institution's own naming
+                                                    -- if the user copies it over), doesn't drive anything else.
+    tax_treatment TEXT NOT NULL DEFAULT 'tax_deferred', -- 'tax_deferred' | 'roth' | 'taxable' -- see
+                                                    -- source.reporting.aggregate's own _VALID_TAX_TREATMENTS.
+    amount REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS real_estate (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
