@@ -225,6 +225,7 @@ def run_historical_stress_test(
 
     return {
         "years": years,
+        "retirement_year": retirement_year,
         "yearly_needs": yearly_needs,
         "yearly_tax": yearly_tax,
         "yearly_total_withdrawal": yearly_total_withdrawal,

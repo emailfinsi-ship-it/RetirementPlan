@@ -230,6 +230,27 @@ def _historical_stress_test_html(result: dict) -> str:
     yearly_needs = result.get("yearly_needs") or []
     per_scenario_tax = bool(result.get("per_scenario_tax"))
 
+    # Which of result["years"]' indices actually get a row in the
+    # Year-by-year detail table below. Every year is still computed above
+    # and each scenario's own path/balance above still walks through every
+    # pre-retirement year internally (so a scenario's 2028 balance still
+    # reflects 2026/2027's returns even though those rows aren't shown) --
+    # this only trims which rows *render*, per the user's own request to
+    # stop showing years that withdraw nothing because they're before the
+    # Retirement year. Falls back to every year if that would hide the
+    # whole table (e.g. a Retirement year past this plan's horizon), so
+    # the table is never left empty.
+    retirement_year_for_table = result.get("retirement_year")
+    all_indices = list(range(len(result["years"])))
+    if retirement_year_for_table is not None:
+        visible_indices = [i for i in all_indices if result["years"][i] >= retirement_year_for_table]
+        if not visible_indices:
+            visible_indices = all_indices
+    else:
+        visible_indices = all_indices
+    hidden_year_count = len(all_indices) - len(visible_indices)
+    visible_years = [(i, result["years"][i]) for i in visible_indices]
+
     if per_scenario_tax:
         # Tax (Fed+CA) is the estimated tax on that scenario's own
         # withdrawal (each pool taxed per its own tax treatment, with
@@ -261,7 +282,7 @@ def _historical_stress_test_html(result: dict) -> str:
                 for sc in result["scenarios"]
             )
             + '</tr>'
-            for i, year in enumerate(result["years"])
+            for i, year in visible_years
         )
         detail_thead_row = (
             '<th>Year</th><th class="num">Total Expense</th><th class="num">Total Income</th>'
@@ -308,7 +329,7 @@ def _historical_stress_test_html(result: dict) -> str:
                 for sc in result["scenarios"]
             )
             + '</tr>'
-            for i, year in enumerate(result["years"])
+            for i, year in visible_years
         )
         detail_thead_row = (
             '<th>Year</th><th class="num">Total Expense</th><th class="num">Total Income</th>'
@@ -322,6 +343,12 @@ def _historical_stress_test_html(result: dict) -> str:
             "Tax (Fed+CA) is $0 on every row -- \"Apply drawdown tax\" is unchecked below, so Total Withdrawal equals Yearly Drawdown."
         )
 
+    hidden_years_note_html = (
+        f'<p class="muted">Years before {retirement_year_for_table} (your set Retirement year) are omitted below -- '
+        "nothing withdraws in them, so there's nothing to see, though the scenarios' balances from "
+        f"{retirement_year_for_table} on still reflect those years' own returns.</p>"
+        if hidden_year_count else ""
+    )
     return f"""
 <h2>Historical recession stress test</h2>
 <p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder, same as "No-crash baseline."</p>
@@ -330,6 +357,7 @@ def _historical_stress_test_html(result: dict) -> str:
 <tbody>{summary_rows}</tbody>
 </table>
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Year-by-year detail</h3>
+{hidden_years_note_html}
 <table class="sortable">
 <thead><tr>{detail_thead_row}</tr></thead>
 <tbody>{detail_rows}</tbody>

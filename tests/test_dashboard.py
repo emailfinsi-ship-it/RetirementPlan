@@ -3347,19 +3347,21 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
         self.assertNotIn("Set a Retirement year in Assumptions below", body)
         self.assertIn("No withdrawal happens in any simulated year before 2035", body)
 
-    def test_setting_retirement_year_zeroes_the_historical_stress_tests_shared_yearly_drawdown(self):
+    def test_setting_retirement_year_hides_pre_retirement_rows_from_the_historical_stress_test(self):
         db.set_assumptions({"current_year": "2026", "plan_horizon_years": "3", "retirement_year": "2028", "apply_drawdown_tax": "0"})
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         # Year-by-year detail table columns are Year, Total Expense,
-        # Total Income, Yearly Drawdown -- 2026/2027 (before retirement)
-        # show a $0.00 Yearly Drawdown despite the real $60,000 Total
-        # Expense (that column isn't gated, only the net need is); 2028
-        # finally shows the real $60,000 Yearly Drawdown.
+        # Total Income, Yearly Drawdown. 2026/2027 (before retirement)
+        # withdraw nothing by design, so those rows are hidden entirely
+        # rather than shown with a $0.00 Yearly Drawdown; 2028 is the
+        # first (and here, only) visible row, showing the real $60,000
+        # Yearly Drawdown.
         money0, money60k = dashboard._money(0), dashboard._money(60_000)
-        self.assertIn(f'<td>2026</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
-        self.assertIn(f'<td>2027</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
+        self.assertNotIn(f'<td>2026</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
+        self.assertNotIn(f'<td>2027</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money0}</td>', body)
         self.assertIn(f'<td>2028</td><td class="num">{money60k}</td><td class="num">{money0}</td><td class="num">{money60k}</td>', body)
+        self.assertIn("Years before 2028 (your set Retirement year) are omitted below", body)
 
 
 class TestHistoricalStressTestHtmlPerScenarioTax(unittest.TestCase):
@@ -4466,21 +4468,21 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("Cabin", body)
         self.assertIn("Real estate (opted in)", body)
 
-    def test_no_retirement_year_set_shows_no_phase_column(self):
+    def test_no_retirement_year_set_shows_every_year(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        self.assertNotIn("<th>Phase</th>", body)
         self.assertIn("Set a Retirement year on the Summary or Monte Carlo tab", body)
+        self.assertNotIn("are omitted below", body)
 
-    def test_retirement_year_set_adds_a_phase_column_marking_the_row(self):
+    def test_retirement_year_set_hides_the_years_before_it(self):
         db.set_assumptions({"current_year": "2026", "retirement_year": "2028"})
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        self.assertIn("<th>Phase</th>", body)
-        self.assertIn('<td class="muted">Working</td>', body)
-        self.assertIn('<td><strong>Retirement</strong></td>', body)
-        self.assertIn('<td class="muted">Retired</td>', body)
         self.assertIn("No withdrawal happens before 2028", body)
+        self.assertIn("Years before 2028 (your set Retirement year) are omitted below", body)
+        self.assertNotIn("<td>2026</td>", body)
+        self.assertNotIn("<td>2027</td>", body)
+        self.assertIn("<td>2028</td>", body)
 
 
 class TestSummaryRetirementYearCard(DashboardTestCase):

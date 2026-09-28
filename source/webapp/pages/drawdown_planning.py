@@ -62,32 +62,33 @@ def _sources_table_html(sources: list[dict]) -> str:
 """
 
 
-def _phase_cell_html(year: int, retirement_year: int | None) -> str:
-    """Blank when no Retirement year is set at all (nothing to show);
-    otherwise "Retirement" on the exact retirement year's own row (a
-    visual anchor so the table reads at a glance where the working/
-    retired split falls) and "Working"/"Retired" muted labels either
-    side of it."""
-    if retirement_year is None:
-        return ""
-    if year == retirement_year:
-        return '<td><strong>Retirement</strong></td>'
-    if year < retirement_year:
-        return '<td class="muted">Working</td>'
-    return '<td class="muted">Retired</td>'
-
-
 def _year_by_year_table_html(schedule: dict) -> str:
     rows = schedule["rows"]
     retirement_year = schedule.get("retirement_year")
     if not rows:
         return '<p class="muted">No projection yet.</p>'
-    phase_th = '<th>Phase</th>' if retirement_year is not None else ""
+    # Rows actually rendered below. Every year in `rows` is still walked in
+    # order by deterministic_drawdown_schedule (so a shown year's pool
+    # balances still reflect every pre-retirement year's own growth), but
+    # once a Retirement year is set, the pre-retirement rows themselves --
+    # need is always $0 for them by design -- are hidden rather than shown,
+    # per the user's own request. Falls back to every row if that would
+    # hide the whole table (e.g. a Retirement year past this plan's
+    # horizon), so the table is never left empty.
+    visible_rows = rows if retirement_year is None else [r for r in rows if r["year"] >= retirement_year]
+    if not visible_rows:
+        visible_rows = rows
+    hidden_row_count = len(rows) - len(visible_rows)
+    hidden_years_note_html = (
+        f'<p class="muted">Years before {retirement_year} (your set Retirement year) are omitted below -- '
+        "need is always $0.00 for them, so there's nothing to see, though the pool balances from "
+        f"{retirement_year} on still reflect those years' own growth.</p>"
+        if hidden_row_count else ""
+    )
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
-        + _phase_cell_html(r["year"], retirement_year)
-        + f'<td class="num">{_money(r["need"])}</td>'
+        f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
         f'<td class="num">{_money(r["taxable"])}</td>'
@@ -97,12 +98,13 @@ def _year_by_year_table_html(schedule: dict) -> str:
         f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
         + '</tr>'
-        for r in rows
+        for r in visible_rows
     )
     return f"""
+{hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th>Year</th><th>Age</th>{phase_th}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
+<thead><tr><th>Year</th><th>Age</th><th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
 <th class="num">Taxable</th><th class="num">Tax-deferred</th><th class="num">Roth</th><th class="num">Real estate</th>
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
@@ -153,8 +155,8 @@ def _render_drawdown_planning_page() -> str:
     )
     retirement_year = schedule.get("retirement_year")
     retirement_year_note = (
-        f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year, marked '
-        "Retirement in the Phase column below) -- income is assumed to cover expenses until then.</span>"
+        f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year) -- '
+        "income is assumed to cover expenses until then, so those years are left out of the table below.</span>"
         if retirement_year is not None else
         ' <span class="muted">Set a Retirement year on the Summary or Monte Carlo tab to skip withdrawals for '
         "the years before you retire.</span>"
