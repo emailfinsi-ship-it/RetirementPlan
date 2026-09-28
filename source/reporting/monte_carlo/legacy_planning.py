@@ -47,7 +47,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_retirement_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal
 from source.reporting.monte_carlo.tax import (
     CA_TAX_BRACKETS_MFJ_2026,
     FEDERAL_STANDARD_DEDUCTION_MFJ_2026,
@@ -71,6 +71,20 @@ ROTH_CONVERSION_STRATEGIES: tuple[tuple[str, str, float | str | None], ...] = (
     ("fill_24", "Convert up to the 24% federal bracket each year", 0.24),
     ("fill_32", "Convert up to the 32% federal bracket each year", 0.32),
     ("aggressive", "Convert as much as the Taxable pool can afford the tax on", "aggressive"),
+)
+
+# (key, label, age spending switches to drawing Tax-deferred FIRST
+# instead of last) -- a different lever from ROTH_CONVERSION_STRATEGIES
+# above: no conversion to Roth at all, just spending straight from
+# Tax-deferred once the owner reaches this age (401k/IRA withdrawals are
+# already penalty-free from 59 1/2, well before RMDs would force it at
+# 73/75), instead of today's default of spending Taxable first and only
+# reaching Tax-deferred once Taxable runs out. Per the user's own
+# question ("if it makes sense we can start withdraw of 401k from 60").
+# Compared alongside the conversion strategies on the same Legacy
+# Planning page/table -- see compare_roth_conversion_strategies.
+EARLY_TAX_DEFERRED_SPENDING_STRATEGIES: tuple[tuple[str, str, int], ...] = (
+    ("tax_deferred_from_60", "Spend Tax-deferred first starting at age 60", 60),
 )
 
 _HEIR_TYPES = ("non_spouse", "spouse")
@@ -225,6 +239,7 @@ def _cap_conversion_by_affordability(
 
 def _run_conversion_schedule(
     *, pools: dict, expenses: list, income: list, assumptions: dict, target_rate: float | str | None,
+    early_spend_from_age: int | None = None,
 ) -> dict:
     """Walks one Roth-conversion strategy forward year by year, exactly
     like drawdown_schedule.deterministic_drawdown_schedule, with one
@@ -236,6 +251,17 @@ def _run_conversion_schedule(
     into Roth. target_rate=None (the "no_conversions" baseline) skips
     the conversion step entirely, byte-for-byte reproducing
     deterministic_drawdown_schedule's own numbers.
+
+    `early_spend_from_age`, when set (see
+    EARLY_TAX_DEFERRED_SPENDING_STRATEGIES), is a completely separate
+    lever from `target_rate`/conversions: once the owner's age reaches
+    it, that year's SPENDING withdrawal itself draws Tax-deferred first
+    (via _apply_year_withdrawal's own `order` override) instead of
+    Taxable first -- no money moves to Roth, it just gets spent straight
+    from Tax-deferred earlier than the default order would. Both levers
+    can in principle combine (an early-spend row can still receive a
+    conversion), though EARLY_TAX_DEFERRED_SPENDING_STRATEGIES's own
+    entries currently only ever set one or the other.
 
     Returns {"years", "rows", "total_lifetime_tax", "total_converted",
     "ending_taxable", "ending_tax_deferred", "ending_roth",
@@ -270,9 +296,14 @@ def _run_conversion_schedule(
         age = (year - birth_year) if birth_year is not None else None
         tax_deferred_before_withdrawal = path_pools["tax_deferred"]
         need = annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
+        spend_order = (
+            _TAX_DEFERRED_FIRST_ORDER
+            if early_spend_from_age is not None and age is not None and age >= early_spend_from_age
+            else None
+        )
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
-            year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax,
+            year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
         )
         if result["shortfall"] > 1e-6:
             depletes = True
@@ -351,10 +382,12 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
     """Top-level entry point for the Legacy Planning page: runs every
     strategy in ROTH_CONVERSION_STRATEGIES (including the "no_conversions"
     baseline, so every other strategy can be compared against today's
-    actual default) and estimates each one's after-tax legacy --
-    Roth + Taxable + Real estate at full value (see the module
-    docstring for why), plus whatever Tax-deferred survives net of
-    estimate_heir_tax_on_tax_deferred.
+    actual default) plus every strategy in
+    EARLY_TAX_DEFERRED_SPENDING_STRATEGIES (a different lever -- spend
+    Tax-deferred earlier rather than convert it), and estimates each
+    one's after-tax legacy -- Roth + Taxable + Real estate at full value
+    (see the module docstring for why), plus whatever Tax-deferred
+    survives net of estimate_heir_tax_on_tax_deferred.
 
     Returns {"heir_type", "heir_base_income", "baseline_key",
     "strategies"} -- `strategies` is sorted best (highest
@@ -367,10 +400,20 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
     heir_base_income = _resolve_heir_base_income(assumptions, expenses, income)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
 
+    strategy_configs = [
+        {"key": key, "label": label, "target_rate": target_rate, "early_spend_from_age": None}
+        for key, label, target_rate in ROTH_CONVERSION_STRATEGIES
+    ] + [
+        {"key": key, "label": label, "target_rate": None, "early_spend_from_age": early_spend_from_age}
+        for key, label, early_spend_from_age in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES
+    ]
+
     results = []
-    for key, label, target_rate in ROTH_CONVERSION_STRATEGIES:
+    for config in strategy_configs:
+        key, label = config["key"], config["label"]
         schedule = _run_conversion_schedule(
-            pools=pools, expenses=expenses, income=income, assumptions=assumptions, target_rate=target_rate,
+            pools=pools, expenses=expenses, income=income, assumptions=assumptions,
+            target_rate=config["target_rate"], early_spend_from_age=config["early_spend_from_age"],
         )
         death_year = schedule["years"][-1] if schedule["years"] else _current_year(assumptions)
         heir_tax = estimate_heir_tax_on_tax_deferred(

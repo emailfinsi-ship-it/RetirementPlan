@@ -4545,6 +4545,11 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertIn("today&#x27;s default", body)
         self.assertIn("Recommended", body)
 
+    def test_shows_the_early_tax_deferred_spending_strategy_alongside_conversions(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Spend Tax-deferred first starting at age 60", body)
+
     def test_defaults_to_non_spouse_heir_and_shows_the_field_selected(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/legacy-planning.html").read().decode("utf-8")

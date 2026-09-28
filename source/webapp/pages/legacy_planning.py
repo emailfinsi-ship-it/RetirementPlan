@@ -226,9 +226,11 @@ cost basis at death (no capital-gains tax on the appreciation up to your death),
 balance is taxed as the heir's own ordinary income -- often within a forced 10-year window for a non-spouse heir under
 the SECURE Act. Converting some Tax-deferred money to Roth now, at a real tax cost today, can leave more after-tax
 money in the family's hands than doing nothing would -- but not always, since that tax comes out of money that would
-otherwise keep compounding. The table below runs the actual numbers for your plan (starting from
-{_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the Drawdown Planning tab)
-rather than assuming either answer.</p>
+otherwise keep compounding. A related but different lever: 401k/IRA withdrawals are already penalty-free from age 59&#189;,
+well before RMDs would force them at 73 or 75 -- spending Tax-deferred money earlier, in the lower-income years before
+then, is compared below too, alongside the Roth-conversion strategies. The table below runs the actual numbers for your
+plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the
+Drawdown Planning tab) rather than assuming any one answer.</p>
 {_this_years_plan_html(result)}
 {_heir_assumptions_card_html(result, assumptions)}
 <h2>Strategy comparison</h2>

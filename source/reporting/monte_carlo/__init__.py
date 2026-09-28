@@ -121,6 +121,7 @@ from source.reporting.monte_carlo.drawdown_schedule import (
     deterministic_drawdown_schedule,
 )
 from source.reporting.monte_carlo.legacy_planning import (
+    EARLY_TAX_DEFERRED_SPENDING_STRATEGIES,
     ROTH_CONVERSION_STRATEGIES,
     compare_roth_conversion_strategies,
     estimate_default_heir_base_income,
@@ -169,6 +170,7 @@ __all__ = [
     "render_fan_svg",
     "deterministic_drawdown_schedule",
     "ROTH_CONVERSION_STRATEGIES",
+    "EARLY_TAX_DEFERRED_SPENDING_STRATEGIES",
     "compare_roth_conversion_strategies",
     "estimate_default_heir_base_income",
     "estimate_heir_tax_on_tax_deferred",

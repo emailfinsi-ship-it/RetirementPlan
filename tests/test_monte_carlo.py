@@ -23,6 +23,7 @@ from source.reporting.monte_carlo import (
     yearly_withdrawal_schedule,
 )
 from source.reporting.monte_carlo import (
+    EARLY_TAX_DEFERRED_SPENDING_STRATEGIES,
     FEDERAL_LTCG_BRACKETS_MFJ_2026,
     ROTH_CONVERSION_STRATEGIES,
     _SP500_ANNUAL_RETURNS,
@@ -548,6 +549,25 @@ class TestApplyYearWithdrawal(unittest.TestCase):
         self.assertAlmostEqual(result["withdrawn"]["tax_deferred"], 40_000)
         self.assertEqual(result["withdrawn"]["roth"], 0.0)
         self.assertEqual(result["withdrawn"]["real_estate"], 0.0)
+
+    def test_order_override_changes_which_pool_is_drawn_first(self):
+        pools = self._pools(tax_deferred=500_000, taxable=500_000)
+        _apply_year_withdrawal(
+            pools, need=50_000, age=None, birth_year=None, gains_fraction=0.4,
+            year=2026, inflation_rate=0.0, apply_drawdown_tax=False,
+            order=("tax_deferred", "taxable", "roth", "real_estate"),
+        )
+        self.assertEqual(pools["tax_deferred"], 450_000)
+        self.assertEqual(pools["taxable"], 500_000)  # untouched -- tax_deferred covered it first
+
+    def test_order_none_falls_back_to_the_default_order(self):
+        pools = self._pools(tax_deferred=500_000, taxable=500_000)
+        _apply_year_withdrawal(
+            pools, need=50_000, age=None, birth_year=None, gains_fraction=0.4,
+            year=2026, inflation_rate=0.0, apply_drawdown_tax=False, order=None,
+        )
+        self.assertEqual(pools["taxable"], 450_000)  # default order -- taxable first
+        self.assertEqual(pools["tax_deferred"], 500_000)
 
     def test_withdrawn_tax_deferred_excludes_the_rmd_itself(self):
         # The RMD is reported separately as result["rmd"] -- withdrawn["tax_deferred"]
@@ -1792,6 +1812,49 @@ class TestRunConversionSchedule(unittest.TestCase):
         )
         self.assertGreater(schedule["rows"][0]["rmd"], 0.0)
 
+    def test_early_spend_from_age_draws_tax_deferred_before_taxable_once_reached(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        schedule = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=[], assumptions=self._assumptions(birth_year="1967", apply_drawdown_tax="0"),
+            target_rate=None, early_spend_from_age=60,
+        )
+        # current_year=2027, birth_year=1967 -> age 60 in 2027, the very first row.
+        first = schedule["rows"][0]
+        self.assertEqual(first["age"], 60)
+        self.assertAlmostEqual(first["drawn_tax_deferred"], 50_000.0)
+        self.assertEqual(first["drawn_taxable"], 0.0)
+
+    def test_early_spend_from_age_has_no_effect_before_the_threshold(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
+        expenses = [{"name": "Baseline", "annual_amount": 50_000, "start_year": None, "end_year": None}]
+        with_threshold = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=[], assumptions=self._assumptions(birth_year="1990", apply_drawdown_tax="0"),
+            target_rate=None, early_spend_from_age=60,
+        )
+        without_threshold = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=[], assumptions=self._assumptions(birth_year="1990", apply_drawdown_tax="0"),
+            target_rate=None, early_spend_from_age=None,
+        )
+        # birth_year=1990, current_year=2027 -> age 37, nowhere near 60, so both should match exactly.
+        self.assertAlmostEqual(with_threshold["rows"][0]["taxable"], without_threshold["rows"][0]["taxable"])
+        self.assertAlmostEqual(with_threshold["rows"][0]["tax_deferred"], without_threshold["rows"][0]["tax_deferred"])
+
+    def test_early_spend_from_age_does_not_change_the_rmd_itself(self):
+        # The RMD is always forced from tax_deferred regardless of
+        # ordering -- early_spend_from_age only changes which pool
+        # DISCRETIONARY spending draws from, never the mandatory RMD math.
+        pools = {"tax_deferred": 1_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        with_early_spend = _run_conversion_schedule(
+            pools=pools, expenses=[], income=[], assumptions=self._assumptions(birth_year="1950"),
+            target_rate=None, early_spend_from_age=60,
+        )
+        without_early_spend = _run_conversion_schedule(
+            pools=pools, expenses=[], income=[], assumptions=self._assumptions(birth_year="1950"),
+            target_rate=None, early_spend_from_age=None,
+        )
+        self.assertAlmostEqual(with_early_spend["rows"][0]["rmd"], without_early_spend["rows"][0]["rmd"])
+
     def test_rows_carry_the_same_drawn_by_pool_breakdown_as_the_deterministic_schedule(self):
         pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 500_000, "real_estate": 0}
         expenses = [{"name": "Baseline", "annual_amount": 40_000, "start_year": None, "end_year": None}]
@@ -1816,9 +1879,11 @@ class TestCompareRothConversionStrategies(unittest.TestCase):
     def test_returns_one_result_per_named_strategy(self):
         pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
         result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
-        self.assertEqual(len(result["strategies"]), len(ROTH_CONVERSION_STRATEGIES))
+        expected_count = len(ROTH_CONVERSION_STRATEGIES) + len(EARLY_TAX_DEFERRED_SPENDING_STRATEGIES)
+        self.assertEqual(len(result["strategies"]), expected_count)
         keys = {s["key"] for s in result["strategies"]}
-        self.assertEqual(keys, {key for key, _, _ in ROTH_CONVERSION_STRATEGIES})
+        expected_keys = {key for key, _, _ in ROTH_CONVERSION_STRATEGIES} | {key for key, _, _ in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES}
+        self.assertEqual(keys, expected_keys)
 
     def test_baseline_has_zero_legacy_gain_against_itself(self):
         pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}

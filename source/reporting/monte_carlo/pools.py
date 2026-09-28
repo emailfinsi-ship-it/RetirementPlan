@@ -58,6 +58,17 @@ from source.reporting.monte_carlo.tax import _pool_year_tax
 # 3-pool-only caller.
 _WITHDRAWAL_ORDER = ("taxable", "tax_deferred", "roth", "real_estate")
 
+# An alternate order -- spend Tax-deferred FIRST -- for a strategy that
+# deliberately draws the tax-deferred pool down earlier than the default
+# (e.g. starting at age 60, once 401k/IRA withdrawals are penalty-free)
+# rather than only once RMDs force it at 73/75. See
+# legacy_planning._run_conversion_schedule's early_spend_from_age -- the
+# idea is to realize that income in the plan owner's own lower
+# pre-RMD-age brackets, and to shrink the balance RMDs will later be
+# calculated on, at the cost of spending down Taxable (and its step-up
+# basis) more slowly.
+_TAX_DEFERRED_FIRST_ORDER = ("tax_deferred", "taxable", "roth", "real_estate")
+
 
 
 def _simulate_fill(available: dict, order: tuple, amount: float) -> dict:
@@ -82,7 +93,7 @@ def _simulate_fill(available: dict, order: tuple, amount: float) -> dict:
 
 def _apply_year_withdrawal(
     pools: dict, *, need: float, age: int | None, birth_year: int | None, gains_fraction: float,
-    year: int, inflation_rate: float, apply_drawdown_tax: bool,
+    year: int, inflation_rate: float, apply_drawdown_tax: bool, order: tuple | None = None,
 ) -> dict:
     """Withdraws one simulated year's need (+ its own tax, if
     apply_drawdown_tax) from `pools` IN PLACE (mutates
@@ -93,6 +104,15 @@ def _apply_year_withdrawal(
     skips RMDs (rmd_amount stays 0) rather than blocking the rest of the
     simulation on it.
 
+    `order` overrides _WITHDRAWAL_ORDER for this year's spending draw
+    only -- the RMD itself is unaffected either way (it's always forced
+    from tax_deferred first, before any ordering choice even applies).
+    Every existing caller leaves this at the default None (the standard
+    Taxable-then-Tax-deferred-then-Roth-then-Real-estate order); it
+    exists so a strategy like "spend Tax-deferred first starting at a
+    chosen age" (see legacy_planning.py) can reuse this exact engine
+    rather than re-implementing it.
+
     Returns {"rmd": ..., "tax": ..., "shortfall": ..., "withdrawn": ...}
     -- shortfall > 0 means every pool combined couldn't cover this
     year's need + tax, the three-pool equivalent of the single-balance
@@ -102,6 +122,7 @@ def _apply_year_withdrawal(
     caller that wants "how much actually came out of each pool this
     year" adds `rmd` to withdrawn["tax_deferred"] itself, since the RMD
     is a separate, mandatory draw from that same pool."""
+    withdrawal_order = order or _WITHDRAWAL_ORDER
     rmd_amount = 0.0
     if birth_year is not None and age is not None:
         rmd_amount = rmd.required_minimum_distribution(pools["tax_deferred"], age, birth_year)
@@ -118,7 +139,7 @@ def _apply_year_withdrawal(
     }
 
     extra_total = need_after_rmd
-    extra_withdrawn = _simulate_fill(available, _WITHDRAWAL_ORDER, extra_total)
+    extra_withdrawn = _simulate_fill(available, withdrawal_order, extra_total)
     tax = 0.0
     if apply_drawdown_tax:
         # Fixed-point iteration, same idea (and same iteration count) as
@@ -133,7 +154,7 @@ def _apply_year_withdrawal(
             gains = extra_withdrawn["taxable"] * gains_fraction
             tax = _pool_year_tax(ordinary_income=ordinary, gains_income=gains, year=year, inflation_rate=inflation_rate)
             extra_total = need_after_rmd + tax
-            extra_withdrawn = _simulate_fill(available, _WITHDRAWAL_ORDER, extra_total)
+            extra_withdrawn = _simulate_fill(available, withdrawal_order, extra_total)
 
     shortfall = max(0.0, extra_total - sum(extra_withdrawn.values()))
 
