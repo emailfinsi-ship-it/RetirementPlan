@@ -639,6 +639,18 @@ class Handler(BaseHTTPRequestHandler):
                 deleted = db.delete_category_rule(int(payload.get("id")))
                 changed = db.recategorize_all_transactions() if deleted else 0
                 self._send_json({"ok": True, "deleted": deleted, "recategorized": changed})
+            elif path == "/api/category-rule/apply-from-transaction":
+                # Real Expenditure page's per-row "Categorize similar"
+                # link -- turns one transaction into a keyword rule from
+                # its own already-set category, without a person having
+                # to type a keyword by hand on Setup (see source.common.
+                # db.transactions.apply_category_rule_from_transaction
+                # for exactly how the keyword is derived and why this
+                # applies retroactively too). A ValueError here (no such
+                # transaction, or no usable keyword) surfaces as this
+                # request's own 400 -- see the broad except below.
+                result = db.apply_category_rule_from_transaction(payload.get("transaction_id") or "")
+                self._send_json({"ok": True, **result})
             elif path == "/api/export":
                 out_path = excel_export.export_current_state()
                 self._send_json({"ok": True, "path": str(out_path)})

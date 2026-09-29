@@ -510,27 +510,32 @@ function refreshLinkedPositionsBarCharts() {{
     if (totalLabel) {{ totalLabel.textContent = '-- ' + moneyShort(total) + ' total'; }}
   }});
 }}
+var EXPENDITURE_FILTER_DIMS = ['expense-category', 'expense-month', 'income-category', 'income-month'];
 function applyExpenditureFilters() {{
   // Real Expenditure tab's own click-to-filter: clicking a "by
-  // category" or "by month" bar segment filters the transaction list
-  // below to the row(s) that make up that bar, same contract as
+  // category" or "by month" bar segment (expense OR income -- the
+  // income-by-category/income-by-month charts share this same table
+  // and the same underlying data-category/data-month attributes every
+  // row already carries, so a click on either kind of chart filters
+  // the one list below it) filters the transaction list below to the
+  // row(s) that make up that bar, same contract as
   // applyPositionFilters() above (shares __positionsFilters/
-  // handlePieSegClick -- dims are namespaced by string, "expense-
-  // category"/"expense-month" here vs. "type"/"institution"/"industry"/
-  // "sector" on Linked Positions, so the two never collide even though
-  // both live in the same global filter state) but targets the
+  // handlePieSegClick -- dims are namespaced by string, "expense-"/
+  // "income-" here vs. "type"/"institution"/"industry"/"sector" on
+  // Linked Positions, so none of these ever collide even though they
+  // all live in the same global filter state) but targets the
   // transactions table's own data-category/data-month attributes
   // instead of market value, and has no running total to recompute.
   var table = document.getElementById('real-expenditure-table');
   if (!table) return;
-  var dims = Object.keys(__filtersSubset(['expense-category', 'expense-month']));
+  var dims = Object.keys(__filtersSubset(EXPENDITURE_FILTER_DIMS));
   var rows = table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
   var visibleCount = 0;
   rows.forEach(function(row) {{
     if (!('category' in row.dataset) && !('month' in row.dataset)) return;  // the "no transactions yet" placeholder row
     var visible = dims.every(function(dim) {{
       var f = __positionsFilters[dim];
-      var field = dim === 'expense-category' ? 'category' : 'month';
+      var field = dim.indexOf('category') !== -1 ? 'category' : 'month';
       return f.values.indexOf(row.dataset[field]) !== -1;
     }});
     row.style.display = visible ? '' : 'none';
@@ -540,7 +545,7 @@ function applyExpenditureFilters() {{
   if (countEl) {{
     countEl.textContent = dims.length ? ('Showing ' + visibleCount + ' of ' + rows.length + ' transactions.') : '';
   }}
-  renderFilterChips('expenditure-filter-bar', __filtersSubset(['expense-category', 'expense-month']), clearPositionFilter, clearPositionFilters);
+  renderFilterChips('expenditure-filter-bar', __filtersSubset(EXPENDITURE_FILTER_DIMS), clearPositionFilter, clearPositionFilters);
 }}
 function formatSignedMoney(value) {{
   // Matches source.webapp.render_helpers.formatting._money's own
@@ -767,6 +772,27 @@ function excludeOneTransaction(transactionId) {{
   // single transaction_id without needing to check its row first.
   postJSON('/api/classify-transaction-expense-flag', {{items: [{{transaction_id: transactionId}}], action: 'exclude'}})
     .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function categorizeSimilarTransactions(transactionId) {{
+  // Real Expenditure's per-row "Categorize similar" link -- turns this
+  // ONE transaction's own already-set Category into a reusable keyword
+  // rule (source.common.db.transactions.apply_category_rule_from_
+  // transaction derives the keyword server-side from this row's own
+  // merchant_name/name, the same way Setup's "Category rules" card
+  // would if a person typed one by hand) and applies it immediately to
+  // every other matching transaction already synced, not just future
+  // ones. If this row's own category isn't what you want yet, retype
+  // it first with the bulk-classify bar above, then use this.
+  postJSON('/api/category-rule/apply-from-transaction', {{transaction_id: transactionId}})
+    .then(function(data) {{
+      alert(
+        'Saved a rule: any transaction whose name/merchant contains "' + data.keyword + '" is now categorized "' +
+        data.category + '" -- ' + data.recategorized + ' existing transaction' + (data.recategorized === 1 ? '' : 's') +
+        ' updated, and future syncs will match it too. (Manage or remove this rule on Setup\\'s "Category rules" card.)'
+      );
+      location.reload();
+    }})
     .catch(function(err) {{ alert(err.message); }});
 }}
 document.addEventListener('change', function(e) {{

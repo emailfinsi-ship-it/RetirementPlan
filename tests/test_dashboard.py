@@ -4109,6 +4109,29 @@ class TestRealExpenditurePage(DashboardTestCase):
         body = self._get("/real-expenditure.html").read().decode("utf-8")
         self.assertNotIn("counted as income", body)
 
+    def test_income_charts_are_present_and_wired_for_click_to_filter(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-payroll", amount=-2000.0, name="Employer Payroll", primary="INCOME", detailed="INCOME_WAGES")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("Real income by category", body)
+        self.assertIn("Real income by month (last 12)", body)
+        self.assertIn('data-dim="income-category"', body)
+        self.assertIn('data-dim="income-month"', body)
+
+    def test_no_income_yet_shows_the_no_data_state_for_income_charts(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")  # an ordinary Food purchase, no income
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("Real income by category", body)
+        self.assertNotIn('data-dim="income-category"', body)  # no-data state renders no bars at all
+
+    def test_every_row_has_a_categorize_similar_link(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("categorizeSimilarTransactions('txn-1')", body)
+        self.assertIn("categorize similar", body)
+
 
 class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):
     def setUp(self):
@@ -4450,6 +4473,79 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertIn("deleteCategoryRule(", body)
         # The built-in reference table shows at least one hardcoded default.
         self.assertIn("GENERAL_MERCHANDISE", body)
+
+
+class TestApplyCategoryRuleFromTransactionEndpoint(DashboardTestCase):
+    """Real Expenditure's per-row "Categorize similar" action -- source.
+    common.db.transactions.apply_category_rule_from_transaction via
+    /api/category-rule/apply-from-transaction. See TestCategoryRuleEndpoints
+    above for the lower-level /api/category-rule/save this builds on."""
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+            # This class's own rules only -- DashboardTestCase shares one
+            # database across every test in this module (see its
+            # setUpClass), so leaving an unrelated rule untouched matters.
+            conn.execute(
+                "DELETE FROM category_rules WHERE rule_type = 'keyword' AND match_key IN ('starbucks', 'acme utility co')"
+            )
+        db.delete_plaid_item("k")
+
+    def _find_rule(self, match_key):
+        return next((r for r in db.list_category_rules() if r["match_key"] == match_key), None)
+
+    def _seed(self, transaction_id, *, name, merchant_name, category, amount=42.0):
+        db.upsert_plaid_item(
+            item_key="k", plaid_item_id="item-k", institution_id=None, institution_name="Bank",
+            products=["transactions"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="k", account={"account_id": "acc-1", "name": "Checking", "balances": {"current": 0}})
+        db.upsert_plaid_transaction(item_key="k", transaction={
+            "transaction_id": transaction_id, "account_id": "acc-1", "date": "2026-09-01", "amount": amount,
+            "iso_currency_code": "USD", "name": name, "merchant_name": merchant_name, "pending": False,
+            "plaid_category_primary": "OTHER", "plaid_category_detailed": "OTHER_OTHER",
+            "category": category, "excluded_from_expense": False,
+        })
+
+    def test_derives_a_keyword_from_merchant_name_and_saves_it_as_a_rule(self):
+        self._seed("t1", name="Starbucks Coffee #4521", merchant_name="Starbucks", category="Food")
+        status, payload = self._post("/api/category-rule/apply-from-transaction", {"transaction_id": "t1"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["keyword"], "starbucks")
+        self.assertEqual(payload["category"], "Food")
+        rule = self._find_rule("starbucks")
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule["rule_type"], "keyword")
+        self.assertEqual(rule["category"], "Food")
+
+    def test_applies_immediately_to_another_matching_transaction(self):
+        self._seed("t1", name="ACME UTILITY CO DES:PAYROLL ID:1", merchant_name="", category="Housing & Utilities", amount=-10_150.0)
+        self._seed("t2", name="ACME UTILITY CO DES:PAYROLL ID:2", merchant_name="", category="Uncategorized", amount=-10_150.0)
+        # t1 is the example the person retyped by hand first (mirrors the
+        # bulk-classify bar's own "Set category" call, which always marks
+        # category_edited_by_user -- otherwise recategorize_all_
+        # transactions would immediately overwrite it right back).
+        db.update_plaid_transaction_category(["t1"], "Income")
+        status, payload = self._post("/api/category-rule/apply-from-transaction", {"transaction_id": "t1"})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["keyword"], "acme utility co")
+        self.assertEqual(payload["category"], "Income")
+        self.assertEqual(payload["recategorized"], 1)
+        by_id = {t["transaction_id"]: t for t in db.list_plaid_transactions()}
+        self.assertEqual(by_id["t2"]["category"], "Income")
+
+    def test_unknown_transaction_id_returns_400(self):
+        status, payload = self._post("/api/category-rule/apply-from-transaction", {"transaction_id": "nope"})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_a_transaction_with_no_usable_name_or_merchant_returns_400(self):
+        self._seed("t1", name="", merchant_name="", category="Uncategorized")
+        status, payload = self._post("/api/category-rule/apply-from-transaction", {"transaction_id": "t1"})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
 
 
 class TestDrawdownPlanningPage(DashboardTestCase):

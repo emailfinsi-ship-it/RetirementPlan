@@ -117,6 +117,28 @@ def _render_real_expenditure_page() -> str:
     ]
     monthly_chart_html = _bar_chart_html("Real expenditure by month (last 12)", month_slices, dim="expense-month")
 
+    # Mirrors the two expense charts above, but for real income -- a
+    # category breakdown here is worth more than it sounds: most rows
+    # in it should just be "Income", so a category showing up here that
+    # ISN'T "Income" (a deposit Plaid couldn't classify, see is_real_
+    # income) is a direct visual pointer at exactly the kind of
+    # transaction "Categorize similar" (below) exists to fix.
+    income_chart_rows = [{**t, "income_for_chart": -t["amount"]} for t in included if t["is_real_income"]]
+    income_category_chart_html = _bar_chart_html(
+        "Real income by category",
+        _grouped_slices(income_chart_rows, key="category", value_key="income_for_chart", max_slices=None),
+        dim="income-category",
+    )
+    # Chronological, same reasoning as month_slices above. Real income
+    # is never negative by construction (each entry is already sign-
+    # flipped positive), so there's no refund-style clamp needed here.
+    income_month_slices = [
+        (month, monthly_income_totals.get(month, 0.0), [month]) for month in sorted(monthly_income_totals)[-12:]
+    ]
+    income_monthly_chart_html = _bar_chart_html(
+        "Real income by month (last 12)", income_month_slices, dim="income-month",
+    )
+
     monthly_rows_html = "".join(
         f'<tr><td>{html.escape(month)}</td><td class="num">{_money(monthly_totals.get(month, 0.0))}</td>'
         f'<td class="num">{_money(monthly_income_totals.get(month, 0.0))}</td>'
@@ -189,6 +211,23 @@ def _render_real_expenditure_page() -> str:
         else:
             amount_html = html.escape(_money(t["amount"]))
             income_badge = ""
+        # "Categorize similar" -- one-click shortcut for source.common.
+        # db.transactions.apply_category_rule_from_transaction: takes
+        # THIS row's own already-set Category (retype it first with the
+        # bulk-classify bar above if it isn't right yet) and saves it as
+        # a keyword rule derived from this row's own merchant/name, then
+        # applies it immediately to every other matching transaction
+        # already synced (see categorizeSimilarTransactions() in
+        # shell.py). Exactly the follow-up action for the bug this
+        # page's own "Total real income" card exists to catch: fix one
+        # occurrence, then propagate it to every other month's copy of
+        # the same deposit/charge in one click.
+        categorize_similar_link = (
+            f' <a href="#" class="muted" style="font-size:11px;" '
+            f'onclick="categorizeSimilarTransactions(\'{html.escape(t["transaction_id"])}\'); return false;" '
+            f'title="Apply this transaction\'s own category to every other transaction whose name/merchant '
+            f'matches -- now, and on future syncs.">categorize similar</a>'
+        )
         return (
             f'<tr data-category="{html.escape(t["category"])}" data-month="{html.escape(_month_key(t["date"]))}">'
             f'<td class="check-col"><input type="checkbox" class="transaction-check" '
@@ -196,7 +235,7 @@ def _render_real_expenditure_page() -> str:
             f'<td>{html.escape(t["date"])}</td>'
             f'<td>{html.escape(t["institution"])}</td><td>{html.escape(t["account_name"])}</td>'
             f'<td>{description}{pending_badge}{duplicate_badge}</td>'
-            f'<td>{category_label}{income_badge}</td>'
+            f'<td>{category_label}{income_badge}{categorize_similar_link}</td>'
             f'<td class="num">{amount_html}</td>'
             f'<td>{excluded_badge}</td></tr>'
         )
@@ -239,6 +278,10 @@ def _render_real_expenditure_page() -> str:
 <div class="group-section">
 {monthly_chart_html}
 </div>
+<div class="group-section">
+{income_category_chart_html}
+{income_monthly_chart_html}
+</div>
 
 <h2>Monthly summary</h2>
 <table class="sortable">
@@ -253,7 +296,7 @@ def _render_real_expenditure_page() -> str:
 </table>
 
 <h2>All transactions</h2>
-<p class="muted">Click a bar in either chart above to filter this list down to that category or month -- click it again (or "Clear all") to go back to everything.</p>
+<p class="muted">Click a bar in any chart above (expense or income) to filter this list down to that category or month -- click it again (or "Clear all") to go back to everything.</p>
 <div id="expenditure-filter-bar" class="filter-bar"></div>
 <p id="real-expenditure-shown-count" class="muted"></p>
 <div id="transaction-bulk-bar" class="industry-bulk-bar">

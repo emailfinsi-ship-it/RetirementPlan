@@ -1,6 +1,11 @@
 import unittest
 
-from source.common.plaid_categorize import default_category, default_excluded_from_expense, is_real_income
+from source.common.plaid_categorize import (
+    default_category,
+    default_excluded_from_expense,
+    is_real_income,
+    suggest_keyword_from_name,
+)
 
 
 class TestDefaultExcludedFromExpense(unittest.TestCase):
@@ -176,6 +181,39 @@ class TestIsRealIncome(unittest.TestCase):
         self.assertFalse(is_real_income(
             primary="TRANSFER_IN", category="Transfer", amount=-500.0, excluded_from_expense=False,
         ))
+
+
+class TestSuggestKeywordFromName(unittest.TestCase):
+    def test_prefers_merchant_name_when_present(self):
+        self.assertEqual(suggest_keyword_from_name("Starbucks Coffee #4521", "Starbucks"), "starbucks")
+
+    def test_strips_a_store_number_from_the_raw_name_when_no_merchant_name(self):
+        self.assertEqual(suggest_keyword_from_name("Starbucks Coffee #4521"), "starbucks coffee")
+
+    def test_strips_an_ach_payroll_reference_block_so_two_months_of_the_same_deposit_match(self):
+        # The exact real-world case this exists for -- Plaid's own ACH
+        # descriptor packs a transaction/period-specific reference number
+        # into the same string as the stable payee name.
+        name = "APPLE INC. DES:PAYROLL ID:117316 INDN:XXXXX0358 CO ID:XXXXX04110 PPD"
+        self.assertEqual(suggest_keyword_from_name(name), "apple inc")
+
+    def test_two_different_months_of_the_same_paycheck_derive_the_same_keyword(self):
+        month_one = "ACME UTILITY CO DES:PAYROLL ID:1000001"
+        month_two = "ACME UTILITY CO DES:PAYROLL ID:1000002"
+        self.assertEqual(suggest_keyword_from_name(month_one), suggest_keyword_from_name(month_two))
+
+    def test_bare_run_of_digits_is_cut_off(self):
+        self.assertEqual(suggest_keyword_from_name("XYZ CORP PAYROLL DEPOSIT 09052026"), "xyz corp payroll deposit")
+
+    def test_falls_back_to_first_few_words_when_the_whole_name_is_reference_like(self):
+        self.assertEqual(suggest_keyword_from_name("DES:PAYROLL ID:117316"), "des:payroll id:117316")
+
+    def test_blank_name_and_merchant_name_returns_empty_string(self):
+        self.assertEqual(suggest_keyword_from_name(None, None), "")
+        self.assertEqual(suggest_keyword_from_name("", ""), "")
+
+    def test_is_lowercased(self):
+        self.assertEqual(suggest_keyword_from_name(None, "PELOTON"), "peloton")
 
 
 if __name__ == "__main__":

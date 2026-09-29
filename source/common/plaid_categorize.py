@@ -11,6 +11,8 @@ transactions importing back from sync would be circular).
 
 from __future__ import annotations
 
+import re
+
 # Plaid's Personal Finance Category taxonomy has ~16 top-level "primary"
 # values; these two are the ones that mean the user moved their own
 # money around rather than spent it -- a transfer between two of their
@@ -182,6 +184,56 @@ def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, 
         if any(keyword in text for keyword in keywords):
             return category
     return None
+
+
+# Matches the point in a raw transaction description where a stable
+# payee name (e.g. "APPLE INC.") gives way to a transaction- or period-
+# specific reference block -- an ACH descriptor's own "DES:"/"ID:"/
+# "INDN:"/"CO ID:" tags, a SEC code like "PPD"/"CCD"/"WEB"/"TEL", a
+# store-number-style "#1234", or a bare run of 4+ digits (an
+# ambiguously-labeled reference number). See suggest_keyword_from_name.
+_REFERENCE_BLOCK_PATTERN = re.compile(
+    r"\b(?:DES|ID|INDN|CO\s*ID|SEC)\s*:|\bPPD\b|\bCCD\b|\bWEB\b|\bTEL\b|#\d|\d{4,}",
+    re.IGNORECASE,
+)
+
+
+def suggest_keyword_from_name(name: str | None, merchant_name: str | None = None) -> str:
+    """Best-effort, stable keyword for a category_rules 'keyword' rule,
+    derived from one transaction's own merchant_name/name -- lets a
+    person tag a single transaction as the example of a category and
+    have every similar transaction (already synced, and any future one)
+    picked up the same way, without having to type a keyword by hand on
+    the Setup page (see source.common.db.transactions.apply_category_
+    rule_from_transaction, which is what actually calls this).
+
+    Prefers `merchant_name` (Plaid's own cleaned merchant field, e.g.
+    "Starbucks") when present -- already stable across every occurrence
+    of the same real-world payee. Falls back to `name` (the raw
+    description) with everything from the first reference-block-looking
+    token onward cut off (_REFERENCE_BLOCK_PATTERN above), since an ACH
+    deposit's own description -- exactly the case this exists for, a
+    paycheck-like deposit Plaid couldn't classify at all -- otherwise
+    carries a transaction- or period-specific number that would stop
+    two months of the very same paycheck from ever matching the same
+    keyword. Returns "" (never None) when nothing usable is left, so a
+    caller can treat a blank result as "couldn't derive one" without an
+    extra None check."""
+    merchant_name = (merchant_name or "").strip()
+    if merchant_name:
+        return merchant_name.lower()
+    text = (name or "").strip()
+    if not text:
+        return ""
+    match = _REFERENCE_BLOCK_PATTERN.search(text)
+    stable = text[: match.start()] if match else text
+    stable = stable.strip(" -:#.,")
+    if len(stable) < 3:
+        # The whole description was reference-y (or the match landed
+        # right at the start) -- fall back to its first few words
+        # instead of an unusably short or empty keyword.
+        stable = " ".join(text.split()[:3])
+    return stable.lower()
 
 
 # The three kinds of rule source.common.db.category_rules stores --

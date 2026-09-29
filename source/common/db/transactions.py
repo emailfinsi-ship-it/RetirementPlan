@@ -18,9 +18,9 @@ manual edit.
 
 from __future__ import annotations
 
-from source.common.db.category_rules import load_active_overrides
+from source.common.db.category_rules import load_active_overrides, upsert_category_rule
 from source.common.db.connection import _now, connect
-from source.common.plaid_categorize import default_category, default_excluded_from_expense
+from source.common.plaid_categorize import default_category, default_excluded_from_expense, suggest_keyword_from_name
 
 
 def upsert_plaid_transaction(*, item_key: str, transaction: dict) -> None:
@@ -195,6 +195,47 @@ def recategorize_all_transactions() -> int:
                 changed += 1
         return changed
 
+
+def apply_category_rule_from_transaction(transaction_id: str) -> dict:
+    """Turns one transaction into a reusable keyword rule for every
+    similar transaction, past and future -- backs the Real Expenditure
+    page's per-row "Categorize similar" action (dashboard._handle_
+    apply_category_rule_from_transaction), for exactly the case this
+    program's own income-capture bug came from: a paycheck-like deposit
+    Plaid gave no real classification for, so its Category is whatever
+    a name-only guess produced, and every other month's copy of that
+    same deposit needs the same fix, not just this one.
+
+    Uses THIS transaction's own already-set Category (whatever it is --
+    typically just retyped via the bulk-classify bar right before this
+    is called) as the category to propagate, and derives a stable
+    keyword from its own merchant_name/name via plaid_categorize.
+    suggest_keyword_from_name rather than asking a person to type one
+    by hand -- the whole point of "show it one example" is not having
+    to. Saves the rule (source.common.db.category_rules.
+    upsert_category_rule) and immediately re-runs recategorize_all_
+    transactions() so every other not-manually-edited transaction
+    already in the database that matches picks up the same category
+    right away, not just ones synced from here on (same as saving a
+    rule by hand on the Setup page).
+
+    Returns {"keyword": ..., "category": ..., "recategorized": count}.
+    Raises ValueError if no transaction with this id exists, or if no
+    usable keyword could be derived from it (a blank name AND merchant_
+    name -- very rare for a real synced transaction)."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT category, merchant_name, name FROM plaid_transactions WHERE transaction_id = ?",
+            (transaction_id,),
+        ).fetchone()
+    if not row:
+        raise ValueError(f"No transaction found with id '{transaction_id}'.")
+    keyword = suggest_keyword_from_name(row["name"], row["merchant_name"])
+    if not keyword:
+        raise ValueError("Couldn't find enough text in this transaction's description to build a keyword from.")
+    upsert_category_rule(rule_type="keyword", match_key=keyword, category=row["category"])
+    changed = recategorize_all_transactions()
+    return {"keyword": keyword, "category": row["category"], "recategorized": changed}
 
 
 def update_plaid_transaction_excluded(transaction_ids: list[str], excluded: bool) -> int:
