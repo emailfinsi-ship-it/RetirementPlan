@@ -61,31 +61,48 @@ def _render_real_expenditure_page() -> str:
     included = [t for t in transactions if not t["excluded_from_expense"]]
     duplicate_counts = _duplicate_counts(transactions)
 
+    # Split every counted transaction into real expense vs real income
+    # (see linked_data.read_transactions' own "is_real_income" field,
+    # which is broader than a plain category=="Income" check -- it also
+    # catches inbound money Plaid couldn't classify into any real
+    # spending category at all, rather than letting it silently vanish
+    # into whatever expense-sounding category a name-only guess picked).
     monthly_totals: dict[str, float] = defaultdict(float)
+    monthly_income_totals: dict[str, float] = defaultdict(float)
     monthly_counts: dict[str, int] = defaultdict(int)
     for t in included:
         key = _month_key(t["date"])
-        monthly_totals[key] += t["amount"]
         monthly_counts[key] += 1
-    months_desc = sorted(monthly_totals, reverse=True)
+        if t["is_real_income"]:
+            monthly_income_totals[key] += -t["amount"]
+        else:
+            monthly_totals[key] += t["amount"]
+    months_desc = sorted(set(monthly_totals) | set(monthly_income_totals), reverse=True)
 
     annual_totals: dict[str, float] = defaultdict(float)
+    annual_income_totals: dict[str, float] = defaultdict(float)
     annual_counts: dict[str, int] = defaultdict(int)
     for t in included:
         key = _year_key(t["date"])
-        annual_totals[key] += t["amount"]
         annual_counts[key] += 1
-    years_desc = sorted(annual_totals, reverse=True)
+        if t["is_real_income"]:
+            annual_income_totals[key] += -t["amount"]
+        else:
+            annual_totals[key] += t["amount"]
+    years_desc = sorted(set(annual_totals) | set(annual_income_totals), reverse=True)
 
     total_real_expenditure = sum(monthly_totals.values())
+    total_real_income = sum(monthly_income_totals.values())
     excluded_total = sum(t["amount"] for t in transactions if t["excluded_from_expense"])
 
     # Chart-only spend value -- clamped at 0 rather than left negative
     # (_bar_chart_html assumes non-negative magnitudes, same as every
     # other bar chart in this app). The summary tables below always show
     # the true signed net (spend minus refunds); this clamp only affects
-    # how a refund-heavy category/month draws as a bar.
-    chart_rows = [{**t, "spend_for_chart": max(t["amount"], 0.0)} for t in included]
+    # how a refund-heavy category/month draws as a bar. Real-income
+    # transactions are left out of this chart entirely -- they're not
+    # spending, whatever category they happen to carry.
+    chart_rows = [{**t, "spend_for_chart": max(t["amount"], 0.0)} for t in included if not t["is_real_income"]]
     category_chart_html = _bar_chart_html(
         "Real expenditure by category",
         _grouped_slices(chart_rows, key="category", value_key="spend_for_chart", max_slices=None),
@@ -96,21 +113,23 @@ def _render_real_expenditure_page() -> str:
     # by month, so this is built directly rather than through
     # _grouped_slices (which always sorts by value descending).
     month_slices = [
-        (month, max(monthly_totals[month], 0.0), [month]) for month in sorted(monthly_totals)[-12:]
+        (month, max(monthly_totals.get(month, 0.0), 0.0), [month]) for month in sorted(monthly_totals)[-12:]
     ]
     monthly_chart_html = _bar_chart_html("Real expenditure by month (last 12)", month_slices, dim="expense-month")
 
     monthly_rows_html = "".join(
-        f'<tr><td>{html.escape(month)}</td><td class="num">{_money(monthly_totals[month])}</td>'
+        f'<tr><td>{html.escape(month)}</td><td class="num">{_money(monthly_totals.get(month, 0.0))}</td>'
+        f'<td class="num">{_money(monthly_income_totals.get(month, 0.0))}</td>'
         f'<td class="num">{monthly_counts[month]}</td></tr>'
         for month in months_desc
-    ) or '<tr><td colspan="3" class="muted">No transactions yet.</td></tr>'
+    ) or '<tr><td colspan="4" class="muted">No transactions yet.</td></tr>'
 
     annual_rows_html = "".join(
-        f'<tr><td>{html.escape(year)}</td><td class="num">{_money(annual_totals[year])}</td>'
+        f'<tr><td>{html.escape(year)}</td><td class="num">{_money(annual_totals.get(year, 0.0))}</td>'
+        f'<td class="num">{_money(annual_income_totals.get(year, 0.0))}</td>'
         f'<td class="num">{annual_counts[year]}</td></tr>'
         for year in years_desc
-    ) or '<tr><td colspan="3" class="muted">No transactions yet.</td></tr>'
+    ) or '<tr><td colspan="4" class="muted">No transactions yet.</td></tr>'
 
     # Every category already in use (across ALL transactions, including
     # excluded ones -- a transfer might still be worth a specific label),
@@ -148,6 +167,28 @@ def _render_real_expenditure_page() -> str:
             )
         else:
             duplicate_badge = ""
+        if t["is_real_income"]:
+            # Displayed as a plain positive figure (Plaid's own raw
+            # convention has money-in as negative, which read as
+            # confusing for what's obviously a deposit/paycheck) --
+            # display-only: the signed amount is still what every total/
+            # chart on this page and Budget vs Actual actually sums.
+            amount_html = f'<span class="status-ok">+{html.escape(_money(-t["amount"]))}</span>'
+            # Only flagged when the category itself doesn't already say
+            # "Income" -- otherwise this would just repeat the category
+            # column for no reason. This is exactly the case that used
+            # to go uncounted: an inbound deposit Plaid couldn't
+            # classify, guessed into some expense-sounding category by
+            # name alone.
+            income_badge = (
+                '' if t["category"].strip() == "Income" else
+                ' <span class="muted" style="font-size:11px;" '
+                'title="Counted as real income even though its category isn\'t &quot;Income&quot; -- '
+                'Plaid couldn\'t classify this one, and it\'s inbound money.">counted as income</span>'
+            )
+        else:
+            amount_html = html.escape(_money(t["amount"]))
+            income_badge = ""
         return (
             f'<tr data-category="{html.escape(t["category"])}" data-month="{html.escape(_month_key(t["date"]))}">'
             f'<td class="check-col"><input type="checkbox" class="transaction-check" '
@@ -155,8 +196,8 @@ def _render_real_expenditure_page() -> str:
             f'<td>{html.escape(t["date"])}</td>'
             f'<td>{html.escape(t["institution"])}</td><td>{html.escape(t["account_name"])}</td>'
             f'<td>{description}{pending_badge}{duplicate_badge}</td>'
-            f'<td>{category_label}</td>'
-            f'<td class="num">{_money(t["amount"])}</td>'
+            f'<td>{category_label}{income_badge}</td>'
+            f'<td class="num">{amount_html}</td>'
             f'<td>{excluded_badge}</td></tr>'
         )
 
@@ -188,6 +229,11 @@ def _render_real_expenditure_page() -> str:
 <p class="muted" style="margin:0;">Across {included_count} counted transaction{'s' if included_count != 1 else ''} -- {excluded_count} more excluded as transfers/card payments ({_money(excluded_total)}, not counted above).</p>
 {duplicate_note}
 </div>
+<div class="card" style="flex:1 1 220px;">
+<h3 style="margin-top:0; font-size:13px;">Total real income</h3>
+<p style="font-size:22px; font-weight:600; margin:4px 0;">{_money(total_real_income)}</p>
+<p class="muted" style="margin:0;">Every counted deposit -- anything already categorized "Income," plus inbound money Plaid couldn't classify into a real spending category (so it can't silently disappear into an expense category by name-guess alone). The table below flags a row counted this second way, since its own category won't say "Income."</p>
+</div>
 {category_chart_html}
 </div>
 <div class="group-section">
@@ -196,13 +242,13 @@ def _render_real_expenditure_page() -> str:
 
 <h2>Monthly summary</h2>
 <table class="sortable">
-<thead><tr><th>Month</th><th class="num">Real expenditure</th><th class="num">Transactions</th></tr></thead>
+<thead><tr><th>Month</th><th class="num">Real expenditure</th><th class="num">Real income</th><th class="num">Transactions</th></tr></thead>
 <tbody>{monthly_rows_html}</tbody>
 </table>
 
 <h2>Annual summary</h2>
 <table class="sortable">
-<thead><tr><th>Year</th><th class="num">Real expenditure</th><th class="num">Transactions</th></tr></thead>
+<thead><tr><th>Year</th><th class="num">Real expenditure</th><th class="num">Real income</th><th class="num">Transactions</th></tr></thead>
 <tbody>{annual_rows_html}</tbody>
 </table>
 
@@ -225,7 +271,7 @@ def _render_real_expenditure_page() -> str:
 <thead><tr><th class="check-col"><input type="checkbox" class="transaction-select-all"></th><th>Date</th><th>Institution</th><th>Account</th><th>Description</th><th>Category</th><th class="num">Amount</th><th>Status</th></tr></thead>
 <tbody>{transactions_rows_html}</tbody>
 </table>
-<p class="muted">A category marked with * was set by hand and won't be overwritten by a future sync. Amounts follow Plaid's own convention -- positive is money out, negative is money in/a refund -- so a category or month's total already nets a refund against the spending it reverses.</p>
+<p class="muted">A category marked with * was set by hand and won't be overwritten by a future sync. A deposit/paycheck counted as real income (see "Total real income" above) displays here as a plain positive amount for readability; every other amount follows Plaid's own convention -- positive is money out, negative is money in/a refund -- so a category or month's expenditure total already nets a refund against the spending it reverses.</p>
 <p class="muted">See <a href="/budget-vs-actual.html">Budget vs Actual</a> to compare this against what the Income/Expense tab's own assumptions planned for.</p>
 """
     return _shell(title="Real Expenditure", active="real-expenditure.html", body=body)

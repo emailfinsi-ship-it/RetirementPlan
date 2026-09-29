@@ -14,7 +14,7 @@ refresh them from Plaid.
 
 from __future__ import annotations
 
-from source.common import db
+from source.common import db, plaid_categorize
 
 _LIABILITY_TYPES = {"credit", "loan"}
 
@@ -231,19 +231,33 @@ def read_transactions() -> list:
     for t in db.list_plaid_transactions():
         account = accounts_by_id.get(t["account_id"], {})
         item = items_by_key.get(t["item_key"], {})
+        amount = t["amount"] or 0.0
+        category = t["category"] or "Uncategorized"
+        excluded_from_expense = bool(t["excluded_from_expense"])
         result.append({
             "transaction_id": t["transaction_id"],
             "account_id": t["account_id"],
             "date": t["date"],
-            "amount": t["amount"] or 0.0,
+            "amount": amount,
             "iso_currency_code": t["iso_currency_code"] or "",
             "name": t["name"] or "",
             "merchant_name": t["merchant_name"] or "",
             "pending": bool(t["pending"]),
-            "category": t["category"] or "Uncategorized",
+            "plaid_category_primary": t["plaid_category_primary"] or "",
+            "plaid_category_detailed": t["plaid_category_detailed"] or "",
+            "category": category,
             "category_edited_by_user": bool(t["category_edited_by_user"]),
-            "excluded_from_expense": bool(t["excluded_from_expense"]),
+            "excluded_from_expense": excluded_from_expense,
             "excluded_edited_by_user": bool(t["excluded_edited_by_user"]),
+            # Broader than `category == "Income"` -- also catches inbound
+            # money Plaid couldn't classify into any real spending
+            # category at all (see plaid_categorize.is_real_income).
+            # Precomputed here, once, so every page that reads
+            # transactions (Real Expenditure, Budget vs Actual) agrees.
+            "is_real_income": plaid_categorize.is_real_income(
+                primary=t["plaid_category_primary"], category=category,
+                amount=amount, excluded_from_expense=excluded_from_expense,
+            ),
             "institution": item.get("institution_name") or "",
             "account_name": account.get("official_name") or account.get("name") or "",
             "account_type": (account.get("subtype") or account.get("type") or "").replace("_", " ").title(),

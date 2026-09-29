@@ -1,6 +1,6 @@
 import unittest
 
-from source.common.plaid_categorize import default_category, default_excluded_from_expense
+from source.common.plaid_categorize import default_category, default_excluded_from_expense, is_real_income
 
 
 class TestDefaultExcludedFromExpense(unittest.TestCase):
@@ -121,6 +121,61 @@ class TestDefaultCategory(unittest.TestCase):
     def test_keyword_override_is_never_consulted_when_plaid_already_classified_it(self):
         overrides = {"primary": {}, "detailed": {}, "keywords": [("shuttle", "Custom Travel")]}
         self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Travel")
+
+
+class TestIsRealIncome(unittest.TestCase):
+    def test_transaction_already_categorized_income_counts(self):
+        self.assertTrue(is_real_income(
+            primary="INCOME", category="Income", amount=-2000.0, excluded_from_expense=False,
+        ))
+
+    def test_positive_amount_categorized_income_still_counts(self):
+        # Shouldn't happen from a real Plaid sync, but the category is
+        # still the authoritative signal if it somehow does.
+        self.assertTrue(is_real_income(
+            primary="INCOME", category="Income", amount=2000.0, excluded_from_expense=False,
+        ))
+
+    def test_inbound_money_plaid_could_not_classify_counts_as_income(self):
+        # The exact bug this exists to fix: a real paycheck-like deposit
+        # that Plaid gave primary "OTHER" (no real classification), which
+        # this app's own name-keyword fallback would otherwise guess into
+        # an expense-sounding category (e.g. "Housing & Utilities") with
+        # no regard for the fact that the amount is money coming IN.
+        self.assertTrue(is_real_income(
+            primary="OTHER", category="Housing & Utilities", amount=-10_150.0, excluded_from_expense=False,
+        ))
+
+    def test_inbound_money_with_no_primary_at_all_counts_as_income(self):
+        self.assertTrue(is_real_income(
+            primary=None, category="Uncategorized", amount=-500.0, excluded_from_expense=False,
+        ))
+
+    def test_refund_within_a_real_expense_category_does_not_count_as_income(self):
+        # An Amazon return: Plaid ties it to the same primary
+        # (GENERAL_MERCHANDISE) its original purchase used -- a refund
+        # against real spending, not new income.
+        self.assertFalse(is_real_income(
+            primary="GENERAL_MERCHANDISE", category="Shopping", amount=-49.99, excluded_from_expense=False,
+        ))
+
+    def test_positive_amount_expense_does_not_count_as_income(self):
+        self.assertFalse(is_real_income(
+            primary="FOOD_AND_DRINK", category="Food", amount=42.50, excluded_from_expense=False,
+        ))
+
+    def test_excluded_transfer_never_counts_as_income_even_if_inbound(self):
+        self.assertFalse(is_real_income(
+            primary="TRANSFER_IN", category="Transfer", amount=-500.0, excluded_from_expense=True,
+        ))
+
+    def test_transfer_in_primary_that_was_manually_included_still_is_not_income(self):
+        # TRANSFER_IN is a real primary Plaid classified -- even if a
+        # person manually un-excludes it, it's a transfer between their
+        # own accounts, not new income.
+        self.assertFalse(is_real_income(
+            primary="TRANSFER_IN", category="Transfer", amount=-500.0, excluded_from_expense=False,
+        ))
 
 
 if __name__ == "__main__":

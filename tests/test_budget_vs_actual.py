@@ -11,10 +11,11 @@ from source.webapp.pages.budget_vs_actual import (
 from tests.testing_utils import PlaidVaultTestCase, TempConfigTestCase
 
 
-def _txn(transaction_id, *, date, amount, category, excluded=False, account_id="acc-1"):
+def _txn(transaction_id, *, date, amount, category, excluded=False, account_id="acc-1", plaid_category_primary=None):
     return {
         "transaction_id": transaction_id, "account_id": account_id, "date": date, "amount": amount,
         "iso_currency_code": "USD", "name": "x", "merchant_name": "x", "pending": False,
+        "plaid_category_primary": plaid_category_primary,
         "category": category, "category_edited_by_user": False,
         "excluded_from_expense": excluded, "excluded_edited_by_user": False,
         "institution": "Bank", "account_name": "Checking", "account_type": "Checking",
@@ -60,6 +61,26 @@ class TestActualExpenseAndIncomeByMonth(unittest.TestCase):
         ]
         expense, _ = _actual_expense_and_income_by_month(transactions)
         self.assertEqual(expense["2026-09"], 80.0)
+
+    def test_inbound_money_plaid_could_not_classify_counts_as_income(self):
+        # Same bug this whole feature exists to fix, exercised directly
+        # against this function: a deposit Plaid gave no real primary
+        # for landed in some expense-sounding category by name-guess
+        # alone -- it should still count as income here, not expense.
+        transactions = [
+            _txn("t1", date="2026-09-05", amount=-10_150.0, category="Housing & Utilities", plaid_category_primary="OTHER"),
+        ]
+        expense, income = _actual_expense_and_income_by_month(transactions)
+        self.assertEqual(expense, {})
+        self.assertEqual(income["2026-09"], 10_150.0)
+
+    def test_refund_within_a_real_expense_category_is_not_counted_as_income(self):
+        transactions = [
+            _txn("t1", date="2026-09-05", amount=-49.99, category="Shopping", plaid_category_primary="GENERAL_MERCHANDISE"),
+        ]
+        expense, income = _actual_expense_and_income_by_month(transactions)
+        self.assertEqual(income, {})
+        self.assertEqual(expense["2026-09"], -49.99)
 
 
 class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
@@ -107,6 +128,27 @@ class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
         })
         body = _render_budget_vs_actual_page()
         self.assertIn("$18,200.00", body)  # actual spend so far
+
+    def test_actual_income_includes_inbound_money_plaid_could_not_classify(self):
+        # Same bug as test_actual_expense_and_income_by_month's own
+        # coverage, exercised end-to-end through the rendered page: a
+        # deposit Plaid gave no real primary for (and this app's own
+        # name-keyword fallback guessed into "Housing & Utilities") still
+        # shows up in "Actual income so far", not silently dropped.
+        self._patched_today(real_date(2026, 7, 1))
+        db.upsert_plaid_item(
+            item_key="k2", plaid_item_id="item-2", institution_id=None, institution_name="Bank",
+            products=["transactions"], environment="sandbox", linked_at="2026-01-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="k2", account={"account_id": "acc-2", "name": "Checking", "balances": {"current": 0}})
+        db.upsert_plaid_transaction(item_key="k2", transaction={
+            "transaction_id": "t2", "account_id": "acc-2", "date": "2026-03-01", "amount": -10_150.0,
+            "iso_currency_code": "USD", "name": "ACME UTILITY CO DES:PAYROLL", "merchant_name": "ACME UTILITY CO",
+            "pending": False, "plaid_category_primary": "OTHER", "plaid_category_detailed": "OTHER_OTHER",
+            "category": "Housing & Utilities", "excluded_from_expense": False,
+        })
+        body = _render_budget_vs_actual_page()
+        self.assertIn("$10,150.00", body)  # actual income so far
 
     def test_monthly_table_shows_each_months_flat_budget_and_actual(self):
         self._patched_today(real_date(2026, 9, 15))

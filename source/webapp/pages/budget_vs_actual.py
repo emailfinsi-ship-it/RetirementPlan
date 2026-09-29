@@ -21,7 +21,7 @@ import html
 from collections import defaultdict
 from datetime import date
 
-from source.common import linked_data
+from source.common import linked_data, plaid_categorize
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import annual_expense_need, annual_income_need
 from source.webapp.pages.real_expenditure import _month_key
@@ -31,16 +31,28 @@ from source.webapp.render_helpers import _money, _shell, _sync_now_button_html
 def _actual_expense_and_income_by_month(transactions: list[dict]) -> tuple[dict, dict]:
     """Splits every COUNTED transaction (excluded_from_expense already
     left out, same as Real Expenditure's own totals) into two month-keyed
-    dicts: actual spend (everything not categorized "Income") and actual
-    income (category == "Income", sign-flipped to a positive dollar
-    amount -- Plaid's own convention has money in as negative)."""
+    dicts: actual spend and actual income (sign-flipped to a positive
+    dollar amount -- Plaid's own convention has money in as negative).
+
+    "Actual income" is broader than a plain `category == "Income"`
+    check -- see plaid_categorize.is_real_income -- so a paycheck-like
+    deposit Plaid couldn't classify into any real spending category
+    still counts as income here even if it landed in some expense-
+    sounding category by name-guess alone. Recomputed from each
+    transaction's own fields (not read off a precomputed
+    `is_real_income` key) so this stays correct for any transaction dict
+    that has the plain Plaid/category fields, whatever else it may or
+    may not carry."""
     expense_by_month: dict[str, float] = defaultdict(float)
     income_by_month: dict[str, float] = defaultdict(float)
     for t in transactions:
         if t["excluded_from_expense"]:
             continue
         key = _month_key(t["date"])
-        if t["category"] == "Income":
+        if plaid_categorize.is_real_income(
+            primary=t.get("plaid_category_primary"), category=t.get("category"),
+            amount=t["amount"], excluded_from_expense=t["excluded_from_expense"],
+        ):
             income_by_month[key] += -t["amount"]
         else:
             expense_by_month[key] += t["amount"]

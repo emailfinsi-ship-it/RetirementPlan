@@ -405,5 +405,57 @@ class TestDetectedTaxTreatment(unittest.TestCase):
         self.assertIsNone(linked_data.detected_tax_treatment(None))
 
 
+class TestReadTransactionsIsRealIncome(TempConfigTestCase):
+    """read_transactions' own "is_real_income" field (plaid_categorize.
+    is_real_income, precomputed here once so every page that reads
+    transactions -- Real Expenditure, Budget vs Actual -- agrees)."""
+
+    def setUp(self):
+        super().setUp()
+        db.upsert_plaid_item(
+            item_key="k", plaid_item_id="item-k", institution_id="ins_1", institution_name="Bank",
+            products=["transactions"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="k", account={
+            "account_id": "acc-1", "name": "Checking", "official_name": "Checking",
+            "type": "depository", "subtype": "checking", "mask": "1111",
+            "balances": {"current": 1_000.0, "available": None, "iso_currency_code": "USD"},
+        })
+
+    def _seed(self, transaction_id, *, amount, category, primary=None, detailed=None, excluded=False):
+        db.upsert_plaid_transaction(item_key="k", transaction={
+            "transaction_id": transaction_id, "account_id": "acc-1", "date": "2026-09-01", "amount": amount,
+            "iso_currency_code": "USD", "name": "x", "merchant_name": "x", "pending": False,
+            "plaid_category_primary": primary, "plaid_category_detailed": detailed,
+            "category": category, "excluded_from_expense": excluded,
+        })
+
+    def test_exposes_plaid_category_primary_and_detailed(self):
+        self._seed("t1", amount=42.0, category="Food", primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE")
+        row = linked_data.read_transactions()[0]
+        self.assertEqual(row["plaid_category_primary"], "FOOD_AND_DRINK")
+        self.assertEqual(row["plaid_category_detailed"], "FOOD_AND_DRINK_COFFEE")
+
+    def test_income_category_is_real_income(self):
+        self._seed("t1", amount=-2000.0, category="Income", primary="INCOME", detailed="INCOME_WAGES")
+        self.assertTrue(linked_data.read_transactions()[0]["is_real_income"])
+
+    def test_unclassified_inbound_money_is_real_income(self):
+        self._seed("t1", amount=-10_150.0, category="Housing & Utilities", primary="OTHER", detailed="OTHER_OTHER")
+        self.assertTrue(linked_data.read_transactions()[0]["is_real_income"])
+
+    def test_ordinary_expense_is_not_real_income(self):
+        self._seed("t1", amount=42.0, category="Food", primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE")
+        self.assertFalse(linked_data.read_transactions()[0]["is_real_income"])
+
+    def test_refund_in_a_real_expense_category_is_not_real_income(self):
+        self._seed("t1", amount=-49.99, category="Shopping", primary="GENERAL_MERCHANDISE", detailed="GENERAL_MERCHANDISE_ONLINE_MARKETPLACES")
+        self.assertFalse(linked_data.read_transactions()[0]["is_real_income"])
+
+    def test_excluded_transfer_is_not_real_income(self):
+        self._seed("t1", amount=-500.0, category="Transfer", primary="TRANSFER_IN", detailed="TRANSFER_IN_ACCOUNT_TRANSFER", excluded=True)
+        self.assertFalse(linked_data.read_transactions()[0]["is_real_income"])
+
+
 if __name__ == "__main__":
     unittest.main()

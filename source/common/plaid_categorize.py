@@ -115,6 +115,56 @@ _NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+# Primary categories whose own classification already means Plaid tied
+# this transaction to a real kind of spending -- a negative (inbound)
+# amount under one of these reads as a refund/return against that same
+# kind of spending, not new income (e.g. an Amazon return lands back
+# under GENERAL_MERCHANDISE, the same primary its original purchase
+# used). Excludes INCOME (obviously already income) -- TRANSFER_IN/
+# TRANSFER_OUT are handled separately below (is_real_income checks
+# _TRANSFER_PRIMARY_CATEGORIES directly), since a transfer isn't a
+# "real kind of spending" either, but it still isn't income even when a
+# person manually un-excludes it from the expense total. See
+# is_real_income() below.
+_EXPENSE_PRIMARY_CATEGORIES = set(_BROAD_CATEGORY_BY_PRIMARY) - {"INCOME", "TRANSFER_IN", "TRANSFER_OUT"}
+
+
+def is_real_income(*, primary: str | None, category: str | None, amount: float, excluded_from_expense: bool) -> bool:
+    """True for a transaction that should count as *real income* on the
+    Real Expenditure and Budget vs Actual pages -- broader than a plain
+    `category == "Income"` check, so a paycheck-like deposit Plaid
+    couldn't classify (no primary, or primary "OTHER") doesn't silently
+    vanish into whatever expense-sounding category this module's own
+    name-keyword fallback (_guess_category_from_name, right below)
+    happened to guess for it from text in its description, with no
+    regard for which way the money actually moved.
+
+    Counts as income when either:
+    - `category` is already exactly "Income" (Plaid's own INCOME
+      primary, a user override, or a saved category rule all funnel
+      here); or
+    - `amount` is negative (Plaid's convention: money IN), `primary`
+      isn't one of the two transfer primaries (an internal transfer is
+      never income, however it's currently flagged), and `primary` is
+      anything other than a primary category Plaid itself tied to a
+      real kind of spending (_EXPENSE_PRIMARY_CATEGORIES) -- that last
+      case is a refund/return against that same spending, not income.
+
+    An excluded transaction (an internal transfer or credit card
+    payment -- see default_excluded_from_expense) is never income; it's
+    not counted in any total on these pages at all."""
+    if excluded_from_expense:
+        return False
+    if (category or "").strip() == "Income":
+        return True
+    if amount >= 0:
+        return False
+    primary_key = (primary or "").strip().upper()
+    if primary_key in _TRANSFER_PRIMARY_CATEGORIES:
+        return False
+    return primary_key not in _EXPENSE_PRIMARY_CATEGORIES
+
+
 def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, str]] | None = None) -> str | None:
     text = (name or "").strip().lower()
     if not text:

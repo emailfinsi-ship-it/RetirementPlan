@@ -4063,6 +4063,52 @@ class TestRealExpenditurePage(DashboardTestCase):
         # Only the still-counted one (txn-1) gets the quick-exclude link.
         self.assertEqual(body.count("exclude this one"), 1)
 
+    def test_a_transaction_properly_categorized_income_counts_toward_total_real_income(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-payroll", amount=-2000.0, name="Employer Payroll", primary="INCOME", detailed="INCOME_WAGES")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("Total real income", body)
+        self.assertIn("$2,000.00", body)
+        # Displayed as a plain positive figure, not a raw negative Plaid amount.
+        self.assertIn("+$2,000.00", body)
+
+    def test_inbound_money_plaid_could_not_classify_counts_as_income_not_expense(self):
+        # The exact bug this exists to fix: Plaid gives no real primary
+        # (OTHER), so this app's own name-keyword guesser assigns an
+        # expense-sounding category ("Housing & Utilities") from the
+        # description text alone -- but the amount is money coming IN, so
+        # it should count as real income, not real expenditure.
+        _seed_transaction_item()
+        _seed_transaction(
+            "txn-mystery-deposit", amount=-10_150.0, name="ACME UTILITY CO DES:PAYROLL",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("$10,150.00", body)  # shows up in the income tile
+        self.assertIn("+$10,150.00", body)  # displayed positive in the row
+        self.assertIn("counted as income", body)  # flagged since its category isn't literally "Income"
+        # And NOT counted in real expenditure -- the total tile should
+        # read $0.00 since this is the only transaction.
+        self.assertIn("$0.00", body)
+
+    def test_refund_within_a_real_expense_category_is_not_treated_as_income(self):
+        _seed_transaction_item()
+        _seed_transaction(
+            "txn-refund", amount=-49.99, name="Amazon Refund",
+            primary="GENERAL_MERCHANDISE", detailed="GENERAL_MERCHANDISE_ONLINE_MARKETPLACES",
+        )
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertNotIn("counted as income", body)
+        # A refund still shows with Plaid's raw negative sign (nets
+        # against that category's spend), not the "+" income display.
+        self.assertIn("-$49.99", body)
+
+    def test_income_category_row_has_no_redundant_counted_as_income_badge(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-payroll", amount=-2000.0, name="Employer Payroll", primary="INCOME", detailed="INCOME_WAGES")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertNotIn("counted as income", body)
+
 
 class TestClassifyTransactionCategoryEndpoint(DashboardTestCase):
     def setUp(self):
