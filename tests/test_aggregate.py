@@ -571,22 +571,47 @@ class TestDrawdownPlanning(TempConfigTestCase):
         self.assertEqual(mismatch["live_balance"], 100_000.0)
         self.assertEqual(mismatch["split_total"], 40_000.0)
 
-    def test_a_split_for_an_account_already_added_to_the_asset_tab_is_not_applied(self):
-        # Splitting only covers the "unlinked investment account" case
-        # (a single lump entry in drawdown_sources) -- once the account
-        # is linked to its own manual Asset row, that row's own Tax
-        # treatment field is the one bucket that applies instead; the
-        # split row itself isn't deleted (still listed for the
-        # management card), just not folded into the pools/sources here.
+    def test_a_split_for_an_account_linked_to_an_asset_tab_row_is_applied_there_too(self):
+        # Splitting isn't limited to the "unlinked investment account"
+        # case -- once the split's own account is linked to a manual
+        # Asset row (the common case: a 401k the user already added),
+        # its splits replace that row's own single Tax treatment bucket
+        # everywhere, including retirement_pools -- so the Monte Carlo
+        # simulation itself sees the split too, not just the Drawdown
+        # Planning tab's own snapshot.
         self._link_fidelity_roth(subtype="401k", balance=100_000.0)
         db.add_line_item("account_tax_splits", {
-            "account_id": "acc-roth", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": 100_000,
+            "account_id": "acc-roth", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": 70_000,
+        })
+        db.add_line_item("account_tax_splits", {
+            "account_id": "acc-roth", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": 30_000,
         })
         item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
         db.update_line_item("assets", item_id, {"linked_account_id": "acc-roth"})
         s = build_summary()
+        self.assertEqual(s["retirement_pools"]["tax_deferred"], 70_000.0)
+        self.assertEqual(s["retirement_pools"]["roth"], 30_000.0)
+        self.assertEqual(s["drawdown_pools"]["tax_deferred"], 70_000.0)
+        self.assertEqual(s["drawdown_pools"]["roth"], 30_000.0)
         self.assertEqual(s["account_split_mismatches"], [])
-        self.assertEqual(len(s["account_tax_splits"]), 1)
+        names = {src["name"]: src for src in s["drawdown_sources"]}
+        self.assertNotIn("401k", names)  # the lump row is gone, replaced by its own named pieces
+        self.assertEqual(names["401k -- Base Pay Traditional"]["tax_bucket"], "tax_deferred")
+        self.assertEqual(names["401k -- Roth In-Plan Conversion"]["tax_bucket"], "roth")
+        self.assertEqual(names["401k -- Roth In-Plan Conversion"]["origin"], "Linked account (Asset tab, manually split)")
+
+    def test_splittable_investment_accounts_includes_ones_already_linked_to_an_asset_row(self):
+        # unlinked_investment_accounts (the Drawdown Planning tab's own
+        # "lump balance" list) still excludes a linked account -- but
+        # splittable_investment_accounts (the split card's own account
+        # picker) offers it too, since row_bucket_amounts above now
+        # applies a linked account's splits as well.
+        self._link_fidelity_roth(subtype="401k", balance=100_000.0)
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
+        db.update_line_item("assets", item_id, {"linked_account_id": "acc-roth"})
+        s = build_summary()
+        self.assertIn("acc-roth", {acc["account_id"] for acc in s["splittable_investment_accounts"]})
+        self.assertNotIn("acc-roth", {acc["account_id"] for acc in s["unlinked_investment_accounts"]})
 
 
 class TestCategorySubtotals(unittest.TestCase):

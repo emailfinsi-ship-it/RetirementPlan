@@ -4508,6 +4508,38 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("adjust the amounts below so they match", body)
 
+    def test_an_account_already_on_the_asset_tab_can_still_be_split(self):
+        # The exact case the user ran into: their Fidelity 401k was
+        # already added as an Asset-tab row (so it no longer showed up
+        # as "unlinked"), and the split card's account picker offered
+        # nothing to select -- it now offers every live investment
+        # account, linked to an Asset row or not.
+        self._link_fidelity_401k(balance=100_000.0)
+        item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
+        db.update_line_item("assets", item_id, {"linked_account_id": "acc-401k"})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000.00)</option>', body)
+
+        status, _ = self._post("/api/line-item/add", {
+            "section": "account_tax_splits",
+            "fields": {"account_id": "acc-401k", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": "70000"},
+        })
+        self.assertEqual(status, 200)
+        status, _ = self._post("/api/line-item/add", {
+            "section": "account_tax_splits",
+            "fields": {"account_id": "acc-401k", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": "30000"},
+        })
+        self.assertEqual(status, 200)
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("401k -- Base Pay Traditional", body)
+        self.assertIn("401k -- Roth In-Plan Conversion", body)
+        # The lump "401k" source row (and its old single bucket) is gone,
+        # and the tiles above reflect the split too -- $30,000.00 now
+        # shows up as Roth rather than all $100,000.00 sitting under
+        # Tax-deferred.
+        self.assertIn("$70,000.00", body)
+        self.assertIn("$30,000.00", body)
+
     def test_year_by_year_table_is_present_with_data(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/drawdown-planning.html").read().decode("utf-8")

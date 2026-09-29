@@ -108,6 +108,31 @@ def effective_balance(row: dict, live_by_account_id: dict) -> float:
     return abs(value) if row["kind"] == "liability" else value
 
 
+def row_bucket_amounts(row: dict, live_by_account_id: dict, splits_by_account: dict) -> list[tuple[str, float]]:
+    """One retirement/liquid Asset row's own (tax bucket, amount) pairs --
+    normally just the single pair effective_tax_treatment/effective_balance
+    above already give (one row, one bucket, its whole balance), but when
+    this row is linked to a Plaid account with 1+ manual splits recorded
+    (source.common.db "account_tax_splits" -- see the Drawdown Planning
+    tab's own "Split a linked account across tax buckets" card), that
+    single lumped pair is replaced by each split's own (bucket, amount)
+    pair instead. Per the user's own request ("for fidelity can i
+    segregate the sources manually" / "give me option to break up one sum
+    to parts") -- a real 401k can hold pre-tax, Roth, and after-tax money
+    all in the same account, and this is what lets that show up correctly
+    in retirement_pools (and therefore the Monte Carlo simulation itself,
+    not just the Drawdown Planning tab's own snapshot) once the row is
+    linked to that account, exactly the same as an unlinked account's own
+    splits already did for drawdown_pools alone."""
+    linked_account_id = row.get("linked_account_id")
+    if linked_account_id and linked_account_id in splits_by_account:
+        return [
+            (s["tax_treatment"] if s["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable", s["amount"] or 0.0)
+            for s in splits_by_account[linked_account_id]
+        ]
+    return [(effective_tax_treatment(row, live_by_account_id), effective_balance(row, live_by_account_id))]
+
+
 def category_subtotals(rows: list[dict], live_by_account_id: dict) -> list[tuple[str, float]]:
     """Per-category subtotals (effective balance -- live Plaid balance
     when linked, otherwise the typed-in figure) for a list of asset or
@@ -183,6 +208,28 @@ def build_summary() -> dict:
     linked_status = linked_data.linked_data_status()
     live_by_account_id = {a["account_id"]: a for a in linked_data.linkable_accounts()}
 
+    # Manual per-account splits (source.common.db "account_tax_splits" --
+    # see the Drawdown Planning tab's own "Split a linked account across
+    # tax buckets" card): a single Plaid investment account's subtype is
+    # one bucket for the WHOLE balance (see detected_tax_treatment
+    # above), but a real 401k can hold pre-tax, Roth, and after-tax money
+    # all at once (an institution's own "Sources" breakdown, e.g.
+    # Fidelity's Base Pay Traditional/Roth In-Plan Conversion/After-tax/
+    # ...) -- per the user's own request ("for fidelity can i segregate
+    # the sources manually" / "give me option to break up one sum to
+    # parts"), an account with 1+ splits recorded has its lump balance
+    # replaced below by those named, individually-bucketed pieces
+    # instead, whether that account is still unlinked or is now linked to
+    # a manual Asset-tab row (row_bucket_amounts above handles the
+    # latter -- see retirement_liquid_total/tax_deferred_total/etc.
+    # below). Computed once, up front, since both retirement_rows'
+    # own totals and the Drawdown-only unlinked-account totals further
+    # down both need it. Grouped by account_id so every split for one
+    # account is handled together.
+    splits_by_account: dict[str, list[dict]] = {}
+    for split in db.list_line_items("account_tax_splits"):
+        splits_by_account.setdefault(split["account_id"], []).append(split)
+
     manual_asset_total = sum(effective_balance(a, live_by_account_id) for a in assets if a["kind"] == "asset")
     liability_total = sum(effective_balance(a, live_by_account_id) for a in assets if a["kind"] == "liability")
     re_equity_total = sum(
@@ -199,24 +246,27 @@ def build_summary() -> dict:
         a for a in assets
         if a["kind"] == "asset" and a.get("include_in_monte_carlo")
     ]
-    retirement_liquid_total = sum(effective_balance(a, live_by_account_id) for a in retirement_rows)
+    retirement_row_buckets = {
+        a["id"]: row_bucket_amounts(a, live_by_account_id, splits_by_account) for a in retirement_rows
+    }
+    retirement_liquid_total = sum(
+        amount for buckets in retirement_row_buckets.values() for _, amount in buckets
+    )
 
-    # The same retirement/liquid total, split by tax treatment
-    # (effective_tax_treatment above) into the three pools the Monte
-    # Carlo simulation's withdrawal/RMD/tax engine tracks separately --
-    # tax_deferred_total + roth_total + taxable_total always equals
-    # retirement_liquid_total.
+    # The same retirement/liquid total, split by tax treatment (normally
+    # effective_tax_treatment, unless this row's own linked account has
+    # been split -- see row_bucket_amounts) into the three pools the
+    # Monte Carlo simulation's withdrawal/RMD/tax engine tracks
+    # separately -- tax_deferred_total + roth_total + taxable_total
+    # always equals retirement_liquid_total.
     tax_deferred_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows
-        if effective_tax_treatment(a, live_by_account_id) == "tax_deferred"
+        amount for buckets in retirement_row_buckets.values() for bucket, amount in buckets if bucket == "tax_deferred"
     )
     roth_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows
-        if effective_tax_treatment(a, live_by_account_id) == "roth"
+        amount for buckets in retirement_row_buckets.values() for bucket, amount in buckets if bucket == "roth"
     )
     taxable_total = sum(
-        effective_balance(a, live_by_account_id) for a in retirement_rows
-        if effective_tax_treatment(a, live_by_account_id) == "taxable"
+        amount for buckets in retirement_row_buckets.values() for bucket, amount in buckets if bucket == "taxable"
     )
 
     # Any Plaid account a manual line item or real-estate row is now
@@ -281,40 +331,24 @@ def build_summary() -> dict:
         v for account_id, v in live_by_account_id.items()
         if account_id not in linked_account_ids and (v.get("type") or "").strip().lower() == "investment"
     ]
+    # Every live investment account, linked to an Asset-tab row or not --
+    # what the Drawdown Planning tab's own "Split a linked account across
+    # tax buckets" card offers in its account picker, so a 401k that's
+    # already on the Asset tab (row_bucket_amounts above handles applying
+    # its splits) can still be split, not just one that isn't yet.
+    splittable_investment_accounts = [
+        v for v in live_by_account_id.values() if (v.get("type") or "").strip().lower() == "investment"
+    ]
+    split_unlinked_account_ids = {acc["account_id"] for acc in unlinked_investment_accounts} & splits_by_account.keys()
 
-    # Manual per-account splits (source.common.db "account_tax_splits" --
-    # see the Drawdown Planning tab's own "Split a linked account across
-    # tax buckets" card): a single Plaid investment account's subtype is
-    # one bucket for the WHOLE balance (see detected_tax_treatment
-    # above), but a real 401k can hold pre-tax, Roth, and after-tax money
-    # all at once (an institution's own "Sources" breakdown, e.g.
-    # Fidelity's Base Pay Traditional/Roth In-Plan Conversion/After-tax/
-    # ...) -- per the user's own request ("for fidelity can i segregate
-    # the sources manually" / "give me option to break up one sum to
-    # parts"), an account with 1+ splits recorded has its lump balance
-    # replaced below by those named, individually-bucketed pieces
-    # instead. Grouped by account_id so every split for one account is
-    # handled together; only applies to an unlinked investment account
-    # (the case the splits feature covers) -- a split recorded for an
-    # account that's since been added to the Asset tab, unlinked
-    # entirely, or disconnected is simply not applied here (it still
-    # exists in storage -- the Drawdown Planning tab's own management
-    # card lists every split regardless, so an orphaned one can always
-    # be seen and deleted there).
-    splits_by_account: dict[str, list[dict]] = {}
-    for split in db.list_line_items("account_tax_splits"):
-        splits_by_account.setdefault(split["account_id"], []).append(split)
-    unlinked_account_ids = {acc["account_id"] for acc in unlinked_investment_accounts}
-    split_unlinked_account_ids = unlinked_account_ids & splits_by_account.keys()
-
-    # A quick reconciliation note per split account -- the splits are
-    # manually typed, so they can drift from the account's own live
-    # balance (new contributions since the split was last set, a typo,
-    # ...) -- surfaced so the Drawdown Planning tab can flag it rather
-    # than silently using a total that no longer matches Plaid's own
-    # figure.
+    # A quick reconciliation note per split account (whether it's linked
+    # to an Asset-tab row or not) -- the splits are manually typed, so
+    # they can drift from the account's own live balance (new
+    # contributions since the split was last set, a typo, ...) --
+    # surfaced so the Drawdown Planning tab can flag it rather than
+    # silently using a total that no longer matches Plaid's own figure.
     account_split_mismatches = []
-    for account_id in split_unlinked_account_ids:
+    for account_id in splits_by_account.keys() & live_by_account_id.keys():
         acc = live_by_account_id[account_id]
         split_total = sum(s["amount"] or 0.0 for s in splits_by_account[account_id])
         if abs(split_total - acc["balance"]) > 0.01:
@@ -359,13 +393,30 @@ def build_summary() -> dict:
     for a in retirement_rows:
         linked_account_id = a.get("linked_account_id")
         live = live_by_account_id.get(linked_account_id) if linked_account_id else None
-        drawdown_sources.append({
-            "name": a.get("name") or "(unnamed asset)",
-            "institution": (live or {}).get("institution", ""),
-            "origin": "Linked account (Asset tab)" if live else "Manual entry (Asset tab)",
-            "tax_bucket": effective_tax_treatment(a, live_by_account_id),
-            "balance": effective_balance(a, live_by_account_id),
-        })
+        row_name = a.get("name") or "(unnamed asset)"
+        if linked_account_id and linked_account_id in splits_by_account:
+            # This row's own linked account has been split -- see
+            # row_bucket_amounts, which already folded these into
+            # tax_deferred_total/roth_total/taxable_total above -- so its
+            # single lumped source row is replaced by each split's own
+            # named piece here too, same as an unlinked account's splits
+            # already did below.
+            for split in splits_by_account[linked_account_id]:
+                drawdown_sources.append({
+                    "name": f'{row_name} -- {split["name"]}',
+                    "institution": (live or {}).get("institution", ""),
+                    "origin": "Linked account (Asset tab, manually split)",
+                    "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
+                    "balance": split["amount"] or 0.0,
+                })
+        else:
+            drawdown_sources.append({
+                "name": row_name,
+                "institution": (live or {}).get("institution", ""),
+                "origin": "Linked account (Asset tab)" if live else "Manual entry (Asset tab)",
+                "tax_bucket": effective_tax_treatment(a, live_by_account_id),
+                "balance": effective_balance(a, live_by_account_id),
+            })
     for acc in unlinked_investment_accounts:
         if acc["account_id"] in split_unlinked_account_ids:
             for split in splits_by_account[acc["account_id"]]:
@@ -450,12 +501,14 @@ def build_summary() -> dict:
         "drawdown_sources": drawdown_sources,
         "drawdown_unlinked_total": sum(drawdown_unlinked_totals.values()),
         # The Drawdown Planning tab's own "Split a linked account across
-        # tax buckets" card: every unlinked investment account (so the
-        # user can pick one to split), every split recorded so far
-        # (regardless of whether its account is still unlinked/live --
-        # see the comment above splits_by_account), and any account
-        # whose splits no longer add up to its own live balance.
+        # tax buckets" card: every live investment account -- linked to
+        # an Asset-tab row or not -- so the user can pick one to split,
+        # every split recorded so far (regardless of whether its account
+        # is still live -- see the comment above splits_by_account), and
+        # any account whose splits no longer add up to its own live
+        # balance.
         "unlinked_investment_accounts": unlinked_investment_accounts,
+        "splittable_investment_accounts": splittable_investment_accounts,
         "account_tax_splits": [s for splits in splits_by_account.values() for s in splits],
         "account_split_mismatches": account_split_mismatches,
         "total_asset": total_asset,

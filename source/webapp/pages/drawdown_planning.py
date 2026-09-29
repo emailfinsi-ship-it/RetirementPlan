@@ -82,7 +82,7 @@ def _sources_table_html(sources: list[dict]) -> str:
 
 
 def _account_splits_card_html(
-    unlinked_investment_accounts: list[dict], account_tax_splits: list[dict], account_split_mismatches: list[dict],
+    splittable_investment_accounts: list[dict], account_tax_splits: list[dict], account_split_mismatches: list[dict],
 ) -> str:
     """"Split a linked account across tax buckets" -- per the user's own
     request ("for fidelity can i segregate the sources manually" / "give
@@ -94,16 +94,18 @@ def _account_splits_card_html(
     Pay Traditional/Apple Match/Rollover/Roth In-Plan Conversion/Base Pay
     Roth/Catch-up/After-tax). This card lets the user name and bucket
     each piece by hand; source.reporting.aggregate.build_summary then
-    replaces that account's single lumped source row with these split
-    rows instead, everywhere the Drawdown Planning tab uses them.
+    replaces that account's single lumped entry with these split pieces
+    instead, everywhere the Drawdown Planning tab uses them -- and, if
+    that account is also linked to a manual Asset-tab row, in the Monte
+    Carlo simulation's own starting pools too (source.reporting.aggregate.
+    row_bucket_amounts).
 
-    Only offers accounts not yet added to the Asset tab (unlinked_
-    investment_accounts) -- an account already linked to a manual Asset
-    row has its own Tax treatment field there instead (still just one
-    bucket for the whole row, but that's a separate, smaller change from
-    this one)."""
+    Offers every live investment account (splittable_investment_accounts),
+    whether or not it's been added to the Asset tab -- the two cases only
+    differ in which of build_summary()'s totals the split ends up
+    feeding."""
     mismatch_by_account = {m["account_id"]: m for m in account_split_mismatches}
-    unlinked_by_id = {acc["account_id"]: acc for acc in unlinked_investment_accounts}
+    splittable_by_id = {acc["account_id"]: acc for acc in splittable_investment_accounts}
 
     splits_by_account: dict[str, list[dict]] = {}
     for split in account_tax_splits:
@@ -111,10 +113,10 @@ def _account_splits_card_html(
 
     groups_html = ""
     for account_id, splits in splits_by_account.items():
-        acc = unlinked_by_id.get(account_id)
+        acc = splittable_by_id.get(account_id)
         header = (
             f'{html.escape(acc["institution"])} -- {html.escape(acc["label"])}' if acc else
-            f"(account no longer linked or not on the Asset tab -- id {html.escape(account_id[:12])}...)"
+            f"(account no longer linked -- id {html.escape(account_id[:12])}...)"
         )
         split_total = sum(s["amount"] or 0.0 for s in splits)
         mismatch = mismatch_by_account.get(account_id)
@@ -146,11 +148,11 @@ def _account_splits_card_html(
 </div>
 """
 
-    if unlinked_investment_accounts:
+    if splittable_investment_accounts:
         account_options = "".join(
             f'<option value="{html.escape(acc["account_id"])}">{html.escape(acc["institution"])} -- {html.escape(acc["label"])} '
             f'({_money(acc["balance"])})</option>'
-            for acc in unlinked_investment_accounts
+            for acc in splittable_investment_accounts
         )
         add_form_html = f"""
 <form class="inline" onsubmit="event.preventDefault(); addLineItem('account_tax_splits', this);">
@@ -163,9 +165,8 @@ def _account_splits_card_html(
 """
     else:
         add_form_html = (
-            '<p class="muted">No linked investment accounts are available to split -- link one first (see '
-            '<a href="/linked-accounts.html">Linked Accounts</a>), or if it\'s already on the Asset tab, use that '
-            "row's own Tax treatment field instead.</p>"
+            '<p class="muted">No linked investment accounts are available to split yet -- link one first on the '
+            '<a href="/linked-accounts.html">Linked Accounts</a> tab.</p>'
         )
 
     return f"""
@@ -363,7 +364,7 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {donut}
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Resources by source</h3>
 {_sources_table_html(sources)}
-{_account_splits_card_html(s["unlinked_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
+{_account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 <h2>Year-by-year withdrawal sequence</h2>
 <p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
