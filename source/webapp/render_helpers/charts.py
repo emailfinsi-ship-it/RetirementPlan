@@ -248,6 +248,173 @@ def _line_chart_html(
 """
 
 
+# Deliberately outside the _DONUT_COLORS categorical rotation (same
+# reasoning as _DONUT_OTHER_COLOR above) -- an "emphasize"d series in
+# _multi_line_chart_html (the combined Total line, normally) always gets
+# this dark, un-rotated ink color instead of a rotation slot, so it
+# reads as "the headline total," never "series #5."
+_MULTI_LINE_EMPHASIS_COLOR = "#3a3833"
+
+
+def _multi_line_chart_html(
+    title: str, series: list[dict], *, note: str = "",
+    empty_message: str = _DEFAULT_LINE_CHART_EMPTY_MESSAGE,
+) -> str:
+    """Several trend lines sharing ONE y-axis -- e.g. the Linked Accounts
+    tab's "Investment balance over time" chart (source.webapp.pages.
+    linked_accounts._investment_balance_history_series): one line per
+    linked investment account, plus an emphasized combined Total.
+    Multiple series of the same unit/scale sharing a single axis is NOT
+    the dual-axis anti-pattern the dataviz skill warns against (that's
+    two DIFFERENT scales on one chart); this is one scale, several
+    entities on it, same as _line_chart_html above just with more than
+    one line.
+
+    Each `series` entry is {"name": str, "points": [(date, value), ...],
+    "emphasize": bool}. Series don't have to share the same set of dates
+    (an account linked partway through this history simply starts
+    later) -- the x-axis is the sorted union of every date across every
+    series, and a series' own line breaks into a separate subpath
+    wherever IT skips one or more shared x-positions, rather than
+    drawing a straight (and misleading) interpolation across a real data
+    gap.
+
+    A non-emphasized series is colored from _DONUT_COLORS in the order
+    given -- fixed categorical order, never re-cycled (dataviz skill:
+    color follows the entity, not rank), so re-sorting/filtering the
+    account list upstream would need its own stable sort to keep colors
+    stable across a page reload (source.webapp.pages.linked_accounts
+    sorts by name for exactly this reason). An emphasized series (there
+    should be at most one in practice) gets _MULTI_LINE_EMPHASIS_COLOR
+    and a thicker stroke instead of a rotation slot. A legend is always
+    shown for >=2 series (dataviz skill: identity is never color-alone
+    at 2+ series); an end-of-line direct label is added too when there
+    are <=4 series total, since beyond that the line ends get crowded
+    and the legend below already carries identity on its own."""
+    non_empty = [s for s in series if s.get("points")]
+    all_dates = sorted({d for s in non_empty for d, _ in s["points"]})
+    if len(all_dates) < 2:
+        return (
+            f'<details class="card">'
+            f'<summary style="font-size:13px; font-weight:650;">{html.escape(title)} <span class="muted" style="font-weight:500;">(no data yet)</span></summary>'
+            f'<p class="muted" style="margin-bottom:0;">{html.escape(empty_message)}</p></details>'
+        )
+    width, height = 640, 200
+    pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 22
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+
+    index_of = {d: i for i, d in enumerate(all_dates)}
+    all_values = [v for s in non_empty for _, v in s["points"]]
+    lo, hi = min(0.0, min(all_values)), max(all_values)
+    if hi - lo <= 0:
+        hi = lo + max(abs(lo) * 0.1, 1.0)  # a flat/all-zero series still gets a visible range
+
+    def x_at(i: int) -> float:
+        return pad_left + (i / (len(all_dates) - 1)) * plot_w
+
+    def y_at(v: float) -> float:
+        return pad_top + (1 - (v - lo) / (hi - lo)) * plot_h
+
+    zero_line = ""
+    if lo < 0 < hi:
+        zero_y = y_at(0.0)
+        zero_line = (
+            f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
+            f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
+        )
+
+    direct_label_ok = len(non_empty) <= 4
+    color_i = 0
+    lines_svg, dots_svg, end_labels_svg, legend_items = [], [], [], []
+    for s in non_empty:
+        emphasize = bool(s.get("emphasize"))
+        if emphasize:
+            color, stroke_width, dot_r = _MULTI_LINE_EMPHASIS_COLOR, 3, 3.5
+        else:
+            color, stroke_width, dot_r = _DONUT_COLORS[color_i % len(_DONUT_COLORS)], 2, 3
+            color_i += 1
+        pts = sorted(s["points"])
+        indices = [index_of[d] for d, _ in pts]
+        coords = [(x_at(i), y_at(v)) for i, (_, v) in zip(indices, pts)]
+        # One subpath per contiguous run of shared x-positions -- a new
+        # "M" starts whenever this series' own next point isn't at the
+        # very next shared index (i.e. it has no data for one or more
+        # dates in between), instead of one continuous path that would
+        # draw a straight line across that gap.
+        path_parts: list[str] = []
+        current = ""
+        prev_i = None
+        for (x, y), i in zip(coords, indices):
+            if prev_i is None or i != prev_i + 1:
+                if current:
+                    path_parts.append(current)
+                current = f"M {x:.1f} {y:.1f}"
+            else:
+                current += f" L {x:.1f} {y:.1f}"
+            prev_i = i
+        if current:
+            path_parts.append(current)
+        lines_svg.append(
+            f'<path d="{" ".join(path_parts)}" fill="none" stroke="{color}" stroke-width="{stroke_width}" '
+            f'stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        dots_svg.append("".join(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{dot_r}" fill="{color}">'
+            f'<title>{html.escape(s["name"])} -- {html.escape(d)}: {html.escape(_money(v))}</title></circle>'
+            for (x, y), (d, v) in zip(coords, pts)
+        ))
+        if direct_label_ok and coords:
+            lx, ly = coords[-1]
+            end_labels_svg.append(
+                f'<text x="{lx + 4:.1f}" y="{ly + 3:.1f}" font-size="9" fill="{color}">{html.escape(s["name"])}</text>'
+            )
+        legend_items.append(
+            f'<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;">'
+            f'<span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:{color};"></span>'
+            f'<span class="muted" style="font-size:11px;">{html.escape(s["name"])}</span></span>'
+        )
+
+    first_date, last_date = all_dates[0], all_dates[-1]
+    x_labels = (
+        f'<text x="{pad_left}" y="{height - 6}" font-size="10" fill="#777">{html.escape(first_date)}</text>'
+        f'<text x="{width - pad_right}" y="{height - 6}" font-size="10" fill="#777" text-anchor="end">'
+        f'{html.escape(last_date)}</text>'
+    )
+
+    # The headline change figure (top-right of the title) reads off the
+    # emphasized series when there is one (the combined Total, normally
+    # -- the one number worth calling out at a glance) or the single
+    # series itself when there's only one line at all.
+    headline = next((s for s in non_empty if s.get("emphasize")), non_empty[0])
+    headline_points = sorted(headline["points"])
+    first_value, last_value = headline_points[0][1], headline_points[-1][1]
+    change = last_value - first_value
+    change_pct = (change / abs(first_value) * 100) if first_value else None
+    change_color = "#1baf7a" if change >= 0 else "#c94a4a"
+    change_label = (
+        f"{'+' if change >= 0 else ''}{_money(change)}"
+        + (f" ({'+' if change_pct >= 0 else ''}{change_pct:.1f}%)" if change_pct is not None else "")
+        + f" since {html.escape(headline_points[0][0])}"
+    )
+
+    svg = (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
+        f'{zero_line}{"".join(lines_svg)}{"".join(dots_svg)}{"".join(end_labels_svg)}{x_labels}'
+        '</svg>'
+    )
+    legend_html = f'<div style="margin-top:4px;">{"".join(legend_items)}</div>' if len(non_empty) >= 2 else ""
+    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    return f"""
+<div class="card" style="flex:2 1 480px;">
+<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+{svg}
+{legend_html}
+{note_html}
+</div>
+"""
+
+
 def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, dim: str) -> str:
     """Horizontal bar ranking, for a magnitude breakdown with too many
     categories to read as a donut (dataviz skill: a pie/donut stops

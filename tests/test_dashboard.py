@@ -3836,6 +3836,91 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertIn("function applyAccountsFilters(", body)
 
 
+class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
+    """The "Investment balance history" section on the Linked Accounts
+    tab -- see _investment_balance_history_series /
+    _multi_line_chart_html. Tracks daily balances per linked investment
+    account (source.common.db.account_balance_snapshots), plus a
+    combined Total line once there's more than one account."""
+
+    def setUp(self):
+        db.upsert_plaid_item(
+            item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
+            institution_name="Fidelity", products=["investments"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-brokerage", "name": "Fidelity", "official_name": "Fidelity Brokerage",
+            "type": "investment", "subtype": "brokerage", "mask": "5678",
+            "balances": {"current": 1500.0, "available": None, "iso_currency_code": "USD"},
+        })
+
+    def tearDown(self):
+        db.delete_plaid_item("fidelity")
+        with db.connect() as conn:
+            conn.execute("DELETE FROM account_balance_snapshots")
+
+    def test_empty_state_shows_come_back_later_message(self):
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn("Investment balance history", body)
+        self.assertIn("Investment balance over time", body)
+        self.assertIn("no data yet", body)
+
+    def test_single_account_history_renders_without_a_total_line(self):
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1200.0, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn("Fidelity -- Fidelity Brokerage", body)
+        # A lone account's own line already IS the total, so no separate
+        # "Total" series/legend entry is added for it.
+        self.assertNotIn(">Total<", body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0])
+
+    def test_multiple_accounts_add_an_emphasized_total_line(self):
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-ira", "name": "Fidelity IRA", "official_name": "Fidelity IRA",
+            "type": "investment", "subtype": "ira", "mask": "9999",
+            "balances": {"current": 3000.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-ira", balance=3000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1100.0, snapshot_date="2026-09-15")
+        db.record_account_balance_snapshot(account_id="acc-ira", balance=3100.0, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        section = body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0]
+        self.assertIn("Fidelity -- Fidelity Brokerage", section)
+        self.assertIn("Fidelity -- Fidelity IRA", section)
+        self.assertIn(">Total<", section)
+        # Headline change figure reads off the Total (the emphasized
+        # series): 4,000 on 09-01 -> 4,200 on 09-15, a +$200.00 change.
+        self.assertIn("+$200.00", section)
+
+    def test_only_investment_type_accounts_get_a_history_series(self):
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-checking", "name": "Checking", "official_name": "Checking",
+            "type": "depository", "subtype": "checking", "mask": "0000",
+            "balances": {"current": 500.0, "available": 500.0, "iso_currency_code": "USD"},
+        })
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1200.0, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        section = body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0]
+        self.assertNotIn("Checking", section)
+
+    def test_a_full_sync_captures_a_snapshot_for_the_linked_investment_account(self):
+        with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value={}):
+            self._post("/api/plaid-sync", {})
+        rows = db.list_account_balance_snapshots("acc-brokerage")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["balance"], 1500.0)
+
+    def test_a_snapshot_failure_does_not_fail_the_sync_response(self):
+        with patch("source.webapp.dashboard.plaid_sync.sync_all", return_value={}), \
+             patch("source.webapp.dashboard.capture_investment_account_balances", side_effect=RuntimeError("boom")):
+            status, payload = self._post("/api/plaid-sync", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+
+
 class TestUnifiedAddModal(DashboardTestCase):
     """The single "+ Add" entry point (a fab button + modal in PAGE_SHELL,
     shared by every page) that replaced the separate add-forms the Asset,

@@ -16,13 +16,51 @@ from source.webapp.render_helpers import (
     _donut_chart_html,
     _grouped_slices,
     _money,
+    _multi_line_chart_html,
     _shell,
     _sync_now_button_html,
 )
 
 
+def _investment_balance_history_series(investment_accounts: list[dict]) -> list[dict]:
+    """Builds the `series` list _multi_line_chart_html expects for the
+    "Investment balance over time" chart below: one series per currently
+    -linked investment account (investment_accounts is linked_data.
+    linkable_accounts() already filtered to type == "investment"), from
+    db.list_account_balance_snapshots -- plus an emphasized combined
+    "Total" series (added only when there's more than one account, since
+    a lone account's own line already IS the total) summing whichever
+    accounts have a snapshot on each given date.
+
+    Sorted by institution/label before assigning colors so the color a
+    given account gets stays stable across a page reload regardless of
+    Plaid's own return order (_multi_line_chart_html's own docstring:
+    color follows the entity, never its rank).
+
+    An account that's since been unlinked simply won't appear in
+    investment_accounts and so won't get a series here -- its past
+    snapshot rows are left alone in the database (nothing here deletes
+    them) in case it's ever relinked."""
+    series = []
+    totals_by_date: dict[str, float] = {}
+    for a in sorted(investment_accounts, key=lambda a: (a["institution"], a["label"])):
+        rows = db.list_account_balance_snapshots(a["account_id"])
+        points = [(r["snapshot_date"], r["balance"]) for r in rows]
+        for d, v in points:
+            totals_by_date[d] = totals_by_date.get(d, 0.0) + v
+        number = _account_number_display(
+            a["mask"], a.get("account_number"), a.get("is_tokenized_account_number", False), mask_prefix="...",
+        )
+        name = f'{a["institution"]} -- {a["label"]}' + (f' ({number})' if number else "")
+        series.append({"name": name, "points": points, "emphasize": False})
+    if len(series) > 1:
+        series.append({"name": "Total", "points": sorted(totals_by_date.items()), "emphasize": True})
+    return series
+
+
 def _render_linked_accounts_page() -> str:
     linked_accounts = linked_data.read_linked_account_balances()
+    investment_accounts = [a for a in linked_data.linkable_accounts() if a.get("type") == "investment"]
     assets = db.list_line_items("assets")
     real_estate_rows = db.list_line_items("real_estate")
 
@@ -136,6 +174,12 @@ def _render_linked_accounts_page() -> str:
     ) or '<tr><td colspan="7" class="muted">No linked account data yet -- connect a Plaid account on Setup.</td></tr>'
     linked_balance_total = sum(r["balance"] or 0 for r in linked_accounts)
 
+    investment_history_chart_html = _multi_line_chart_html(
+        "Investment balance over time",
+        _investment_balance_history_series(investment_accounts),
+        empty_message="Balance history accumulates one point per linked investment account each day this app is opened or synced -- check back after a day or two.",
+    )
+
     body = f"""
 <h2 style="margin-top:0">Linked accounts (live, read-only)</h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Asset-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Asset tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
@@ -152,6 +196,10 @@ def _render_linked_accounts_page() -> str:
 {type_liabilities_chart_html}
 </div>
 <p class="muted">Click a slice of any chart above to filter the accounts list down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
+<h3 style="font-size:13px;">Investment balance history</h3>
+<div class="group-section">
+{investment_history_chart_html}
+</div>
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
 <table id="linked-accounts-table" class="sortable">

@@ -60,6 +60,7 @@ from source.webapp.render_helpers.charts import (
     _donut_chart_html,
     _grouped_slices,
     _line_chart_html,
+    _multi_line_chart_html,
 )
 
 __all__ = [
@@ -94,4 +95,5 @@ __all__ = [
     "_donut_chart_html",
     "_grouped_slices",
     "_line_chart_html",
+    "_multi_line_chart_html",
 ]

@@ -1267,5 +1267,47 @@ class TestNetWorthSnapshots(TempConfigTestCase):
         self.assertEqual(db.list_net_worth_snapshots()[0]["snapshot_date"], date.today().isoformat())
 
 
+class TestAccountBalanceSnapshots(TempConfigTestCase):
+    def test_record_and_list(self):
+        db.record_account_balance_snapshot(account_id="acc1", balance=1000.0, snapshot_date="2026-09-01")
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["account_id"], "acc1")
+        self.assertEqual(rows[0]["snapshot_date"], "2026-09-01")
+        self.assertEqual(rows[0]["balance"], 1000.0)
+
+    def test_recording_the_same_account_the_same_day_twice_upserts_rather_than_duplicating(self):
+        db.record_account_balance_snapshot(account_id="acc1", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc1", balance=1500.0, snapshot_date="2026-09-01")
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["balance"], 1500.0)
+
+    def test_two_different_accounts_on_the_same_day_are_both_kept(self):
+        db.record_account_balance_snapshot(account_id="acc1", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc2", balance=500.0, snapshot_date="2026-09-01")
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 2)
+
+    def test_list_can_be_filtered_to_one_account(self):
+        db.record_account_balance_snapshot(account_id="acc1", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc2", balance=500.0, snapshot_date="2026-09-01")
+        rows = db.list_account_balance_snapshots("acc1")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["account_id"], "acc1")
+
+    def test_list_is_ordered_by_date_ascending(self):
+        db.record_account_balance_snapshot(account_id="acc1", balance=1.0, snapshot_date="2026-09-03")
+        db.record_account_balance_snapshot(account_id="acc1", balance=1.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc1", balance=1.0, snapshot_date="2026-09-02")
+        dates = [r["snapshot_date"] for r in db.list_account_balance_snapshots("acc1")]
+        self.assertEqual(dates, ["2026-09-01", "2026-09-02", "2026-09-03"])
+
+    def test_record_defaults_to_todays_date(self):
+        from datetime import date
+        db.record_account_balance_snapshot(account_id="acc1", balance=1.0)
+        self.assertEqual(db.list_account_balance_snapshots()[0]["snapshot_date"], date.today().isoformat())
+
+
 if __name__ == "__main__":
     unittest.main()

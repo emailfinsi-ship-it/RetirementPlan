@@ -198,6 +198,30 @@ def capture_net_worth_snapshot(summary: dict | None = None) -> None:
     )
 
 
+def capture_investment_account_balances(accounts: list[dict] | None = None) -> None:
+    """Records today's balance for every linked investment account into
+    source.common.db.account_balance_snapshots, one row per account --
+    accounts defaults to linked_data.linkable_accounts() (pass an
+    explicit list only from tests). Filters to type == "investment" (the
+    raw Plaid account type; linkable_accounts() exposes it precisely so
+    this function doesn't have to re-derive it from subtype/category
+    guessing) since a checking or 401k balance isn't what "investment
+    account balance" means here.
+
+    Called from the same two places as capture_net_worth_snapshot above,
+    right alongside it: source.webapp.dashboard.run() on every startup,
+    and again after every successful Plaid sync -- both idempotent for
+    the same day per account (see db.record_account_balance_snapshot's
+    own docstring), so the Linked Accounts tab's balance-over-time chart
+    accumulates one point per account per day the app is opened or
+    synced, from here on, with no setup required."""
+    accts = accounts if accounts is not None else linked_data.linkable_accounts()
+    for a in accts:
+        if a.get("type") != "investment":
+            continue
+        db.record_account_balance_snapshot(account_id=a["account_id"], balance=a["balance"])
+
+
 def build_summary() -> dict:
     assets = db.list_line_items("assets")
     real_estate = db.list_line_items("real_estate")

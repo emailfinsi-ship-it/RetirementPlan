@@ -3,6 +3,7 @@ import unittest
 from source.common import db
 from source.reporting.aggregate import (
     build_summary,
+    capture_investment_account_balances,
     capture_net_worth_snapshot,
     category_subtotals,
     effective_loan_balance,
@@ -694,6 +695,39 @@ class TestCaptureNetWorthSnapshot(TempConfigTestCase):
         rows = db.list_net_worth_snapshots()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["net_worth"], 5_000)
+
+
+class TestCaptureInvestmentAccountBalances(TempConfigTestCase):
+    def test_records_one_snapshot_per_investment_account(self):
+        capture_investment_account_balances([
+            {"account_id": "acc1", "balance": 1_000.0, "type": "investment"},
+            {"account_id": "acc2", "balance": 2_000.0, "type": "investment"},
+        ])
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 2)
+        balances = {r["account_id"]: r["balance"] for r in rows}
+        self.assertEqual(balances, {"acc1": 1_000.0, "acc2": 2_000.0})
+
+    def test_non_investment_accounts_are_skipped(self):
+        capture_investment_account_balances([
+            {"account_id": "acc1", "balance": 1_000.0, "type": "investment"},
+            {"account_id": "acc2", "balance": 500.0, "type": "depository"},
+            {"account_id": "acc3", "balance": 100.0, "type": "credit"},
+        ])
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["account_id"], "acc1")
+
+    def test_calling_it_twice_the_same_day_upserts_not_duplicates(self):
+        capture_investment_account_balances([{"account_id": "acc1", "balance": 1_000.0, "type": "investment"}])
+        capture_investment_account_balances([{"account_id": "acc1", "balance": 1_500.0, "type": "investment"}])
+        rows = db.list_account_balance_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["balance"], 1_500.0)
+
+    def test_empty_account_list_records_nothing(self):
+        capture_investment_account_balances([])
+        self.assertEqual(db.list_account_balance_snapshots(), [])
 
 
 if __name__ == "__main__":

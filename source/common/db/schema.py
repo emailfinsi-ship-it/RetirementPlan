@@ -337,6 +337,28 @@ CREATE TABLE IF NOT EXISTS net_worth_snapshots (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Per-account daily balance history for linked investment accounts (see
+-- source.reporting.aggregate.capture_investment_account_balances, called
+-- from the same two places as capture_net_worth_snapshot above: on every
+-- dashboard startup and after every successful Plaid sync) so the Linked
+-- Accounts tab can chart each investment account's balance over time,
+-- plus a combined Total line. UNIQUE(account_id, snapshot_date) is this
+-- table's answer to net_worth_snapshots' single-column PRIMARY KEY above
+-- -- same reasoning (capturing twice in one day upserts that day's row
+-- instead of piling up duplicate same-day points), just keyed per
+-- account instead of there being only one row per day.
+CREATE TABLE IF NOT EXISTS account_balance_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,              -- "YYYY-MM-DD", local date
+    balance REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_account_balance_snapshots_account
+    ON account_balance_snapshots(account_id, snapshot_date);
 """
 
 

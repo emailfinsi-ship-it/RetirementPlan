@@ -36,7 +36,7 @@ from source.collector import sync as plaid_sync
 from source.common import app_settings, auth_store, backup, config, db, linked_data, secrets_store
 from source.importer import xlsx_import
 from source.reporting import excel_export
-from source.reporting.aggregate import capture_net_worth_snapshot
+from source.reporting.aggregate import capture_investment_account_balances, capture_net_worth_snapshot
 from source.webapp.render_helpers import (
     NAV_ITEMS,
     PAGE_CSS,
@@ -616,6 +616,13 @@ class Handler(BaseHTTPRequestHandler):
                     capture_net_worth_snapshot()
                 except Exception:
                     pass
+                # Same idea, one investment-account balance point per
+                # account for today -- see capture_investment_account_
+                # balances' own docstring. Also best-effort/idempotent.
+                try:
+                    capture_investment_account_balances()
+                except Exception:
+                    pass
                 self._send_json({"ok": True, "summary": summary})
             elif path == "/api/category-rule/save":
                 # Setup page's "Category rules" card -- see source.common.
@@ -820,6 +827,14 @@ def run(*, open_browser: bool = True) -> None:
         capture_net_worth_snapshot()
     except Exception as exc:
         print(f"Startup net-worth snapshot failed (continuing anyway): {exc}")
+
+    # Same idea, one investment-account balance point per account for
+    # today -- see aggregate.capture_investment_account_balances' own
+    # docstring. Best-effort, same as above.
+    try:
+        capture_investment_account_balances()
+    except Exception as exc:
+        print(f"Startup investment-balance snapshot failed (continuing anyway): {exc}")
 
     # Catches up on Plaid data if it's gone stale (see source.collector.
     # auto_sync's own module docstring for exactly when this fires, and
