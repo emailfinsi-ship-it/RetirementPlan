@@ -4125,6 +4125,86 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn("Real income by category", body)
         self.assertNotIn('data-dim="income-category"', body)  # no-data state renders no bars at all
 
+    def test_manually_categorized_mortgage_transaction_is_not_counted_as_income(self):
+        # The exact real, reported bug: a mortgage-account "principal
+        # payment" mirror transaction Plaid gave primary "OTHER" (instead
+        # of the TRANSFER_IN it should have gotten), then hand-labeled
+        # "mortgage" -- must count as real expenditure, not real income.
+        _seed_transaction_item()
+        _seed_transaction(
+            "txn-mortgage-principal", amount=-142.23, name="Principal only payment",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        db.update_plaid_transaction_category(["txn-mortgage-principal"], "mortgage")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertNotIn("counted as income", body)
+        self.assertIn("-$142.23", body)  # shown with Plaid's raw sign, like any other counted expense
+        # Nothing counts as income for this single transaction.
+        self.assertIn(
+            '<h3 style="margin-top:0; font-size:13px;">Total real income</h3>\n'
+            '<p style="font-size:22px; font-weight:600; margin:4px 0;">$0.00</p>',
+            body,
+        )
+
+    def test_manually_categorized_food_and_bank_fees_transactions_are_not_counted_as_income(self):
+        _seed_transaction_item()
+        _seed_transaction(
+            "txn-food-other", amount=-36.67, name="BANOS ARABES DE CORDOBA",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        db.update_plaid_transaction_category(["txn-food-other"], "Food")
+        _seed_transaction(
+            "txn-fee-other", amount=-8.03, name="Bank of America DES:CASHREWARD",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        db.update_plaid_transaction_category(["txn-fee-other"], "Bank Fees")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertNotIn("counted as income", body)
+
+    def test_manually_categorized_rental_income_transaction_still_counts_as_income(self):
+        # The other side of the same fix -- a hand-typed category that
+        # itself reads as income (contains "income") must keep counting,
+        # even though it's just as manually-edited as the "mortgage" case
+        # above and shares the same OTHER primary.
+        _seed_transaction_item()
+        _seed_transaction(
+            "txn-rent", amount=-2000.0, name="ZELLE FROM TENANT ON 09/01 REF # X RENT",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        db.update_plaid_transaction_category(["txn-rent"], "rental-income")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("counted as income", body)
+        self.assertIn("+$2,000.00", body)
+
+    def test_income_chart_row_attribute_is_not_added_to_an_excluded_row_sharing_the_same_category(self):
+        # Regression test for the click-to-filter bug reported alongside
+        # the income-miscount bug above: clicking an income-by-category
+        # bar used to surface every row anywhere sharing that category
+        # text, including ones properly excluded as internal transfers,
+        # rather than just the row(s) that actually made up that bar's
+        # own dollar total.
+        _seed_transaction_item()
+        # Excluded (an internal transfer Plaid tied to the loan account)
+        # but a person -- or a saved rule -- happened to label it with
+        # the same "rental-income" text as the real income row below.
+        _seed_transaction(
+            "txn-rental-income-excluded", amount=-500.0, name="Internal transfer",
+            primary="TRANSFER_IN", detailed="TRANSFER_IN_OTHER_TRANSFER_IN",
+        )
+        db.update_plaid_transaction_category(["txn-rental-income-excluded"], "rental-income")
+        # The real rent deposit that actually counts as income.
+        _seed_transaction(
+            "txn-rental-income-real", amount=-2000.0, name="ZELLE FROM TENANT ON 09/01 REF # X RENT",
+            primary="OTHER", detailed="OTHER_OTHER",
+        )
+        db.update_plaid_transaction_category(["txn-rental-income-real"], "rental-income")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        # Both rows share the plain data-category attribute...
+        self.assertEqual(body.count('data-category="rental-income"'), 2)
+        # ...but only the one that actually counts as income carries the
+        # income-chart attribute; the excluded transfer never does.
+        self.assertEqual(body.count('data-income-category="rental-income"'), 1)
+
     def test_every_row_has_a_categorize_similar_link(self):
         _seed_transaction_item()
         _seed_transaction("txn-1")

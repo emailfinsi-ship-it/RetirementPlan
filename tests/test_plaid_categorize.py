@@ -182,6 +182,56 @@ class TestIsRealIncome(unittest.TestCase):
             primary="TRANSFER_IN", category="Transfer", amount=-500.0, excluded_from_expense=False,
         ))
 
+    def test_manually_typed_non_income_category_on_an_unclassified_inbound_transaction_is_not_income(self):
+        # The exact real, reported bug: Plaid gave a mortgage-account
+        # "principal payment" mirror transaction primary "OTHER" instead
+        # of the TRANSFER_IN it should have gotten, so it fell through to
+        # the same OTHER-primary fallback the mystery-deposit case below
+        # relies on -- but a person has since typed "mortgage" onto this
+        # specific transaction by hand, and that's clearly not income.
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="mortgage", amount=-142.23,
+            excluded_from_expense=False, category_edited_by_user=True,
+        ))
+
+    def test_manually_typed_food_or_bank_fees_category_on_an_other_primary_transaction_is_not_income(self):
+        # Two more real, reported cases: a refund/fee Plaid couldn't
+        # classify (primary OTHER) that a person has since hand-labeled
+        # with an ordinary expense category.
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="Food", amount=-36.67,
+            excluded_from_expense=False, category_edited_by_user=True,
+        ))
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="Bank Fees", amount=-8.03,
+            excluded_from_expense=False, category_edited_by_user=True,
+        ))
+
+    def test_manually_typed_income_labeled_category_on_an_other_primary_transaction_still_counts(self):
+        # The other side of the same fix: a person's own custom income
+        # label (a rental property's own Zelle rent deposits, Plaid gave
+        # primary OTHER since it's an unclassified Zelle transfer) must
+        # keep counting as income after being hand-labeled -- the word
+        # "income" in the category the person chose is what distinguishes
+        # this from the "mortgage"/"Food"/"Bank Fees" cases above.
+        for category in ("rental-income", "Rental Income -Southwood", "Rental Income -Muscat Dr", "INCOME (side gig)"):
+            self.assertTrue(is_real_income(
+                primary="OTHER", category=category, amount=-2000.0,
+                excluded_from_expense=False, category_edited_by_user=True,
+            ), f"expected {category!r} to still count as income")
+
+    def test_unreviewed_category_on_an_other_primary_transaction_still_defaults_to_income(self):
+        # Same "mortgage" category text as the false-positive test above,
+        # but NOT manually edited onto this row (e.g. still whatever a
+        # saved category rule or the built-in name-guess fallback most
+        # recently assigned it) -- this is still effectively an
+        # unreviewed guess for this specific transaction, so it keeps the
+        # benefit of the doubt the OTHER-primary fallback exists for.
+        self.assertTrue(is_real_income(
+            primary="OTHER", category="mortgage", amount=-142.23,
+            excluded_from_expense=False, category_edited_by_user=False,
+        ))
+
 
 class TestSuggestKeywordFromName(unittest.TestCase):
     def test_prefers_merchant_name_when_present(self):

@@ -511,21 +511,38 @@ function refreshLinkedPositionsBarCharts() {{
   }});
 }}
 var EXPENDITURE_FILTER_DIMS = ['expense-category', 'expense-month', 'income-category', 'income-month'];
+function __expenditureFilterField(dim) {{
+  // 'expense-category' -> 'expenseCategory', 'income-month' ->
+  // 'incomeMonth' -- the dataset property name for the row attribute
+  // that dim's bar chart is actually built from (data-expense-category/
+  // data-income-category/data-expense-month/data-income-month -- see
+  // real_expenditure.py's _row_html). Deliberately distinct per dim,
+  // NOT the shared data-category/data-month every row also carries --
+  // see this function's caller for why.
+  return dim.replace(/-([a-z])/g, function(_, c) {{ return c.toUpperCase(); }});
+}}
 function applyExpenditureFilters() {{
   // Real Expenditure tab's own click-to-filter: clicking a "by
-  // category" or "by month" bar segment (expense OR income -- the
-  // income-by-category/income-by-month charts share this same table
-  // and the same underlying data-category/data-month attributes every
-  // row already carries, so a click on either kind of chart filters
-  // the one list below it) filters the transaction list below to the
-  // row(s) that make up that bar, same contract as
-  // applyPositionFilters() above (shares __positionsFilters/
-  // handlePieSegClick -- dims are namespaced by string, "expense-"/
-  // "income-" here vs. "type"/"institution"/"industry"/"sector" on
-  // Linked Positions, so none of these ever collide even though they
-  // all live in the same global filter state) but targets the
-  // transactions table's own data-category/data-month attributes
-  // instead of market value, and has no running total to recompute.
+  // category" or "by month" bar segment (expense OR income) filters the
+  // transaction list below to the row(s) that actually make up that
+  // bar's own dollar total -- same contract as applyPositionFilters()
+  // above (shares __positionsFilters/handlePieSegClick -- dims are
+  // namespaced by string, "expense-"/"income-" here vs.
+  // "type"/"institution"/"industry"/"sector" on Linked Positions, so
+  // none of these ever collide even though they all live in the same
+  // global filter state), but targets the transactions table's own
+  // data-expense-category/data-income-category/data-expense-month/
+  // data-income-month attributes -- one dim, one attribute -- rather
+  // than the plain data-category/data-month every row carries. Those
+  // two are deliberately NOT what this filters on: a row only carries
+  // the split attribute for the ONE chart its own dollars were actually
+  // counted toward (is_real_income, and not excluded_from_expense) --
+  // clicking, say, the income-by-category chart's "mortgage" bar (built
+  // from one specific unclassified inbound transaction) must not also
+  // surface every OTHER "mortgage"-category row that's really an
+  // excluded loan-account transfer or a counted expense -- those rows
+  // simply have no data-income-category attribute at all, so they never
+  // match. Has no running total to recompute.
   var table = document.getElementById('real-expenditure-table');
   if (!table) return;
   var dims = Object.keys(__filtersSubset(EXPENDITURE_FILTER_DIMS));
@@ -535,8 +552,8 @@ function applyExpenditureFilters() {{
     if (!('category' in row.dataset) && !('month' in row.dataset)) return;  // the "no transactions yet" placeholder row
     var visible = dims.every(function(dim) {{
       var f = __positionsFilters[dim];
-      var field = dim.indexOf('category') !== -1 ? 'category' : 'month';
-      return f.values.indexOf(row.dataset[field]) !== -1;
+      var field = __expenditureFilterField(dim);
+      return (field in row.dataset) && f.values.indexOf(row.dataset[field]) !== -1;
     }});
     row.style.display = visible ? '' : 'none';
     if (visible) visibleCount++;

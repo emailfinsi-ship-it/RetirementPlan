@@ -131,7 +131,14 @@ _NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
 _EXPENSE_PRIMARY_CATEGORIES = set(_BROAD_CATEGORY_BY_PRIMARY) - {"INCOME", "TRANSFER_IN", "TRANSFER_OUT"}
 
 
-def is_real_income(*, primary: str | None, category: str | None, amount: float, excluded_from_expense: bool) -> bool:
+def is_real_income(
+    *,
+    primary: str | None,
+    category: str | None,
+    amount: float,
+    excluded_from_expense: bool,
+    category_edited_by_user: bool = False,
+) -> bool:
     """True for a transaction that should count as *real income* on the
     Real Expenditure and Budget vs Actual pages -- broader than a plain
     `category == "Income"` check, so a paycheck-like deposit Plaid
@@ -147,24 +154,52 @@ def is_real_income(*, primary: str | None, category: str | None, amount: float, 
       here); or
     - `amount` is negative (Plaid's convention: money IN), `primary`
       isn't one of the two transfer primaries (an internal transfer is
-      never income, however it's currently flagged), and `primary` is
+      never income, however it's currently flagged), `primary` is
       anything other than a primary category Plaid itself tied to a
       real kind of spending (_EXPENSE_PRIMARY_CATEGORIES) -- that last
-      case is a refund/return against that same spending, not income.
+      case is a refund/return against that same spending, not income --
+      AND, when a person has personally retyped this exact row's own
+      category (`category_edited_by_user`), that category reads like an
+      income label (contains "income", case-insensitively -- covers
+      "Income" itself, "rental-income", "Rental Income -<property>",
+      and the like).
+
+    That last condition is the fix for a real, reported bug: Plaid
+    sometimes gives a mortgage-account "principal payment" mirror
+    transaction (or a refund/fee it can't otherwise classify) primary
+    "OTHER" instead of the TRANSFER_IN it should have gotten -- with no
+    real primary to go on, this function used to fall back to "inbound
+    money with an uninformative primary must be income" unconditionally,
+    which is right for a not-yet-reviewed deposit (the "mystery
+    paycheck" case this whole OTHER fallback exists for -- see
+    test_inbound_money_plaid_could_not_classify_counts_as_income) but
+    wrong once a person has since typed a specific, clearly-not-income
+    category onto that exact transaction by hand ("mortgage", "Food",
+    "Bank Fees" are real examples that were wrongly counted as income
+    before this check existed). A category set by a saved rule/
+    recategorize pass rather than typed onto this specific row
+    (category_edited_by_user=False) still gets the benefit of the doubt
+    -- it's still effectively an unreviewed guess as far as this one
+    transaction goes.
 
     An excluded transaction (an internal transfer or credit card
     payment -- see default_excluded_from_expense) is never income; it's
     not counted in any total on these pages at all."""
     if excluded_from_expense:
         return False
-    if (category or "").strip() == "Income":
+    category_text = (category or "").strip()
+    if category_text == "Income":
         return True
     if amount >= 0:
         return False
     primary_key = (primary or "").strip().upper()
     if primary_key in _TRANSFER_PRIMARY_CATEGORIES:
         return False
-    return primary_key not in _EXPENSE_PRIMARY_CATEGORIES
+    if primary_key in _EXPENSE_PRIMARY_CATEGORIES:
+        return False
+    if category_edited_by_user and "income" not in category_text.lower():
+        return False
+    return True
 
 
 def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, str]] | None = None) -> str | None:

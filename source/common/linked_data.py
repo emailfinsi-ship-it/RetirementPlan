@@ -234,6 +234,7 @@ def read_transactions() -> list:
         amount = t["amount"] or 0.0
         category = t["category"] or "Uncategorized"
         excluded_from_expense = bool(t["excluded_from_expense"])
+        category_edited_by_user = bool(t["category_edited_by_user"])
         result.append({
             "transaction_id": t["transaction_id"],
             "account_id": t["account_id"],
@@ -246,7 +247,7 @@ def read_transactions() -> list:
             "plaid_category_primary": t["plaid_category_primary"] or "",
             "plaid_category_detailed": t["plaid_category_detailed"] or "",
             "category": category,
-            "category_edited_by_user": bool(t["category_edited_by_user"]),
+            "category_edited_by_user": category_edited_by_user,
             "excluded_from_expense": excluded_from_expense,
             "excluded_edited_by_user": bool(t["excluded_edited_by_user"]),
             # Broader than `category == "Income"` -- also catches inbound
@@ -257,6 +258,7 @@ def read_transactions() -> list:
             "is_real_income": plaid_categorize.is_real_income(
                 primary=t["plaid_category_primary"], category=category,
                 amount=amount, excluded_from_expense=excluded_from_expense,
+                category_edited_by_user=category_edited_by_user,
             ),
             "institution": item.get("institution_name") or "",
             "account_name": account.get("official_name") or account.get("name") or "",

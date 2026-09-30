@@ -228,8 +228,25 @@ def _render_real_expenditure_page() -> str:
             f'title="Apply this transaction\'s own category to every other transaction whose name/merchant '
             f'matches -- now, and on future syncs.">categorize similar</a>'
         )
+        # data-expense-category/data-expense-month and data-income-category/
+        # data-income-month are only ever set on a row that actually
+        # contributes its dollars to that specific chart (counted, i.e.
+        # not excluded_from_expense, and split by is_real_income) -- kept
+        # separate from the plain data-category/data-month below (every
+        # row gets those, counted or not) precisely so clicking an
+        # income-chart bar can never pull in an excluded or expense-side
+        # row that merely happens to share the same category text (see
+        # applyExpenditureFilters() in shell.py).
+        month_key = html.escape(_month_key(t["date"]))
+        contributes = not t["excluded_from_expense"]
+        if contributes and t["is_real_income"]:
+            split_attrs = f' data-income-category="{html.escape(t["category"])}" data-income-month="{month_key}"'
+        elif contributes:
+            split_attrs = f' data-expense-category="{html.escape(t["category"])}" data-expense-month="{month_key}"'
+        else:
+            split_attrs = ""
         return (
-            f'<tr data-category="{html.escape(t["category"])}" data-month="{html.escape(_month_key(t["date"]))}">'
+            f'<tr data-category="{html.escape(t["category"])}" data-month="{month_key}"{split_attrs}>'
             f'<td class="check-col"><input type="checkbox" class="transaction-check" '
             f'data-transaction-id="{html.escape(t["transaction_id"])}"></td>'
             f'<td>{html.escape(t["date"])}</td>'
