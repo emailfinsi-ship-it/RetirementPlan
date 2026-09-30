@@ -273,65 +273,111 @@ Tailscale is a free (for personal use) VPN service; its Funnel feature gives one
 """
 
 _RULE_TYPE_LABELS = {"primary": "Plaid category", "detailed": "Plaid subcategory", "keyword": "Merchant/name keyword"}
+_MATCH_MODE_LABELS = {
+    "contains": "Contains", "starts_with": "Starts with", "ends_with": "Ends with", "regex": "Regex (advanced)",
+    "exact": "Exact match",
+}
 
 
 def _category_rules_card_html(*, rules: list[dict], category_options_html: str) -> str:
     """Setup page card for source.common.db.category_rules -- lets a
-    person add/override the broad-category rollup rules source.common.
-    plaid_categorize.default_category otherwise hardcodes, without this
-    program's own code ever changing. Saving or deleting a rule
+    person add, edit in place, or delete an override on top of the
+    broad-category rollup rules source.common.plaid_categorize.
+    default_category otherwise hardcodes, without this program's own
+    code ever changing. Saving (new or edited) or deleting a rule
     immediately re-runs recategorize_all_transactions() server-side (see
-    dashboard._handle_category_rule_save/_delete) so the Real Expenditure
-    tab reflects it right away for every transaction that hasn't been
-    manually re-labeled by hand."""
+    dashboard.py's /api/category-rule/save|update|delete) so the Real
+    Expenditure tab reflects it right away for every transaction that
+    hasn't been manually re-labeled by hand.
+
+    A 'keyword' rule (matched against a transaction's own merchant/name
+    text) can use any of plaid_categorize.KEYWORD_MATCH_MODES -- plain
+    substring "Contains" (the original, and still the default,
+    behavior), "Starts with"/"Ends with" anchored to one end, or an
+    advanced "Regex" pattern for anything those three can't express.
+    Meaningless for a 'primary'/'detailed' rule (always an exact match
+    on Plaid's own value), so the Match mode cell there is disabled.
+
+    Every existing rule's own row IS the edit form -- its fields start
+    populated with that rule's current values; retype any of them
+    (including Value/Match on, unlike the old add-only behavior) and hit
+    "Save" to update that same rule in place via updateCategoryRule() in
+    shell.py, which posts straight to /api/category-rule/update rather
+    than adding a second rule."""
+    def _rule_type_select(r) -> str:
+        options = "".join(
+            f'<option value="{rt}"{" selected" if rt == r.get("rule_type") else ""}>'
+            f'{html.escape(_RULE_TYPE_LABELS[rt])}</option>'
+            for rt in plaid_categorize.RULE_TYPES
+        )
+        return f'<select name="rule_type" onchange="toggleCategoryRuleMatchMode(this)">{options}</select>'
+
+    def _match_mode_select(r) -> str:
+        current = r.get("match_mode") or "contains"
+        disabled = r.get("rule_type") != "keyword"
+        options = "".join(
+            f'<option value="{m}"{" selected" if m == current else ""}>{html.escape(_MATCH_MODE_LABELS[m])}</option>'
+            for m in plaid_categorize.KEYWORD_MATCH_MODES
+        )
+        return f'<select name="match_mode"{" disabled" if disabled else ""} style="width:130px;">{options}</select>'
+
     def rule_row(r):
         return (
-            f'<tr><td>{html.escape(_RULE_TYPE_LABELS.get(r["rule_type"], r["rule_type"]))}</td>'
-            f'<td><code>{html.escape(r["match_key"])}</code></td>'
-            f'<td>{html.escape(r["category"])}</td>'
-            f'<td><button class="danger" onclick="deleteCategoryRule({r["id"]})">Delete</button></td></tr>'
+            f'<tr>'
+            f'<td>{_rule_type_select(r)}</td>'
+            f'<td><input type="text" name="match_key" value="{html.escape(r["match_key"])}" style="width:180px;"></td>'
+            f'<td>{_match_mode_select(r)}</td>'
+            f'<td><input type="text" name="category" list="category-rule-categories" '
+            f'value="{html.escape(r["category"])}" style="width:140px;"></td>'
+            f'<td><button onclick="updateCategoryRule({r["id"]}, this.closest(\'tr\'))">Save</button> '
+            f'<button class="danger" onclick="deleteCategoryRule({r["id"]})">Delete</button></td>'
+            f'</tr>'
         )
 
     rule_rows_html = "".join(rule_row(r) for r in rules) or (
-        '<tr><td colspan="4" class="muted">No custom rules yet -- every transaction uses this program\'s built-in defaults below.</td></tr>'
+        '<tr><td colspan="5" class="muted">No custom rules yet -- every transaction uses this program\'s built-in defaults below.</td></tr>'
     )
 
     def builtin_row(r):
         return (
             f'<tr><td>{html.escape(_RULE_TYPE_LABELS.get(r["rule_type"], r["rule_type"]))}</td>'
             f'<td><code>{html.escape(r["match_key"])}</code></td>'
+            f'<td>{html.escape(_MATCH_MODE_LABELS.get(r["match_mode"], r["match_mode"]))}</td>'
             f'<td>{html.escape(r["category"])}</td></tr>'
         )
 
     builtin_rows_html = "".join(builtin_row(r) for r in plaid_categorize.list_built_in_rules())
 
+    new_match_mode_select = _match_mode_select({"rule_type": "keyword", "match_mode": "contains"})
+
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Category rules</h2>
-<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Real Expenditure</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Real Expenditure's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time.</p>
+<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Real Expenditure</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Real Expenditure's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time. A "Merchant/name keyword" rule's Match mode picks how its Value is compared against the transaction's own merchant/description text: Contains (a plain substring, the original behavior), Starts with, Ends with, or an advanced Regex pattern.</p>
 <datalist id="category-rule-categories">{category_options_html}</datalist>
 <form class="inline" onsubmit="event.preventDefault();
-  var btn = this.querySelector('button');
-  postJSON('/api/category-rule/save', {{rule_type: this.rule_type.value, match_key: this.match_key.value, category: this.category.value}})
-    .then(function() {{ location.reload(); }})
-    .catch(function(e) {{ alert(e.message); }});">
-  <label>Match on<select name="rule_type">
+  postJSON('/api/category-rule/save', {{
+    rule_type: this.rule_type.value, match_key: this.match_key.value,
+    match_mode: this.match_mode.value, category: this.category.value,
+  }}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Match on<select name="rule_type" onchange="toggleCategoryRuleMatchMode(this)">
     <option value="primary">Plaid category (e.g. GENERAL_MERCHANDISE)</option>
     <option value="detailed">Plaid subcategory (e.g. GENERAL_MERCHANDISE_PET_SUPPLIES)</option>
-    <option value="keyword">Merchant/name keyword (e.g. peloton)</option>
+    <option value="keyword" selected>Merchant/name keyword (e.g. peloton)</option>
   </select></label>
   <label>Value<input name="match_key" placeholder="e.g. peloton" required></label>
+  <label>Match mode{new_match_mode_select}</label>
   <label>Category<input name="category" list="category-rule-categories" placeholder="e.g. Fitness" required></label>
-  <button type="submit" class="primary">Save rule</button>
+  <button type="submit" class="primary">Add rule</button>
 </form>
 <table class="sortable">
-<thead><tr><th>Matches on</th><th>Value</th><th>Category</th><th></th></tr></thead>
+<thead><tr><th>Matches on</th><th>Value</th><th>Match mode</th><th>Category</th><th></th></tr></thead>
 <tbody>{rule_rows_html}</tbody>
 </table>
 <details style="margin-top:8px;">
 <summary class="muted" style="cursor:pointer;">Built-in defaults (read-only reference, {len(plaid_categorize.list_built_in_rules())} rules)</summary>
 <table class="sortable">
-<thead><tr><th>Matches on</th><th>Value</th><th>Category</th></tr></thead>
+<thead><tr><th>Matches on</th><th>Value</th><th>Match mode</th><th>Category</th></tr></thead>
 <tbody>{builtin_rows_html}</tbody>
 </table>
 </details>

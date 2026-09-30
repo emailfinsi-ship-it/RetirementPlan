@@ -628,13 +628,37 @@ class Handler(BaseHTTPRequestHandler):
                 # from here on -- cheap and idempotent for a personal
                 # database's transaction volume (see that function's own
                 # docstring), same call already made on every app startup.
+                # Always ADDS a new rule (or replaces the category/match_
+                # mode on an existing one for the same rule_type+match_key
+                # pair) -- see /api/category-rule/update just below for
+                # editing an existing row's own match_key/rule_type.
                 rule_id = db.upsert_category_rule(
                     rule_type=(payload.get("rule_type") or "").strip(),
                     match_key=payload.get("match_key") or "",
                     category=payload.get("category") or "",
+                    match_mode=(payload.get("match_mode") or "contains").strip(),
                 )
                 changed = db.recategorize_all_transactions()
                 self._send_json({"ok": True, "id": rule_id, "recategorized": changed})
+            elif path == "/api/category-rule/update":
+                # Setup page's per-row "Save" button once a rule is being
+                # edited in place -- unlike /api/category-rule/save above,
+                # this changes the SAME row (by id) no matter what about
+                # it changes, including its own match_key/rule_type (see
+                # source.common.db.category_rules.update_category_rule).
+                # A ValueError here (bad rule_type/match_mode, or the
+                # edited pair collides with a different existing rule)
+                # surfaces as this request's own 400 -- see the broad
+                # except below.
+                db.update_category_rule(
+                    int(payload.get("id")),
+                    rule_type=(payload.get("rule_type") or "").strip(),
+                    match_key=payload.get("match_key") or "",
+                    category=payload.get("category") or "",
+                    match_mode=(payload.get("match_mode") or "contains").strip(),
+                )
+                changed = db.recategorize_all_transactions()
+                self._send_json({"ok": True, "recategorized": changed})
             elif path == "/api/category-rule/delete":
                 deleted = db.delete_category_rule(int(payload.get("id")))
                 changed = db.recategorize_all_transactions() if deleted else 0

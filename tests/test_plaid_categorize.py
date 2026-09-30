@@ -1,6 +1,8 @@
 import unittest
 
 from source.common.plaid_categorize import (
+    KEYWORD_MATCH_MODES,
+    _keyword_rule_matches,
     default_category,
     default_excluded_from_expense,
     is_real_income,
@@ -32,6 +34,53 @@ class TestDefaultExcludedFromExpense(unittest.TestCase):
 
     def test_is_case_insensitive(self):
         self.assertTrue(default_excluded_from_expense("transfer_out", "transfer_out_account_transfer"))
+
+
+class TestKeywordMatchModes(unittest.TestCase):
+    """_keyword_rule_matches is the shared comparison every 'keyword'
+    category_rule (source.common.db.category_rules) goes through --
+    covers all four KEYWORD_MATCH_MODES directly, independent of
+    default_category's own wiring (covered separately above)."""
+
+    def test_exactly_four_modes_in_a_stable_order(self):
+        # The Setup page's Match mode <select> is built directly from
+        # this tuple (source.webapp.pages.setup) -- order is display
+        # order, so a change here is a UI change too.
+        self.assertEqual(KEYWORD_MATCH_MODES, ("contains", "starts_with", "ends_with", "regex"))
+
+    def test_contains_matches_anywhere_in_the_text(self):
+        self.assertTrue(_keyword_rule_matches("Starbucks Coffee #4521", "coffee", "contains"))
+        self.assertFalse(_keyword_rule_matches("Starbucks Tea #4521", "coffee", "contains"))
+
+    def test_starts_with_is_anchored_to_the_start(self):
+        self.assertTrue(_keyword_rule_matches("Zelle payment from Jane", "zelle", "starts_with"))
+        self.assertFalse(_keyword_rule_matches("Payment via Zelle", "zelle", "starts_with"))
+
+    def test_ends_with_is_anchored_to_the_end(self):
+        self.assertTrue(_keyword_rule_matches("Acme Corp Payroll", "payroll", "ends_with"))
+        self.assertFalse(_keyword_rule_matches("Payroll Adjustment", "payroll", "ends_with"))
+
+    def test_regex_searches_anywhere_and_is_case_insensitive(self):
+        self.assertTrue(_keyword_rule_matches("AMZN Mktp US*1234", r"amzn\s*mktp", "regex"))
+        # Anywhere in the text, not anchored, unless the pattern itself
+        # anchors with ^/$.
+        self.assertTrue(_keyword_rule_matches("MORTGAGE PRINCIPAL PMT", r"principal", "regex"))
+        self.assertTrue(_keyword_rule_matches("MORTGAGE PRINCIPAL PMT", r"^mortgage", "regex"))
+        self.assertTrue(_keyword_rule_matches("MORTGAGE PRINCIPAL PMT", r"pmt$", "regex"))
+        self.assertFalse(_keyword_rule_matches("MORTGAGE PRINCIPAL PMT", r"^mortgage$", "regex"))
+
+    def test_regex_with_a_bad_pattern_returns_false_instead_of_raising(self):
+        self.assertFalse(_keyword_rule_matches("(unbalanced parens", "(unbalanced", "regex"))
+
+    def test_every_mode_is_case_insensitive_on_both_sides(self):
+        self.assertTrue(_keyword_rule_matches("STARBUCKS COFFEE", "coffee", "contains"))
+        self.assertTrue(_keyword_rule_matches("starbucks coffee", "COFFEE", "contains"))
+        self.assertTrue(_keyword_rule_matches("ZELLE PAYMENT", "zelle", "starts_with"))
+        self.assertTrue(_keyword_rule_matches("acme payroll", "PAYROLL", "ends_with"))
+
+    def test_unrecognized_match_mode_falls_back_to_contains(self):
+        self.assertTrue(_keyword_rule_matches("Peloton Membership", "peloton", "some-future-mode"))
+        self.assertFalse(_keyword_rule_matches("Soulcycle Membership", "peloton", "some-future-mode"))
 
 
 class TestDefaultCategory(unittest.TestCase):
@@ -114,18 +163,49 @@ class TestDefaultCategory(unittest.TestCase):
         )
 
     def test_custom_keyword_rule_is_checked_before_the_built_in_keyword_list(self):
-        overrides = {"primary": {}, "detailed": {}, "keywords": [("peloton", "Fitness")]}
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("peloton", "Fitness", "contains")]}
         self.assertEqual(default_category(None, None, "Peloton Membership", overrides=overrides), "Fitness")
 
     def test_custom_keyword_rule_wins_over_a_built_in_keyword_match_on_the_same_text(self):
         # "starbucks" would otherwise match the built-in Food keyword list
         # -- a person's own rule for the same text always wins.
-        overrides = {"primary": {}, "detailed": {}, "keywords": [("starbucks", "Work Perks")]}
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("starbucks", "Work Perks", "contains")]}
         self.assertEqual(default_category(None, None, "Starbucks Coffee #4521", overrides=overrides), "Work Perks")
 
     def test_keyword_override_is_never_consulted_when_plaid_already_classified_it(self):
-        overrides = {"primary": {}, "detailed": {}, "keywords": [("shuttle", "Custom Travel")]}
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("shuttle", "Custom Travel", "contains")]}
         self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Travel")
+
+    def test_custom_keyword_rule_with_starts_with_match_mode(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("zelle", "Transfer", "starts_with")]}
+        self.assertEqual(default_category(None, None, "Zelle payment from Jane Doe", overrides=overrides), "Transfer")
+        # Doesn't match when "zelle" isn't at the very start.
+        self.assertEqual(default_category(None, None, "Payment via Zelle", overrides=overrides), "Uncategorized")
+
+    def test_custom_keyword_rule_with_ends_with_match_mode(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("corp payroll", "Salary", "ends_with")]}
+        self.assertEqual(default_category(None, None, "Acme Corp Payroll", overrides=overrides), "Salary")
+        self.assertEqual(default_category(None, None, "Acme Corp Payroll Adjustment", overrides=overrides), "Uncategorized")
+
+    def test_custom_keyword_rule_with_regex_match_mode(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [(r"^amzn\s*mktp", "Shopping", "regex")]}
+        self.assertEqual(default_category(None, None, "AMZN Mktp US*1234", overrides=overrides), "Shopping")
+        # Doesn't match text the pattern isn't anchored to -- and this
+        # text also has to avoid every OTHER built-in keyword fallback
+        # (see _NAME_KEYWORDS) to actually prove the point.
+        self.assertEqual(default_category(None, None, "Completely Unrelated Merchant Co", overrides=overrides), "Uncategorized")
+
+    def test_regex_match_mode_is_case_insensitive(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [(r"MORTGAGE$", "Loan Payments", "regex")]}
+        self.assertEqual(default_category(None, None, "principal pmt mortgage", overrides=overrides), "Loan Payments")
+
+    def test_regex_match_mode_with_a_bad_pattern_never_matches_instead_of_raising(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("(unbalanced", "Whatever", "regex")]}
+        self.assertEqual(default_category(None, None, "(unbalanced parens", overrides=overrides), "Uncategorized")
+
+    def test_unknown_match_mode_falls_back_to_contains(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("peloton", "Fitness", "some-future-mode")]}
+        self.assertEqual(default_category(None, None, "Peloton Membership", overrides=overrides), "Fitness")
 
 
 class TestIsRealIncome(unittest.TestCase):

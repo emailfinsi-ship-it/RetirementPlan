@@ -1146,10 +1146,86 @@ class TestCategoryRules(TempConfigTestCase):
 
         self.assertEqual(overrides["primary"], {"GENERAL_MERCHANDISE": "Shopping"})
         self.assertEqual(overrides["detailed"], {"FOO_BAR": "Baz"})
-        self.assertEqual(overrides["keywords"], [("peloton", "Fitness")])
+        # A 3-tuple -- (match_key, category, match_mode) -- not just
+        # (match_key, category), so plaid_categorize._guess_category_
+        # from_name knows HOW to compare match_key, not just what it is.
+        self.assertEqual(overrides["keywords"], [("peloton", "Fitness", "contains")])
 
     def test_load_active_overrides_is_empty_by_default(self):
         self.assertEqual(db.load_active_overrides(), {"primary": {}, "detailed": {}, "keywords": []})
+
+    def test_upsert_keyword_rule_defaults_to_contains_match_mode(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        self.assertEqual(db.list_category_rules()[0]["match_mode"], "contains")
+
+    def test_upsert_keyword_rule_accepts_starts_with_ends_with_and_regex(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="uber", category="Transportation", match_mode="starts_with")
+        db.upsert_category_rule(rule_type="keyword", match_key="corp", category="Business", match_mode="ends_with")
+        db.upsert_category_rule(rule_type="keyword", match_key=r"^amzn.*mktp", category="Shopping", match_mode="regex")
+        rows = {r["match_key"]: r["match_mode"] for r in db.list_category_rules()}
+        self.assertEqual(rows["uber"], "starts_with")
+        self.assertEqual(rows["corp"], "ends_with")
+        self.assertEqual(rows["^amzn.*mktp"], "regex")
+
+    def test_upsert_rejects_an_unknown_match_mode(self):
+        with self.assertRaises(ValueError):
+            db.upsert_category_rule(rule_type="keyword", match_key="foo", category="Bar", match_mode="fuzzy")
+
+    def test_upsert_ignores_match_mode_for_primary_and_detailed_rules(self):
+        # match_mode only means anything for a 'keyword' rule -- a
+        # 'primary'/'detailed' rule is always an exact match on Plaid's
+        # own value, so whatever was passed is normalized to "exact"
+        # rather than stored (or rejected) as-is.
+        db.upsert_category_rule(rule_type="primary", match_key="food_and_drink", category="Food", match_mode="regex")
+        self.assertEqual(db.list_category_rules()[0]["match_mode"], "exact")
+
+    def test_regex_match_key_keeps_its_original_case(self):
+        # Unlike contains/starts_with/ends_with (always lowercased),
+        # a regex pattern's own case can matter syntactically, and
+        # plaid_categorize._keyword_rule_matches already matches
+        # case-insensitively at match time regardless.
+        db.upsert_category_rule(rule_type="keyword", match_key="Amazon|AMZN", category="Shopping", match_mode="regex")
+        self.assertEqual(db.list_category_rules()[0]["match_key"], "Amazon|AMZN")
+
+    def test_update_category_rule_edits_the_same_row_in_place(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        db.update_category_rule(
+            rule_id, rule_type="keyword", match_key="soulcycle", category="Wellness", match_mode="starts_with",
+        )
+        rows = db.list_category_rules()
+        self.assertEqual(len(rows), 1)  # edited in place, not a second row
+        self.assertEqual(rows[0]["id"], rule_id)
+        self.assertEqual(rows[0]["match_key"], "soulcycle")
+        self.assertEqual(rows[0]["category"], "Wellness")
+        self.assertEqual(rows[0]["match_mode"], "starts_with")
+
+    def test_update_category_rule_can_change_rule_type(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        db.update_category_rule(rule_id, rule_type="primary", match_key="general_merchandise", category="Shopping")
+        rows = db.list_category_rules()
+        self.assertEqual(rows[0]["rule_type"], "primary")
+        self.assertEqual(rows[0]["match_key"], "GENERAL_MERCHANDISE")
+        self.assertEqual(rows[0]["match_mode"], "exact")
+
+    def test_update_category_rule_rejects_a_collision_with_a_different_rule(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        other_id = db.upsert_category_rule(rule_type="keyword", match_key="soulcycle", category="Wellness")
+        with self.assertRaises(ValueError):
+            db.update_category_rule(other_id, rule_type="keyword", match_key="peloton", category="Wellness")
+        # The rejected update must not have partially applied.
+        other_row = next(r for r in db.list_category_rules() if r["id"] == other_id)
+        self.assertEqual(other_row["match_key"], "soulcycle")
+
+    def test_update_category_rule_raises_for_an_unknown_id(self):
+        with self.assertRaises(ValueError):
+            db.update_category_rule(999, rule_type="keyword", match_key="peloton", category="Fitness")
+
+    def test_update_category_rule_rejects_the_same_bad_input_as_upsert(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        with self.assertRaises(ValueError):
+            db.update_category_rule(rule_id, rule_type="nonsense", match_key="peloton", category="Fitness")
+        with self.assertRaises(ValueError):
+            db.update_category_rule(rule_id, rule_type="keyword", match_key="", category="Fitness")
 
 
 class TestNetWorthSnapshots(TempConfigTestCase):

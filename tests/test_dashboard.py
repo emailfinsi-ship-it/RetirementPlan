@@ -4496,6 +4496,17 @@ class TestAutoSyncSettingsEndpoint(DashboardTestCase):
 
 
 class TestCategoryRuleEndpoints(DashboardTestCase):
+    def tearDown(self):
+        # DashboardTestCase shares ONE database across every test in this
+        # class (class-level setUp, not per-test) -- without this, a rule
+        # one test saves and never deletes leaks into every test that
+        # runs after it alphabetically, silently inflating list_category_
+        # rules() counts other tests assert on. Every test below creates
+        # whatever rule(s) it needs itself, so clearing here is always
+        # safe.
+        with db.connect() as conn:
+            conn.execute("DELETE FROM category_rules")
+
     def test_saving_a_rule_persists_it(self):
         status, payload = self._post("/api/category-rule/save", {
             "rule_type": "keyword", "match_key": "peloton", "category": "Fitness",
@@ -4551,8 +4562,89 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertIn("peloton", body)
         self.assertIn("Fitness", body)
         self.assertIn("deleteCategoryRule(", body)
+        self.assertIn("updateCategoryRule(", body)
         # The built-in reference table shows at least one hardcoded default.
         self.assertIn("GENERAL_MERCHANDISE", body)
+
+    def test_setup_page_shows_a_match_mode_selector_for_a_keyword_rule(self):
+        rule_id = db.upsert_category_rule(
+            rule_type="keyword", match_key="uber", category="Transportation", match_mode="starts_with",
+        )
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn(f"updateCategoryRule({rule_id}", body)
+        self.assertIn('name="match_mode"', body)
+        self.assertIn("Starts with", body)
+        # This row's own Match mode select is a live, enabled control
+        # (unlike a "primary"/"detailed" rule's -- see the next test).
+        self.assertIn('name="match_mode" style="width:130px;">', body)
+
+    def test_setup_page_disables_match_mode_for_a_primary_or_detailed_rule(self):
+        # match_mode is meaningless for a "primary"/"detailed" rule
+        # (always an exact match on Plaid's own value) -- its own row's
+        # Match mode <select> is disabled rather than offering a choice
+        # that wouldn't do anything.
+        db.upsert_category_rule(rule_type="primary", match_key="general_merchandise", category="Shopping")
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn('name="match_mode" disabled style="width:130px;">', body)
+
+    def test_saving_a_keyword_rule_with_match_mode_persists_it(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "uber", "category": "Transportation", "match_mode": "starts_with",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.list_category_rules()[0]["match_mode"], "starts_with")
+
+    def test_updating_a_rule_edits_it_in_place(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        status, payload = self._post("/api/category-rule/update", {
+            "id": rule_id, "rule_type": "keyword", "match_key": "soulcycle",
+            "category": "Wellness", "match_mode": "ends_with",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        rules = db.list_category_rules()
+        self.assertEqual(len(rules), 1)  # still one row -- edited, not duplicated
+        self.assertEqual(rules[0]["id"], rule_id)
+        self.assertEqual(rules[0]["match_key"], "soulcycle")
+        self.assertEqual(rules[0]["category"], "Wellness")
+        self.assertEqual(rules[0]["match_mode"], "ends_with")
+
+    def test_updating_a_rule_immediately_recategorizes_matching_transactions(self):
+        db.upsert_plaid_item(
+            item_key="k2", plaid_item_id="item-2", institution_id=None, institution_name=None,
+            products=["transactions"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        db.upsert_plaid_transaction(item_key="k2", transaction={
+            "transaction_id": "t2", "account_id": "acc-2", "date": "2026-09-01", "amount": 25.0,
+            "iso_currency_code": "USD", "name": "Soulcycle Class", "merchant_name": "Soulcycle",
+            "pending": False, "plaid_category_primary": None, "plaid_category_detailed": None,
+            "category": "Uncategorized", "excluded_from_expense": False,
+        })
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        status, payload = self._post("/api/category-rule/update", {
+            "id": rule_id, "rule_type": "keyword", "match_key": "soulcycle", "category": "Wellness",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["recategorized"], 1)
+        updated = next(t for t in db.list_plaid_transactions() if t["transaction_id"] == "t2")
+        self.assertEqual(updated["category"], "Wellness")
+
+    def test_updating_an_unknown_rule_returns_400(self):
+        status, payload = self._post("/api/category-rule/update", {
+            "id": 999, "rule_type": "keyword", "match_key": "peloton", "category": "Fitness",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_updating_a_rule_to_collide_with_another_returns_400(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        other_id = db.upsert_category_rule(rule_type="keyword", match_key="soulcycle", category="Wellness")
+        status, payload = self._post("/api/category-rule/update", {
+            "id": other_id, "rule_type": "keyword", "match_key": "peloton", "category": "Wellness",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
 
 
 class TestApplyCategoryRuleFromTransactionEndpoint(DashboardTestCase):

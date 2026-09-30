@@ -135,6 +135,39 @@ function deleteCategoryRule(id) {{
     .then(function() {{ location.reload(); }})
     .catch(function(err) {{ alert(err.message); }});
 }}
+function updateCategoryRule(id, rowEl) {{
+  // Setup page's per-row "Save" button on an existing Category rule --
+  // that row's own <select>/<input> fields (rule_type, match_key,
+  // match_mode, category) ARE the edit form (see setup.py's
+  // _category_rules_card_html), so this just reads them straight off
+  // the row and posts to /api/category-rule/update, which changes that
+  // SAME rule in place (unlike /api/category-rule/save, which would add
+  // a second rule if match_key changed) -- see source.common.db.
+  // category_rules.update_category_rule for exactly why the two differ.
+  postJSON('/api/category-rule/update', {{
+    id: id,
+    rule_type: rowEl.querySelector('[name="rule_type"]').value,
+    match_key: rowEl.querySelector('[name="match_key"]').value,
+    match_mode: rowEl.querySelector('[name="match_mode"]').value,
+    category: rowEl.querySelector('[name="category"]').value,
+  }}).then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function toggleCategoryRuleMatchMode(selectEl) {{
+  // A Match mode only means anything for a "keyword" rule (a
+  // "primary"/"detailed" rule is always an exact match on Plaid's own
+  // value) -- greys out that row's own Match mode <select> the moment
+  // "Match on" is switched away from "keyword", on both the add-rule
+  // form and an existing rule's own edit row. Disabling it doesn't stop
+  // updateCategoryRule()/the add form's own postJSON above from reading
+  // its .value -- the server ignores it for a non-keyword rule anyway
+  // (source.common.db.category_rules._normalize_rule always stores
+  // "exact" for those), this is purely so the UI doesn't imply a choice
+  // that wouldn't do anything.
+  var row = selectEl.closest('tr') || selectEl.closest('form');
+  var modeSelect = row ? row.querySelector('[name="match_mode"]') : null;
+  if (modeSelect) modeSelect.disabled = selectEl.value !== 'keyword';
+}}
 function addLineItem(section, formEl) {{
   var fields = {{}};
   new FormData(formEl).forEach(function(value, key) {{ if (value !== '') fields[key] = value; }});

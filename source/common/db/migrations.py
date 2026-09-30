@@ -98,3 +98,10 @@ def _migrate_schema(conn) -> None:
         conn.execute("ALTER TABLE plaid_holdings ADD COLUMN vested_quantity REAL")
     if "vested_value" not in existing_ph:
         conn.execute("ALTER TABLE plaid_holdings ADD COLUMN vested_value REAL")
+    existing_cr = {row["name"] for row in conn.execute("PRAGMA table_info(category_rules)").fetchall()}
+    if existing_cr and "match_mode" not in existing_cr:
+        # Every pre-existing rule was always a plain substring check --
+        # DEFAULT 'contains' keeps every one of them matching exactly as
+        # before (see schema.py's own comment on category_rules for what
+        # the other three modes mean).
+        conn.execute("ALTER TABLE category_rules ADD COLUMN match_mode TEXT NOT NULL DEFAULT 'contains'")

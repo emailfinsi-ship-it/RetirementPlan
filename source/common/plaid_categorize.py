@@ -116,6 +116,45 @@ _NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("rent", "landlord", "electric company", "utility", "utilities", "water bill"), "Housing & Utilities"),
 )
 
+# The four ways a saved 'keyword' category_rule (source.common.db.
+# category_rules) can compare its own match_key against a transaction's
+# merchant/name text -- see _keyword_rule_matches right below for what
+# each one actually does, and schema.py's own comment on the
+# category_rules table for the user-facing explanation of each. Order
+# here is display order on the Setup page's "Match on" dropdown.
+# "contains" is the original (and still the default) behavior every
+# rule saved before match_mode existed keeps using unchanged.
+KEYWORD_MATCH_MODES = ("contains", "starts_with", "ends_with", "regex")
+
+
+def _keyword_rule_matches(text: str, match_key: str, match_mode: str) -> bool:
+    """True when one keyword/pattern rule's own match_key matches `text`
+    (a transaction's own merchant_name/name, not yet lowercased -- every
+    mode here handles its own case-insensitivity, so a caller never has
+    to). match_mode is one of KEYWORD_MATCH_MODES:
+    - "contains" (the default): match_key anywhere in text.
+    - "starts_with"/"ends_with": match_key anchored to one end of text.
+    - "regex": match_key is an arbitrary regular expression, searched
+      anywhere in text (re.search, case-insensitive) -- a bad pattern
+      (re.error, e.g. an unbalanced paren someone typo'd on the Setup
+      page) is treated as "doesn't match" rather than raising, since one
+      broken saved rule shouldn't crash every sync/recategorize pass for
+      every other transaction.
+    Any other/unrecognized match_mode falls back to "contains" -- the
+    same behavior a rule saved before match_mode existed always had."""
+    text_lower = text.lower()
+    match_key_lower = match_key.lower()
+    if match_mode == "starts_with":
+        return text_lower.startswith(match_key_lower)
+    if match_mode == "ends_with":
+        return text_lower.endswith(match_key_lower)
+    if match_mode == "regex":
+        try:
+            return re.search(match_key, text, re.IGNORECASE) is not None
+        except re.error:
+            return False
+    return match_key_lower in text_lower
+
 
 # Primary categories whose own classification already means Plaid tied
 # this transaction to a real kind of spending -- a negative (inbound)
@@ -202,8 +241,15 @@ def is_real_income(
     return True
 
 
-def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, str]] | None = None) -> str | None:
-    text = (name or "").strip().lower()
+def _guess_category_from_name(
+    name: str | None, extra_keywords: list[tuple[str, str, str]] | None = None,
+) -> str | None:
+    # Deliberately NOT lowercased here (unlike before match_mode
+    # existed) -- _keyword_rule_matches does its own case-insensitive
+    # comparison for every mode, and "regex" in particular needs the
+    # original text (re.IGNORECASE, not a pre-lowered string, handles
+    # its case-insensitivity).
+    text = (name or "").strip()
     if not text:
         return None
     # User-added keyword rules (source.common.db.category_rules) are
@@ -211,12 +257,13 @@ def _guess_category_from_name(name: str | None, extra_keywords: list[tuple[str, 
     # rule always wins over a built-in one that might also match the
     # same text -- see default_category's own docstring for why this
     # function takes them as a parameter instead of importing the db
-    # itself.
-    for keyword, category in extra_keywords or ():
-        if keyword in text:
+    # itself. Each is a (match_key, category, match_mode) triple -- see
+    # KEYWORD_MATCH_MODES/_keyword_rule_matches above.
+    for match_key, category, match_mode in extra_keywords or ():
+        if _keyword_rule_matches(text, match_key, match_mode):
             return category
     for keywords, category in _NAME_KEYWORDS:
-        if any(keyword in text for keyword in keywords):
+        if any(_keyword_rule_matches(text, keyword, "contains") for keyword in keywords):
             return category
     return None
 
@@ -293,11 +340,13 @@ def list_built_in_rules() -> list[dict]:
     default_category, just to be readable on a page."""
     rules = []
     for key, category in _BROAD_CATEGORY_BY_PRIMARY.items():
-        rules.append({"rule_type": "primary", "match_key": key, "category": category})
+        rules.append({"rule_type": "primary", "match_key": key, "match_mode": "exact", "category": category})
     for key, category in _BROAD_CATEGORY_DETAILED_OVERRIDES.items():
-        rules.append({"rule_type": "detailed", "match_key": key, "category": category})
+        rules.append({"rule_type": "detailed", "match_key": key, "match_mode": "exact", "category": category})
     for keywords, category in _NAME_KEYWORDS:
-        rules.append({"rule_type": "keyword", "match_key": ", ".join(keywords), "category": category})
+        rules.append({
+            "rule_type": "keyword", "match_key": ", ".join(keywords), "match_mode": "contains", "category": category,
+        })
     return rules
 
 
@@ -323,8 +372,9 @@ def default_category(
 
     `overrides`, when given, is source.common.db.category_rules.
     load_active_overrides()'s own shape: {"primary": {KEY: category},
-    "detailed": {KEY: category}, "keywords": [(keyword, category), ...]}
-    -- a person's own rules (Setup page's "Category rules" card), always
+    "detailed": {KEY: category}, "keywords": [(match_key, category,
+    match_mode), ...]} -- a person's own rules (Setup page's "Category
+    rules" card), always
     checked BEFORE the matching built-in table/list below, so a custom
     rule always wins over a built-in one that would otherwise also
     match. Optional and defaults to none, so every existing caller that

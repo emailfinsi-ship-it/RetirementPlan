@@ -38,6 +38,7 @@ from source.common.db.category_rules import (
     delete_category_rule,
     list_category_rules,
     load_active_overrides,
+    update_category_rule,
     upsert_category_rule,
 )
 from source.common.db.net_worth_snapshots import list_net_worth_snapshots, record_snapshot
@@ -143,6 +144,7 @@ __all__ = [
     "set_meta",
     "list_category_rules",
     "upsert_category_rule",
+    "update_category_rule",
     "delete_category_rule",
     "load_active_overrides",
     "record_snapshot",

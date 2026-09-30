@@ -284,16 +284,31 @@ CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(dat
 --                 "GENERAL_MERCHANDISE_PET_SUPPLIES"), case-insensitive,
 --                 checked before 'primary' (more specific wins), same
 --                 order as the built-in tables.
---   'keyword'  -- match_key is a single lowercase substring checked
---                 against the transaction's merchant/transaction name,
---                 checked before every built-in keyword rule, in
+--   'keyword'  -- match_key is checked against the transaction's
+--                 merchant/transaction name according to match_mode
+--                 below, checked before every built-in keyword rule, in
 --                 ascending id order (oldest-added first), first match
 --                 wins -- only ever consulted when Plaid gave no
 --                 primary/detailed at all, same as the built-in list.
+-- match_mode only means anything for rule_type='keyword' (a 'primary'/
+-- 'detailed' rule is always an exact match on Plaid's own value, case-
+-- insensitive) -- one of:
+--   'contains'    -- match_key anywhere in the name (the original, and
+--                    still the default, behavior -- lowercase substring).
+--   'starts_with' -- name starts with match_key.
+--   'ends_with'   -- name ends with match_key.
+--   'regex'       -- match_key is an arbitrary regular expression,
+--                    searched anywhere in the name (case-insensitive); a
+--                    bad pattern just never matches rather than raising
+--                    (see plaid_categorize._keyword_rule_matches).
+-- See source.common.plaid_categorize.KEYWORD_MATCH_MODES (the single
+-- source of truth for these four strings) and that module's own
+-- _keyword_rule_matches for exactly how each mode compares text.
 CREATE TABLE IF NOT EXISTS category_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_type TEXT NOT NULL,          -- 'primary' | 'detailed' | 'keyword'
     match_key TEXT NOT NULL,
+    match_mode TEXT NOT NULL DEFAULT 'contains',
     category TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
