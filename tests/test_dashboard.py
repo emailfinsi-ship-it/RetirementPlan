@@ -3875,6 +3875,32 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         # "Total" series/legend entry is added for it.
         self.assertNotIn(">Total<", body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0])
 
+    def test_chart_is_logarithmic_and_discloses_it(self):
+        # A small account and a much larger one would otherwise squash
+        # the small one's own movement flat on a linear axis -- see
+        # _multi_line_chart_html's log_scale docstring. The disclosure
+        # note and at least one $-labeled gridline both have to be
+        # present, not just a silently reshaped line.
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-ira", "name": "Fidelity IRA", "official_name": "Fidelity IRA",
+            "type": "investment", "subtype": "ira", "mask": "9999",
+            "balances": {"current": 500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=500_000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-ira", balance=500.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=520_000.0, snapshot_date="2026-09-15")
+        db.record_account_balance_snapshot(account_id="acc-ira", balance=600.0, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        section = body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0]
+        self.assertIn("Logarithmic scale", section)
+        self.assertIn("equal percentage change", section)
+        # A gridline $ label somewhere in the plausible range of these
+        # balances (hundreds to hundreds of thousands).
+        self.assertTrue(
+            any(label in section for label in ("$1K", "$10K", "$100K", "$500", "$5K", "$50K")),
+            section,
+        )
+
     def test_multiple_accounts_add_an_emphasized_total_line(self):
         db.upsert_plaid_account(item_key="fidelity", account={
             "account_id": "acc-ira", "name": "Fidelity IRA", "official_name": "Fidelity IRA",
@@ -5198,6 +5224,52 @@ class TestSummaryRetirementYearCard(DashboardTestCase):
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn("Years into retirement", body)
         self.assertIn("<div class=\"value\">10</div>", body)
+
+
+class TestLogTicks(unittest.TestCase):
+    """_log_ticks -- the 1/2/5 x 10^n gridline generator behind the
+    Linked Accounts investment-balance chart's logarithmic axis. Pure
+    function, no dashboard/DB needed."""
+
+    def test_degenerate_ranges_return_no_ticks(self):
+        from source.webapp.render_helpers.charts import _log_ticks
+        self.assertEqual(_log_ticks(0, 100), [])
+        self.assertEqual(_log_ticks(-10, 100), [])
+        self.assertEqual(_log_ticks(100, 100), [])
+        self.assertEqual(_log_ticks(100, 50), [])
+
+    def test_a_couple_decades_uses_the_full_1_2_5_pattern(self):
+        from source.webapp.render_helpers.charts import _log_ticks
+        self.assertEqual(_log_ticks(100, 5000), [100, 200, 500, 1000, 2000, 5000])
+
+    def test_a_single_narrow_decade_still_returns_the_one_tick_inside_it(self):
+        from source.webapp.render_helpers.charts import _log_ticks
+        self.assertEqual(_log_ticks(950, 1050), [1000])
+
+    def test_a_very_wide_range_falls_back_to_the_coarsest_decades_only_pattern(self):
+        # Neither the 1-2-5 nor the 1-5 pattern fits under max_ticks
+        # across 7 orders of magnitude, so this falls all the way back
+        # to bare powers of ten -- still more than max_ticks here (a
+        # best-effort fallback, not a hard cap), but at least the
+        # sparsest pattern available rather than a cluttered one.
+        from source.webapp.render_helpers.charts import _log_ticks
+        ticks = _log_ticks(1, 10_000_000, max_ticks=6)
+        self.assertEqual(ticks, [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000])
+
+    def test_a_moderately_wide_range_falls_back_to_the_1_5_pattern(self):
+        from source.webapp.render_helpers.charts import _log_ticks
+        # 1-2-5 across this range would be too many ticks (> max_ticks),
+        # so this falls back one tier to 1-5 rather than all the way to
+        # decades-only.
+        ticks = _log_ticks(10, 5000, max_ticks=6)
+        self.assertEqual(ticks, [10, 50, 100, 500, 1_000, 5_000])
+
+    def test_ticks_are_always_within_the_given_range(self):
+        from source.webapp.render_helpers.charts import _log_ticks
+        ticks = _log_ticks(237, 8_412)
+        for t in ticks:
+            self.assertGreaterEqual(t, 237 * 0.999)
+            self.assertLessEqual(t, 8_412 * 1.001)
 
 
 if __name__ == "__main__":

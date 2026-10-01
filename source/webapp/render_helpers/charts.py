@@ -256,8 +256,33 @@ def _line_chart_html(
 _MULTI_LINE_EMPHASIS_COLOR = "#3a3833"
 
 
+def _log_ticks(lo: float, hi: float, *, max_ticks: int = 6) -> list[float]:
+    """Nice round gridline values (the standard 1/2/5 x 10^n pattern) for
+    a logarithmic axis spanning [lo, hi] -- e.g. 1, 2, 5, 10, 20, 50,
+    100, ... Tries the full 1-2-5 pattern first and falls back to
+    coarser patterns (1-5, then decades only) if that would put more
+    than max_ticks gridlines on a wide-range chart, so a balance history
+    spanning several decades of magnitude doesn't end up with a dozen
+    cluttered gridlines. Returns [] for a non-positive or empty range
+    (log is undefined there -- the caller just skips gridlines)."""
+    if lo <= 0 or hi <= lo:
+        return []
+    decades = range(math.floor(math.log10(lo)), math.ceil(math.log10(hi)) + 1)
+    ticks: list[float] = []
+    for pattern in ((1, 2, 5), (1, 5), (1,)):
+        ticks = sorted({
+            mult * (10 ** decade)
+            for decade in decades
+            for mult in pattern
+            if lo * 0.999 <= mult * (10 ** decade) <= hi * 1.001
+        })
+        if len(ticks) <= max_ticks:
+            break
+    return ticks
+
+
 def _multi_line_chart_html(
-    title: str, series: list[dict], *, note: str = "",
+    title: str, series: list[dict], *, note: str = "", log_scale: bool = False,
     empty_message: str = _DEFAULT_LINE_CHART_EMPTY_MESSAGE,
 ) -> str:
     """Several trend lines sharing ONE y-axis -- e.g. the Linked Accounts
@@ -290,7 +315,21 @@ def _multi_line_chart_html(
     shown for >=2 series (dataviz skill: identity is never color-alone
     at 2+ series); an end-of-line direct label is added too when there
     are <=4 series total, since beyond that the line ends get crowded
-    and the legend below already carries identity on its own."""
+    and the legend below already carries identity on its own.
+
+    log_scale=True plots the y-axis logarithmically instead of linearly
+    (e.g. the investment-balance chart, where a small account and a much
+    larger one otherwise squash the small one's own month-to-month
+    movement flat near the bottom) -- gridlines + $ labels are added in
+    this mode specifically so the axis change is visible rather than a
+    silently reshaped line (dataviz skill: an axis that changes what
+    visual distance means has to be disclosed, not left implicit), and a
+    short note is appended explaining what equal vertical spacing means
+    now. A log axis is mathematically undefined at/below zero, so a
+    non-positive point is clamped to the lowest positive value on the
+    chart for PLOTTING purposes only -- its dot still sits at the
+    correct real value in its tooltip/label, it just can't be placed at
+    its true (unplottable) height."""
     non_empty = [s for s in series if s.get("points")]
     all_dates = sorted({d for s in non_empty for d, _ in s["points"]})
     if len(all_dates) < 2:
@@ -306,23 +345,47 @@ def _multi_line_chart_html(
 
     index_of = {d: i for i, d in enumerate(all_dates)}
     all_values = [v for s in non_empty for _, v in s["points"]]
-    lo, hi = min(0.0, min(all_values)), max(all_values)
-    if hi - lo <= 0:
-        hi = lo + max(abs(lo) * 0.1, 1.0)  # a flat/all-zero series still gets a visible range
 
     def x_at(i: int) -> float:
         return pad_left + (i / (len(all_dates) - 1)) * plot_w
 
-    def y_at(v: float) -> float:
-        return pad_top + (1 - (v - lo) / (hi - lo)) * plot_h
-
+    grid_svg = ""
     zero_line = ""
-    if lo < 0 < hi:
-        zero_y = y_at(0.0)
-        zero_line = (
-            f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
-            f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
-        )
+    if log_scale:
+        positive_values = [v for v in all_values if v > 0]
+        lo = min(positive_values) if positive_values else 1.0
+        hi = max(all_values) if all_values else lo
+        if hi <= lo:
+            hi = lo * 10  # a flat/all-equal series still gets a visible range
+        log_lo, log_hi = math.log10(lo), math.log10(hi)
+
+        def y_at(v: float) -> float:
+            vv = v if v > 0 else lo  # clamp: a non-positive point still plots, at the chart's floor
+            return pad_top + (1 - (math.log10(vv) - log_lo) / (log_hi - log_lo)) * plot_h
+
+        grid_lines = []
+        for tick in _log_ticks(lo, hi):
+            ty = y_at(tick)
+            grid_lines.append(
+                f'<line x1="{pad_left}" y1="{ty:.1f}" x2="{width - pad_right}" y2="{ty:.1f}" '
+                f'stroke="#e5e2db" stroke-width="1"/>'
+                f'<text x="{pad_left + 2}" y="{ty - 2:.1f}" font-size="9" fill="#777">{html.escape(_money_short(tick))}</text>'
+            )
+        grid_svg = "".join(grid_lines)
+    else:
+        lo, hi = min(0.0, min(all_values)), max(all_values)
+        if hi - lo <= 0:
+            hi = lo + max(abs(lo) * 0.1, 1.0)  # a flat/all-zero series still gets a visible range
+
+        def y_at(v: float) -> float:
+            return pad_top + (1 - (v - lo) / (hi - lo)) * plot_h
+
+        if lo < 0 < hi:
+            zero_y = y_at(0.0)
+            zero_line = (
+                f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
+                f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
+            )
 
     direct_label_ok = len(non_empty) <= 4
     color_i = 0
@@ -400,11 +463,15 @@ def _multi_line_chart_html(
 
     svg = (
         f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
-        f'{zero_line}{"".join(lines_svg)}{"".join(dots_svg)}{"".join(end_labels_svg)}{x_labels}'
+        f'{grid_svg}{zero_line}{"".join(lines_svg)}{"".join(dots_svg)}{"".join(end_labels_svg)}{x_labels}'
         '</svg>'
     )
     legend_html = f'<div style="margin-top:4px;">{"".join(legend_items)}</div>' if len(non_empty) >= 2 else ""
-    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    full_note = note
+    if log_scale:
+        log_note = "Logarithmic scale -- equal vertical spacing represents equal percentage change, not equal dollar change."
+        full_note = f"{log_note} {note}" if note else log_note
+    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(full_note)}</p>' if full_note else ""
     return f"""
 <div class="card" style="flex:2 1 480px;">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>

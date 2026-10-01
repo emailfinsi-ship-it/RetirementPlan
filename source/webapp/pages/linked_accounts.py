@@ -177,6 +177,12 @@ def _render_linked_accounts_page() -> str:
     investment_history_chart_html = _multi_line_chart_html(
         "Investment balance over time",
         _investment_balance_history_series(investment_accounts),
+        # Log scale: accounts of very different sizes (a small IRA next
+        # to a much larger brokerage) otherwise squash the smaller one's
+        # own movement flat near the bottom of a linear axis -- see
+        # _multi_line_chart_html's own docstring on log_scale for how
+        # this is disclosed on the chart itself.
+        log_scale=True,
         empty_message="Balance history accumulates one point per linked investment account each day this app is opened or synced -- check back after a day or two.",
     )
 
