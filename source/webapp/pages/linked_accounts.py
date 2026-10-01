@@ -202,10 +202,12 @@ def _render_linked_accounts_page() -> str:
 {type_liabilities_chart_html}
 </div>
 <p class="muted">Click a slice of any chart above to filter the accounts list down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
-<h3 style="font-size:13px;">Investment balance history</h3>
-<div class="group-section">
+<details>
+<summary style="cursor:pointer; font-size:13px; font-weight:650; color:var(--ink);">Investment balance history</summary>
+<div class="group-section" style="margin-top:10px;">
 {investment_history_chart_html}
 </div>
+</details>
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
 <table id="linked-accounts-table" class="sortable">

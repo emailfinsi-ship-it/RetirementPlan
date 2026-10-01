@@ -3866,6 +3866,17 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         self.assertIn("Investment balance over time", body)
         self.assertIn("no data yet", body)
 
+    def test_section_is_collapsed_by_default(self):
+        # A plain <details> with no `open` attribute, matching the rest
+        # of the program's collapsed-by-default disclosure sections --
+        # the section takes a click to expand rather than always
+        # claiming space on the page.
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1200.0, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn('<details>\n<summary style="cursor:pointer; font-size:13px; font-weight:650; color:var(--ink);">Investment balance history</summary>', body)
+        self.assertNotIn('<details open>\n<summary style="cursor:pointer; font-size:13px; font-weight:650; color:var(--ink);">Investment balance history</summary>', body)
+
     def test_single_account_history_renders_without_a_total_line(self):
         db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
         db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1200.0, snapshot_date="2026-09-15")
