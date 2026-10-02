@@ -277,6 +277,7 @@ _MATCH_MODE_LABELS = {
     "contains": "Contains", "starts_with": "Starts with", "ends_with": "Ends with", "regex": "Regex (advanced)",
     "exact": "Exact match",
 }
+_KIND_LABELS = {"": "Auto-detect", "income": "Income", "expense": "Expense"}
 
 
 def _category_rules_card_html(*, rules: list[dict], category_options_html: str) -> str:
@@ -303,7 +304,18 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
     (including Value/Match on, unlike the old add-only behavior) and hit
     "Save" to update that same rule in place via updateCategoryRule() in
     shell.py, which posts straight to /api/category-rule/update rather
-    than adding a second rule."""
+    than adding a second rule.
+
+    Kind (Auto-detect/Income/Expense) is this rule's own opinion on
+    whether everything it matches is real income or a real expense on
+    the Real Expenditure/Budget vs Actual pages (plaid_categorize.
+    is_real_income's own income_kind_override) -- saving it alone does
+    NOT touch any transaction (same as Save never force-overwrites a
+    hand-edited category); that row's own "Apply" button does, via
+    applyCategoryRule() in shell.py, posting to /api/category-rule/apply
+    -- see source.common.db.transactions.apply_category_rule for exactly
+    why this needs to be a separate, explicit action rather than
+    automatic on every save."""
     def _rule_type_select(r) -> str:
         options = "".join(
             f'<option value="{rt}"{" selected" if rt == r.get("rule_type") else ""}>'
@@ -321,21 +333,32 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
         )
         return f'<select name="match_mode"{" disabled" if disabled else ""} style="width:130px;">{options}</select>'
 
+    def _kind_select(r) -> str:
+        current = r.get("kind") or ""
+        options = "".join(
+            f'<option value="{k}"{" selected" if k == current else ""}>{html.escape(label)}</option>'
+            for k, label in _KIND_LABELS.items()
+        )
+        return f'<select name="kind" style="width:110px;">{options}</select>'
+
     def rule_row(r):
         return (
             f'<tr>'
             f'<td>{_rule_type_select(r)}</td>'
-            f'<td><input type="text" name="match_key" value="{html.escape(r["match_key"])}" style="width:180px;"></td>'
+            f'<td><input type="text" name="match_key" value="{html.escape(r["match_key"])}" style="width:160px;"></td>'
             f'<td>{_match_mode_select(r)}</td>'
             f'<td><input type="text" name="category" list="category-rule-categories" '
-            f'value="{html.escape(r["category"])}" style="width:140px;"></td>'
+            f'value="{html.escape(r["category"])}" style="width:130px;"></td>'
+            f'<td>{_kind_select(r)}</td>'
             f'<td><button onclick="updateCategoryRule({r["id"]}, this.closest(\'tr\'))">Save</button> '
+            f'<button onclick="applyCategoryRule({r["id"]})" title="Re-apply this rule to every matching transaction, '
+            f'including ones already categorized by hand">Apply</button> '
             f'<button class="danger" onclick="deleteCategoryRule({r["id"]})">Delete</button></td>'
             f'</tr>'
         )
 
     rule_rows_html = "".join(rule_row(r) for r in rules) or (
-        '<tr><td colspan="5" class="muted">No custom rules yet -- every transaction uses this program\'s built-in defaults below.</td></tr>'
+        '<tr><td colspan="6" class="muted">No custom rules yet -- every transaction uses this program\'s built-in defaults below.</td></tr>'
     )
 
     def builtin_row(r):
@@ -350,16 +373,20 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
 
     new_match_mode_select = _match_mode_select({"rule_type": "keyword", "match_mode": "contains"})
 
+    new_kind_select = _kind_select({"kind": ""})
+
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Category rules</h2>
-<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Real Expenditure</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Real Expenditure's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time. A "Merchant/name keyword" rule's Match mode picks how its Value is compared against the transaction's own merchant/description text: Contains (a plain substring, the original behavior), Starts with, Ends with, or an advanced Regex pattern.</p>
+<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Real Expenditure</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Real Expenditure's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time. A "Merchant/name keyword" rule's Match mode picks how its Value is compared against the transaction's own merchant/description text: Contains (a plain substring, the original behavior), Starts with, Ends with, or an advanced Regex pattern. Kind is this rule's own say on whether everything it matches counts as real income or a real expense on Real Expenditure/Budget vs Actual (leave it "Auto-detect" to let the usual heuristic decide) -- saving a rule alone never overwrites a transaction you've already categorized by hand; click that row's own <strong>Apply</strong> button to force this rule (category AND kind) onto every matching transaction, hand-edited ones included.</p>
 <datalist id="category-rule-categories">{category_options_html}</datalist>
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/category-rule/save', {{
     rule_type: this.rule_type.value, match_key: this.match_key.value,
-    match_mode: this.match_mode.value, category: this.category.value,
-  }}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+    match_mode: this.match_mode.value, category: this.category.value, kind: this.kind.value,
+  }}).then(function(d) {{ alert(d.recategorized + ' existing transaction' + (d.recategorized === 1 ? '' : 's') +
+    ' auto-recategorized (hand-edited ones were left alone -- use that row\\'s own Apply button for those).');
+    location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>Match on<select name="rule_type" onchange="toggleCategoryRuleMatchMode(this)">
     <option value="primary">Plaid category (e.g. GENERAL_MERCHANDISE)</option>
     <option value="detailed">Plaid subcategory (e.g. GENERAL_MERCHANDISE_PET_SUPPLIES)</option>
@@ -368,10 +395,11 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
   <label>Value<input name="match_key" placeholder="e.g. peloton" required></label>
   <label>Match mode{new_match_mode_select}</label>
   <label>Category<input name="category" list="category-rule-categories" placeholder="e.g. Fitness" required></label>
+  <label>Kind{new_kind_select}</label>
   <button type="submit" class="primary">Add rule</button>
 </form>
 <table class="sortable">
-<thead><tr><th>Matches on</th><th>Value</th><th>Match mode</th><th>Category</th><th></th></tr></thead>
+<thead><tr><th>Matches on</th><th>Value</th><th>Match mode</th><th>Category</th><th>Kind</th><th></th></tr></thead>
 <tbody>{rule_rows_html}</tbody>
 </table>
 <details style="margin-top:8px;">

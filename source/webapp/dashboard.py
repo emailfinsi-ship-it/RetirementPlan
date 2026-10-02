@@ -644,6 +644,7 @@ class Handler(BaseHTTPRequestHandler):
                     match_key=payload.get("match_key") or "",
                     category=payload.get("category") or "",
                     match_mode=(payload.get("match_mode") or "contains").strip(),
+                    kind=(payload.get("kind") or "").strip(),
                 )
                 changed = db.recategorize_all_transactions()
                 self._send_json({"ok": True, "id": rule_id, "recategorized": changed})
@@ -663,6 +664,7 @@ class Handler(BaseHTTPRequestHandler):
                     match_key=payload.get("match_key") or "",
                     category=payload.get("category") or "",
                     match_mode=(payload.get("match_mode") or "contains").strip(),
+                    kind=(payload.get("kind") or "").strip(),
                 )
                 changed = db.recategorize_all_transactions()
                 self._send_json({"ok": True, "recategorized": changed})
@@ -670,6 +672,18 @@ class Handler(BaseHTTPRequestHandler):
                 deleted = db.delete_category_rule(int(payload.get("id")))
                 changed = db.recategorize_all_transactions() if deleted else 0
                 self._send_json({"ok": True, "deleted": deleted, "recategorized": changed})
+            elif path == "/api/category-rule/apply":
+                # Setup page's per-row "Apply" button -- force-applies
+                # ONE rule to every transaction it matches, including
+                # ones already hand-edited (category_edited_by_user=1),
+                # and sets income_kind_override from the rule's own Kind
+                # dropdown. See source.common.db.transactions.apply_
+                # category_rule for exactly why this is a separate,
+                # explicit action rather than automatic on every save --
+                # a ValueError here (no such rule) surfaces as this
+                # request's own 400 -- see the broad except below.
+                result = db.apply_category_rule(int(payload.get("id")))
+                self._send_json({"ok": True, **result})
             elif path == "/api/category-rule/apply-from-transaction":
                 # Real Expenditure page's per-row "Categorize similar"
                 # link -- turns one transaction into a keyword rule from

@@ -759,6 +759,125 @@ class TestPlaidTransactions(TempConfigTestCase):
         self.assertEqual(db.get_transactions_cursor("wells_fargo_checking"), "cursor-abc")
 
 
+class TestApplyCategoryRule(TempConfigTestCase):
+    """source.common.db.transactions.apply_category_rule -- the Setup
+    page's per-row "Apply" button, the real fix for a rule added well
+    after some matching transactions were already hand-categorized (see
+    this function's own docstring for the full "why")."""
+
+    def setUp(self):
+        super().setUp()
+        db.upsert_plaid_item(
+            item_key="wells_fargo_checking", plaid_item_id="item-1", institution_id=None,
+            institution_name="Wells Fargo", products=["transactions"], environment="sandbox",
+            linked_at="2026-09-01T00:00:00+00:00",
+        )
+
+    def test_raises_for_an_unknown_rule_id(self):
+        with self.assertRaises(ValueError):
+            db.apply_category_rule(999)
+
+    def test_keyword_rule_force_overwrites_a_hand_edited_category(self):
+        # The exact real-world case this exists for: a person manually
+        # retyped a transaction's category to "salary" well before a
+        # matching "apple" keyword rule existed -- recategorize_all_
+        # transactions (the automatic pass every save/update triggers)
+        # would never touch this row since category_edited_by_user=1.
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", name="APPLE INC. PAYROLL 123", primary="INCOME", detailed="INCOME_SALARY"),
+        )
+        db.update_plaid_transaction_category(["txn-1"], "salary")
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+
+        result = db.apply_category_rule(rule_id)
+
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(result, {"matched": 1, "recategorized": 1, "kind_applied": 1})
+        self.assertEqual(row["category"], "Salary")
+        self.assertEqual(row["category_edited_by_user"], 0)  # rule-governed again
+        self.assertEqual(row["income_kind_override"], "income")
+
+    def test_does_not_touch_a_non_matching_transaction(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", name="Local Diner"),
+        )
+        db.update_plaid_transaction_category(["txn-1"], "Food")
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+
+        result = db.apply_category_rule(rule_id)
+
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(result, {"matched": 0, "recategorized": 0, "kind_applied": 0})
+        self.assertEqual(row["category"], "Food")
+        self.assertEqual(row["income_kind_override"], "")
+
+    def test_kind_auto_clears_a_previous_override_on_matched_rows(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", name="APPLE INC. PAYROLL"),
+        )
+        db.update_plaid_transaction_income_kind(["txn-1"], "income")
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="")
+
+        result = db.apply_category_rule(rule_id)
+
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(result["kind_applied"], 1)
+        self.assertEqual(row["income_kind_override"], "")
+
+    def test_primary_rule_matches_on_plaid_category_primary(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", name="Mystery Deposit", primary="OTHER", detailed="OTHER_OTHER"),
+        )
+        db.update_plaid_transaction_category(["txn-1"], "Uncategorized")
+        rule_id = db.upsert_category_rule(rule_type="primary", match_key="other", category="Miscellaneous", kind="income")
+
+        result = db.apply_category_rule(rule_id)
+
+        self.assertEqual(result, {"matched": 1, "recategorized": 1, "kind_applied": 1})
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Miscellaneous")
+
+    def test_detailed_rule_matches_on_plaid_category_detailed(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", name="Pet Store", primary="GENERAL_MERCHANDISE", detailed="GENERAL_MERCHANDISE_PET_SUPPLIES"),
+        )
+        rule_id = db.upsert_category_rule(
+            rule_type="detailed", match_key="general_merchandise_pet_supplies", category="Pets", kind="expense",
+        )
+
+        result = db.apply_category_rule(rule_id)
+
+        self.assertEqual(result["matched"], 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Pets")
+        self.assertEqual(row["income_kind_override"], "expense")
+
+    def test_matches_several_transactions_and_counts_each_outcome_separately(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", name="APPLE INC. PAYROLL 1"),
+        )
+        db.update_plaid_transaction_category(["txn-1"], "salary")
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-2", name="APPLE INC. PAYROLL 2", primary="INCOME", detailed="INCOME_SALARY"),
+        )
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Income", kind="income")
+
+        result = db.apply_category_rule(rule_id)
+
+        self.assertEqual(result["matched"], 2)
+        self.assertEqual(result["recategorized"], 2)  # both: neither already had category "Income"
+        self.assertEqual(result["kind_applied"], 2)
+        rows = {r["transaction_id"]: r for r in db.list_plaid_transactions()}
+        self.assertEqual(rows["txn-1"]["category"], "Income")
+        self.assertEqual(rows["txn-2"]["category"], "Income")
+        self.assertEqual(rows["txn-1"]["income_kind_override"], "income")
+        self.assertEqual(rows["txn-2"]["income_kind_override"], "income")
+
+
 class TestPlaidAccountsAndHoldings(TempConfigTestCase):
     def setUp(self):
         super().setUp()
@@ -1265,6 +1384,28 @@ class TestCategoryRules(TempConfigTestCase):
             db.update_category_rule(rule_id, rule_type="nonsense", match_key="peloton", category="Fitness")
         with self.assertRaises(ValueError):
             db.update_category_rule(rule_id, rule_type="keyword", match_key="", category="Fitness")
+
+    def test_upsert_defaults_to_no_kind_opinion(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="peloton", category="Fitness")
+        self.assertEqual(db.list_category_rules()[0]["kind"], "")
+
+    def test_upsert_can_set_kind_to_income_or_expense(self):
+        db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+        db.upsert_category_rule(rule_type="keyword", match_key="mortgage", category="Loan Payments", kind="expense")
+        rows = {r["match_key"]: r["kind"] for r in db.list_category_rules()}
+        self.assertEqual(rows["apple"], "income")
+        self.assertEqual(rows["mortgage"], "expense")
+
+    def test_upsert_rejects_an_unknown_kind(self):
+        with self.assertRaises(ValueError):
+            db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="bogus")
+
+    def test_update_category_rule_can_change_kind(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+        db.update_category_rule(rule_id, rule_type="keyword", match_key="apple", category="Salary", kind="expense")
+        self.assertEqual(db.list_category_rules()[0]["kind"], "expense")
+        db.update_category_rule(rule_id, rule_type="keyword", match_key="apple", category="Salary", kind="")
+        self.assertEqual(db.list_category_rules()[0]["kind"], "")
 
 
 class TestNetWorthSnapshots(TempConfigTestCase):

@@ -4900,6 +4900,103 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertEqual(status, 400)
         self.assertFalse(payload["ok"])
 
+    def test_saving_a_rule_with_a_kind_persists_it(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "apple", "category": "Salary", "kind": "income",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.list_category_rules()[0]["kind"], "income")
+
+    def test_saving_a_rule_with_no_kind_defaults_to_auto_detect(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "peloton", "category": "Fitness",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(db.list_category_rules()[0]["kind"], "")
+
+    def test_saving_a_rule_rejects_an_unknown_kind(self):
+        status, payload = self._post("/api/category-rule/save", {
+            "rule_type": "keyword", "match_key": "apple", "category": "Salary", "kind": "bogus",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_updating_a_rule_can_change_kind(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+        status, payload = self._post("/api/category-rule/update", {
+            "id": rule_id, "rule_type": "keyword", "match_key": "apple", "category": "Salary", "kind": "expense",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(db.list_category_rules()[0]["kind"], "expense")
+
+    def test_setup_page_shows_kind_selector_and_apply_button(self):
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn('name="kind"', body)
+        self.assertIn(f"applyCategoryRule({rule_id})", body)
+        self.assertIn("Income", body)
+
+
+class TestApplyCategoryRuleEndpoint(DashboardTestCase):
+    """Setup page's per-row "Apply" button -- source.common.db.
+    transactions.apply_category_rule via /api/category-rule/apply. See
+    TestCategoryRuleEndpoints above for the ordinary save/update flow
+    this builds on, which never force-overwrites a hand-edited
+    transaction the way this endpoint deliberately does."""
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+            conn.execute("DELETE FROM category_rules")
+        db.delete_plaid_item("apply-rule-item")
+
+    def _seed(self, transaction_id, **kwargs):
+        if not db.get_plaid_item("apply-rule-item"):
+            db.upsert_plaid_item(
+                item_key="apply-rule-item", plaid_item_id="item-apply", institution_id=None,
+                institution_name=None, products=["transactions"], environment="sandbox",
+                linked_at="2026-09-01T00:00:00+00:00",
+            )
+        defaults = {
+            "transaction_id": transaction_id, "account_id": "acc-1", "date": "2026-09-01", "amount": -500.0,
+            "iso_currency_code": "USD", "name": "APPLE INC. PAYROLL 117316", "merchant_name": None,
+            "pending": False, "plaid_category_primary": "INCOME", "plaid_category_detailed": "INCOME_SALARY",
+            "category": "Food And Drink Coffee", "excluded_from_expense": False,
+        }
+        defaults.update(kwargs)
+        db.upsert_plaid_transaction(item_key="apply-rule-item", transaction=defaults)
+
+    def test_apply_forces_category_and_kind_onto_a_hand_edited_transaction(self):
+        self._seed("t1")
+        db.update_plaid_transaction_category(["t1"], "salary")  # hand-edited, category_edited_by_user=1
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+
+        status, payload = self._post("/api/category-rule/apply", {"id": rule_id})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"ok": True, "matched": 1, "recategorized": 1, "kind_applied": 1})
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Salary")
+        self.assertEqual(row["category_edited_by_user"], 0)
+        self.assertEqual(row["income_kind_override"], "income")
+
+    def test_apply_does_not_touch_a_non_matching_transaction(self):
+        self._seed("t1", name="Local Diner", merchant_name="Local Diner")
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+
+        status, payload = self._post("/api/category-rule/apply", {"id": rule_id})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["matched"], 0)
+        self.assertEqual(db.list_plaid_transactions()[0]["income_kind_override"], "")
+
+    def test_apply_returns_400_for_an_unknown_rule_id(self):
+        status, payload = self._post("/api/category-rule/apply", {"id": 999})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
 
 class TestApplyCategoryRuleFromTransactionEndpoint(DashboardTestCase):
     """Real Expenditure's per-row "Categorize similar" action -- source.

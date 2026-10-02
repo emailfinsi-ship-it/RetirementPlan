@@ -111,3 +111,9 @@ def _migrate_schema(conn) -> None:
         # -- see schema.py's own comment on plaid_transactions for what
         # this column is for.
         conn.execute("ALTER TABLE plaid_transactions ADD COLUMN income_kind_override TEXT NOT NULL DEFAULT ''")
+    if existing_cr and "kind" not in existing_cr:
+        # '' (no opinion, unchanged behavior for every pre-existing rule)
+        # -- see schema.py's own comment on category_rules for what this
+        # column is for and how "Apply" (source.common.db.transactions.
+        # apply_category_rule) uses it.
+        conn.execute("ALTER TABLE category_rules ADD COLUMN kind TEXT NOT NULL DEFAULT ''")

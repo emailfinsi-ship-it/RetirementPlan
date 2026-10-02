@@ -315,12 +315,29 @@ CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(dat
 -- See source.common.plaid_categorize.KEYWORD_MATCH_MODES (the single
 -- source of truth for these four strings) and that module's own
 -- _keyword_rule_matches for exactly how each mode compares text.
+-- kind ('' | 'income' | 'expense', source.common.plaid_categorize.
+-- INCOME_KIND_OPTIONS) is this rule's own opinion on whether every
+-- transaction it matches is real income, a real expense, or '' (no
+-- opinion -- plaid_categorize.is_real_income's own text heuristic
+-- decides, same as before this column existed). Only takes effect when
+-- a person clicks "Apply" on the Setup page (source.common.db.
+-- transactions.apply_category_rule), which force-sets income_kind_
+-- override to this value on every transaction the rule matches --
+-- deliberately NOT automatic on every save/update the way the category
+-- text itself is (see recategorize_all_transactions), because unlike
+-- the category text, this one needs to be able to overwrite a
+-- transaction a person already hand-edited (category_edited_by_user=1)
+-- -- exactly the case a rule added well after some matching
+-- transactions were already manually retyped (e.g. "salary") hits, and
+-- recategorize_all_transactions' normal category_edited_by_user=0 guard
+-- would otherwise skip those rows forever.
 CREATE TABLE IF NOT EXISTS category_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_type TEXT NOT NULL,          -- 'primary' | 'detailed' | 'keyword'
     match_key TEXT NOT NULL,
     match_mode TEXT NOT NULL DEFAULT 'contains',
     category TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(rule_type, match_key)

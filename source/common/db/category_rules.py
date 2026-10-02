@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 from source.common.db.connection import _now, connect
-from source.common.plaid_categorize import KEYWORD_MATCH_MODES, RULE_TYPES
+from source.common.plaid_categorize import INCOME_KIND_OPTIONS, KEYWORD_MATCH_MODES, RULE_TYPES
 
 
 def list_category_rules(rule_type: str | None = None) -> list[dict]:
@@ -27,13 +27,15 @@ def list_category_rules(rule_type: str | None = None) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def _normalize_rule(*, rule_type: str, match_key: str, category: str, match_mode: str) -> tuple[str, str, str, str]:
+def _normalize_rule(
+    *, rule_type: str, match_key: str, category: str, match_mode: str, kind: str = "",
+) -> tuple[str, str, str, str, str]:
     """Shared validation/normalization for upsert_category_rule and
     update_category_rule below -- returns (rule_type, match_key,
-    match_mode, category), trimmed and cased exactly how plaid_
+    match_mode, category, kind), trimmed and cased exactly how plaid_
     categorize compares them at match time. Raises ValueError for
     anything a person could type wrong on the Setup page's form (an
-    empty required field, or an unrecognized rule_type/match_mode)."""
+    empty required field, or an unrecognized rule_type/match_mode/kind)."""
     rule_type = (rule_type or "").strip().lower()
     if rule_type not in RULE_TYPES:
         raise ValueError(f"Unknown rule_type '{rule_type}'. Expected one of: {', '.join(RULE_TYPES)}.")
@@ -43,6 +45,9 @@ def _normalize_rule(*, rule_type: str, match_key: str, category: str, match_mode
     category = (category or "").strip()
     if not category:
         raise ValueError("A category is required.")
+    kind = (kind or "").strip().lower()
+    if kind not in INCOME_KIND_OPTIONS:
+        raise ValueError(f"Unknown kind '{kind}'. Expected one of: {', '.join(INCOME_KIND_OPTIONS)}.")
     if rule_type == "keyword":
         match_mode = (match_mode or "contains").strip().lower()
         if match_mode not in KEYWORD_MATCH_MODES:
@@ -61,35 +66,41 @@ def _normalize_rule(*, rule_type: str, match_key: str, category: str, match_mode
         # constant so every row in the table has *some* value.
         match_mode = "exact"
         normalized_key = match_key.upper()
-    return rule_type, normalized_key, match_mode, category
+    return rule_type, normalized_key, match_mode, category, kind
 
 
-def upsert_category_rule(*, rule_type: str, match_key: str, category: str, match_mode: str = "contains") -> int:
-    """Adds a new rule, or replaces the match_mode/category on an
+def upsert_category_rule(
+    *, rule_type: str, match_key: str, category: str, match_mode: str = "contains", kind: str = "",
+) -> int:
+    """Adds a new rule, or replaces the match_mode/category/kind on an
     existing one for the same (rule_type, match_key) pair. `match_mode`
     (one of plaid_categorize.KEYWORD_MATCH_MODES -- "contains" is the
     original, and still the default, behavior) only means anything for
     rule_type="keyword"; it's ignored (stored as "exact") for
     "primary"/"detailed" rules, which are always an exact match on
-    Plaid's own value. Returns the rule's id.
+    Plaid's own value. `kind` (one of plaid_categorize.INCOME_KIND_
+    OPTIONS -- "" is the default, no opinion) only takes effect once a
+    person clicks "Apply" (see apply_category_rule below). Returns the
+    rule's id.
 
     Identifies a rule purely by (rule_type, match_key) -- saving with a
     DIFFERENT match_key never renames an existing row, it adds a new
     one; see update_category_rule below for a true in-place edit that
     can also change match_key/rule_type on an already-saved rule."""
-    rule_type, normalized_key, match_mode, category = _normalize_rule(
-        rule_type=rule_type, match_key=match_key, category=category, match_mode=match_mode,
+    rule_type, normalized_key, match_mode, category, kind = _normalize_rule(
+        rule_type=rule_type, match_key=match_key, category=category, match_mode=match_mode, kind=kind,
     )
     now = _now()
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO category_rules (rule_type, match_key, match_mode, category, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO category_rules (rule_type, match_key, match_mode, category, kind, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(rule_type, match_key) DO UPDATE SET
-                match_mode = excluded.match_mode, category = excluded.category, updated_at = excluded.updated_at
+                match_mode = excluded.match_mode, category = excluded.category, kind = excluded.kind,
+                updated_at = excluded.updated_at
             """,
-            (rule_type, normalized_key, match_mode, category, now, now),
+            (rule_type, normalized_key, match_mode, category, kind, now, now),
         )
         row = conn.execute(
             "SELECT id FROM category_rules WHERE rule_type = ? AND match_key = ?",
@@ -99,7 +110,7 @@ def upsert_category_rule(*, rule_type: str, match_key: str, category: str, match
 
 
 def update_category_rule(
-    rule_id: int, *, rule_type: str, match_key: str, category: str, match_mode: str = "contains",
+    rule_id: int, *, rule_type: str, match_key: str, category: str, match_mode: str = "contains", kind: str = "",
 ) -> None:
     """True in-place edit of an already-saved rule, by its own id --
     unlike upsert_category_rule (which identifies a rule by its
@@ -111,16 +122,16 @@ def update_category_rule(
     same bad input upsert_category_rule rejects, and also if the edited
     (rule_type, match_key) pair would collide with a DIFFERENT existing
     rule, or if rule_id doesn't exist."""
-    rule_type, normalized_key, match_mode, category = _normalize_rule(
-        rule_type=rule_type, match_key=match_key, category=category, match_mode=match_mode,
+    rule_type, normalized_key, match_mode, category, kind = _normalize_rule(
+        rule_type=rule_type, match_key=match_key, category=category, match_mode=match_mode, kind=kind,
     )
     now = _now()
     with connect() as conn:
         try:
             cur = conn.execute(
                 "UPDATE category_rules SET rule_type = ?, match_key = ?, match_mode = ?, category = ?, "
-                "updated_at = ? WHERE id = ?",
-                (rule_type, normalized_key, match_mode, category, now, rule_id),
+                "kind = ?, updated_at = ? WHERE id = ?",
+                (rule_type, normalized_key, match_mode, category, kind, now, rule_id),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f"A rule for {rule_type} '{normalized_key}' already exists.")
