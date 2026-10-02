@@ -121,6 +121,8 @@ PAGE_CSS = """
   button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
   button.primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
   button.danger { background: var(--surface); border-color: var(--danger); color: var(--danger); padding: 3px 10px; font-size: 12px; }
+  .rule-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .rule-actions button { padding: 4px 9px; font-size: 11px; white-space: nowrap; }
   button:hover { filter: brightness(0.98); }
   button:active { transform: scale(0.96); }
   button:disabled { opacity: 0.45; cursor: default; transform: none; }

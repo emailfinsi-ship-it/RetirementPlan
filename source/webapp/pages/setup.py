@@ -331,7 +331,7 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
             f'<option value="{m}"{" selected" if m == current else ""}>{html.escape(_MATCH_MODE_LABELS[m])}</option>'
             for m in plaid_categorize.KEYWORD_MATCH_MODES
         )
-        return f'<select name="match_mode"{" disabled" if disabled else ""} style="width:130px;">{options}</select>'
+        return f'<select name="match_mode"{" disabled" if disabled else ""} style="width:115px;">{options}</select>'
 
     def _kind_select(r) -> str:
         current = r.get("kind") or ""
@@ -339,21 +339,23 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
             f'<option value="{k}"{" selected" if k == current else ""}>{html.escape(label)}</option>'
             for k, label in _KIND_LABELS.items()
         )
-        return f'<select name="kind" style="width:110px;">{options}</select>'
+        return f'<select name="kind" style="width:95px;">{options}</select>'
 
     def rule_row(r):
         return (
             f'<tr>'
             f'<td>{_rule_type_select(r)}</td>'
-            f'<td><input type="text" name="match_key" value="{html.escape(r["match_key"])}" style="width:160px;"></td>'
+            f'<td><input type="text" name="match_key" value="{html.escape(r["match_key"])}" style="width:140px;"></td>'
             f'<td>{_match_mode_select(r)}</td>'
             f'<td><input type="text" name="category" list="category-rule-categories" '
-            f'value="{html.escape(r["category"])}" style="width:130px;"></td>'
+            f'value="{html.escape(r["category"])}" style="width:115px;"></td>'
             f'<td>{_kind_select(r)}</td>'
-            f'<td><button onclick="updateCategoryRule({r["id"]}, this.closest(\'tr\'))">Save</button> '
+            f'<td><span class="rule-actions">'
+            f'<button onclick="updateCategoryRule({r["id"]}, this.closest(\'tr\'))">Save</button>'
             f'<button onclick="applyCategoryRule({r["id"]})" title="Re-apply this rule to every matching transaction, '
-            f'including ones already categorized by hand">Apply</button> '
-            f'<button class="danger" onclick="deleteCategoryRule({r["id"]})">Delete</button></td>'
+            f'including ones already categorized by hand">Apply</button>'
+            f'<button class="danger" onclick="deleteCategoryRule({r["id"]})">Delete</button>'
+            f'</span></td>'
             f'</tr>'
         )
 
