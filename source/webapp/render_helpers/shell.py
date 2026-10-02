@@ -322,6 +322,15 @@ function sortCellValue(cell) {{
   }}
   return text.toLowerCase();
 }}
+function _sortStorageKey(table, index) {{
+  // location.pathname (not the full href) so a filter chip's hash/query
+  // state never splits what's otherwise the same table's saved sort
+  // into two separate keys. Most sortable tables don't carry an `id`
+  // (only a couple of pages' do), so this falls back to the table's
+  // position among every table.sortable on the page -- stable across
+  // reloads since it's the same server-rendered template each time.
+  return 'sortState::' + location.pathname + '::' + (table.id || ('t' + index));
+}}
 function sortTableBy(table, colIndex) {{
   var tbody = table.tBodies[0];
   if (!tbody) return;
@@ -345,12 +354,22 @@ function sortTableBy(table, colIndex) {{
   }}
   th.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
   th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  // Persisted so a later location.reload() (every bulk-edit action on
+  // this page ends with one) can restore this exact sort instead of
+  // silently reverting to the server's default row order -- a real
+  // person-reported annoyance ("my sort will reset every time I select
+  // and update"). Keyed per-table/per-page (see _sortStorageKey) so
+  // sorting one table never affects another's remembered sort.
+  try {{
+    localStorage.setItem(table.dataset.sortKey, JSON.stringify({{col: colIndex, asc: asc}}));
+  }} catch (e) {{ /* private-browsing / storage disabled -- sort still works, just isn't remembered */ }}
 }}
 function initSortableTables() {{
   var tables = document.querySelectorAll('table.sortable');
   for (var t = 0; t < tables.length; t++) {{
-    (function(table) {{
+    (function(table, index) {{
       if (!table.tHead || !table.tHead.rows.length) return;
+      table.dataset.sortKey = _sortStorageKey(table, index);
       var ths = table.tHead.rows[0].cells;
       for (var i = 0; i < ths.length; i++) {{
         (function(idx, th) {{
@@ -359,7 +378,17 @@ function initSortableTables() {{
           th.addEventListener('click', function() {{ sortTableBy(table, idx); }});
         }})(i, ths[i]);
       }}
-    }})(tables[t]);
+      try {{
+        var saved = JSON.parse(localStorage.getItem(table.dataset.sortKey) || 'null');
+        if (saved && table.tHead.rows[0].cells[saved.col]) {{
+          // sortTableBy toggles off whatever data-sort-dir is already on
+          // the header, so pre-set it to the OPPOSITE of the saved
+          // direction to land on the saved direction once it toggles.
+          table.tHead.rows[0].cells[saved.col].setAttribute('data-sort-dir', saved.asc ? 'desc' : 'asc');
+          sortTableBy(table, saved.col);
+        }}
+      }} catch (e) {{ /* no saved sort, or storage unavailable -- default row order */ }}
+    }})(tables[t], t);
   }}
 }}
 document.addEventListener('DOMContentLoaded', initSortableTables);
@@ -543,7 +572,7 @@ function refreshLinkedPositionsBarCharts() {{
     if (totalLabel) {{ totalLabel.textContent = '-- ' + moneyShort(total) + ' total'; }}
   }});
 }}
-var EXPENDITURE_FILTER_DIMS = ['expense-category', 'expense-month', 'income-category', 'income-month'];
+var EXPENDITURE_FILTER_DIMS = ['expense-category', 'expense-month', 'income-category', 'income-month', 'kind'];
 function __expenditureFilterField(dim) {{
   // 'expense-category' -> 'expenseCategory', 'income-month' ->
   // 'incomeMonth' -- the dataset property name for the row attribute
@@ -596,6 +625,30 @@ function applyExpenditureFilters() {{
     countEl.textContent = dims.length ? ('Showing ' + visibleCount + ' of ' + rows.length + ' transactions.') : '';
   }}
   renderFilterChips('expenditure-filter-bar', __filtersSubset(EXPENDITURE_FILTER_DIMS), clearPositionFilter, clearPositionFilters);
+  // Keeps the "Show: All / Income only / Expense only" buttons' active
+  // state correct no matter how the 'kind' filter actually changed --
+  // a direct click on one of these buttons, the filter chip's own \\u2715,
+  // or "Clear all" all funnel through here.
+  var activeKind = __positionsFilters['kind'] ? __positionsFilters['kind'].values[0] : '';
+  ['all', 'income', 'expense'].forEach(function(k) {{
+    var btn = document.getElementById('expenditure-kind-filter-' + k);
+    if (btn) btn.classList.toggle('active', k === (activeKind || 'all'));
+  }});
+}}
+function setExpenditureKindFilter(kind) {{
+  // The Real Expenditure page's "Show: All / Income only / Expense
+  // only" buttons -- unlike every other dim on this page, 'kind' isn't
+  // built from a chart click (there's no "by kind" chart), so this sets
+  // __positionsFilters directly instead of going through
+  // handlePieSegClick. Backed by each counted row's own data-kind
+  // attribute (real_expenditure.py's _row_html -- "income" or "expense",
+  // absent on an excluded row).
+  if (kind) {{
+    __positionsFilters['kind'] = {{sliceId: kind, values: [kind]}};
+  }} else {{
+    delete __positionsFilters['kind'];
+  }}
+  applyExpenditureFilters();
 }}
 function formatSignedMoney(value) {{
   // Matches source.webapp.render_helpers.formatting._money's own
@@ -811,6 +864,20 @@ function resetSelectedTransactionsExpenseFlag() {{
   var items = _selectedTransactionItems();
   if (!items.length) return;
   postJSON('/api/classify-transaction-expense-flag', {{items: items, action: 'reset'}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); }});
+}}
+function setSelectedTransactionsIncomeKind(kind) {{
+  // "Mark as income"/"Mark as expense"/"Auto-detect income/expense" --
+  // sets an explicit override (plaid_categorize.is_real_income's
+  // income_kind_override) that wins over the automatic category-text
+  // heuristic outright, for the case that heuristic can't win: a
+  // manually-retyped category that IS income but doesn't literally
+  // contain the word "income" ("salary", "Rental-mp", "tax-refund" were
+  // real examples). kind is 'income', 'expense', or '' (auto-detect).
+  var items = _selectedTransactionItems();
+  if (!items.length) return;
+  postJSON('/api/classify-transaction-income-kind', {{items: items, kind: kind}})
     .then(function() {{ location.reload(); }})
     .catch(function(err) {{ alert(err.message); }});
 }}

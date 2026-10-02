@@ -714,6 +714,45 @@ class TestPlaidTransactions(TempConfigTestCase):
         self.assertEqual(row["excluded_from_expense"], 1)
         self.assertEqual(row["excluded_edited_by_user"], 0)
 
+    def test_new_transaction_defaults_to_no_income_kind_override(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "")
+
+    def test_update_plaid_transaction_income_kind_sets_the_override(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        count = db.update_plaid_transaction_income_kind(["txn-1"], "income")
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "income")
+
+    def test_update_plaid_transaction_income_kind_can_clear_back_to_auto(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_income_kind(["txn-1"], "expense")
+        count = db.update_plaid_transaction_income_kind(["txn-1"], "")
+        self.assertEqual(count, 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "")
+
+    def test_update_plaid_transaction_income_kind_rejects_an_unknown_kind(self):
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        with self.assertRaises(ValueError):
+            db.update_plaid_transaction_income_kind(["txn-1"], "bogus")
+
+    def test_update_plaid_transaction_income_kind_with_empty_list_is_a_no_op(self):
+        self.assertEqual(db.update_plaid_transaction_income_kind([], "income"), 0)
+
+    def test_income_kind_override_survives_a_resync(self):
+        # Same "don't clobber a manual edit" guarantee category/excluded
+        # overrides already get -- a later sync re-sending this
+        # transaction_id must never silently clear the override.
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1"))
+        db.update_plaid_transaction_income_kind(["txn-1"], "income")
+        db.upsert_plaid_transaction(item_key="wells_fargo_checking", transaction=_fake_transaction_row("txn-1", amount=99.0))
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "income")
+        self.assertEqual(row["amount"], 99.0)
+
     def test_get_and_set_transactions_cursor(self):
         self.assertIsNone(db.get_transactions_cursor("wells_fargo_checking"))
         db.set_transactions_cursor("wells_fargo_checking", "cursor-abc")

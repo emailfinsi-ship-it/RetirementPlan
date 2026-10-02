@@ -235,6 +235,7 @@ def read_transactions() -> list:
         category = t["category"] or "Uncategorized"
         excluded_from_expense = bool(t["excluded_from_expense"])
         category_edited_by_user = bool(t["category_edited_by_user"])
+        income_kind_override = t["income_kind_override"] or ""
         result.append({
             "transaction_id": t["transaction_id"],
             "account_id": t["account_id"],
@@ -250,6 +251,7 @@ def read_transactions() -> list:
             "category_edited_by_user": category_edited_by_user,
             "excluded_from_expense": excluded_from_expense,
             "excluded_edited_by_user": bool(t["excluded_edited_by_user"]),
+            "income_kind_override": income_kind_override,
             # Broader than `category == "Income"` -- also catches inbound
             # money Plaid couldn't classify into any real spending
             # category at all (see plaid_categorize.is_real_income).
@@ -259,6 +261,7 @@ def read_transactions() -> list:
                 primary=t["plaid_category_primary"], category=category,
                 amount=amount, excluded_from_expense=excluded_from_expense,
                 category_edited_by_user=category_edited_by_user,
+                income_kind_override=income_kind_override,
             ),
             "institution": item.get("institution_name") or "",
             "account_name": account.get("official_name") or account.get("name") or "",

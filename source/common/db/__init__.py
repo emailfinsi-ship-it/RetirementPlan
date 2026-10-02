@@ -121,6 +121,7 @@ from source.common.db.transactions import (
     set_transactions_cursor,
     update_plaid_transaction_category,
     update_plaid_transaction_excluded,
+    update_plaid_transaction_income_kind,
     upsert_plaid_transaction,
 )
 
@@ -185,6 +186,7 @@ __all__ = [
     "apply_category_rule_from_transaction",
     "update_plaid_transaction_excluded",
     "clear_plaid_transaction_excluded_overrides",
+    "update_plaid_transaction_income_kind",
     "get_transactions_cursor",
     "set_transactions_cursor",
 ]

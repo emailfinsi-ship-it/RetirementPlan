@@ -170,6 +170,9 @@ def _keyword_rule_matches(text: str, match_key: str, match_mode: str) -> bool:
 _EXPENSE_PRIMARY_CATEGORIES = set(_BROAD_CATEGORY_BY_PRIMARY) - {"INCOME", "TRANSFER_IN", "TRANSFER_OUT"}
 
 
+INCOME_KIND_OPTIONS = ("", "income", "expense")  # '' = auto-detect (the heuristics below)
+
+
 def is_real_income(
     *,
     primary: str | None,
@@ -177,6 +180,7 @@ def is_real_income(
     amount: float,
     excluded_from_expense: bool,
     category_edited_by_user: bool = False,
+    income_kind_override: str = "",
 ) -> bool:
     """True for a transaction that should count as *real income* on the
     Real Expenditure and Budget vs Actual pages -- broader than a plain
@@ -186,6 +190,20 @@ def is_real_income(
     name-keyword fallback (_guess_category_from_name, right below)
     happened to guess for it from text in its description, with no
     regard for which way the money actually moved.
+
+    income_kind_override ('', 'income', or 'expense' -- see
+    INCOME_KIND_OPTIONS and the plaid_transactions.income_kind_override
+    column's own comment in schema.py) is a person's own explicit say-so,
+    set via the Real Expenditure page's bulk bar, and when present it
+    wins outright -- checked right after the excluded_from_expense gate,
+    before even the `category == "Income"` check below. This exists
+    because the text-based heuristics beneath it (in particular, the
+    category_edited_by_user check further down) can wrongly exclude a
+    manually-retyped category that IS income but doesn't happen to
+    contain the word "income" -- "salary", "Rental-mp", "tax-refund"
+    were real examples a person hit before this override existed, with
+    no text-matching fix that wouldn't just trade one false negative for
+    a different one. An explicit override sidesteps guessing entirely.
 
     Counts as income when either:
     - `category` is already exactly "Income" (Plaid's own INCOME
@@ -223,8 +241,14 @@ def is_real_income(
 
     An excluded transaction (an internal transfer or credit card
     payment -- see default_excluded_from_expense) is never income; it's
-    not counted in any total on these pages at all."""
+    not counted in any total on these pages at all -- checked first, so
+    even an explicit income_kind_override="income" set before a
+    transaction was later excluded can't resurrect it into a total."""
     if excluded_from_expense:
+        return False
+    if income_kind_override == "income":
+        return True
+    if income_kind_override == "expense":
         return False
     category_text = (category or "").strip()
     if category_text == "Income":

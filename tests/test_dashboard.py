@@ -245,6 +245,18 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn('<table class="sortable">', body)
 
+    def test_sort_state_is_persisted_to_localstorage_so_a_reload_does_not_lose_it(self):
+        # A person-reported annoyance: sort a table, edit one row (every
+        # bulk-edit action on this page ends with a location.reload()),
+        # and the sort silently reverted to the server's default row
+        # order. sortTableBy now writes the clicked sort to localStorage
+        # and initSortableTables reads it back on the next load.
+        resp = self._get("/real-expenditure.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("function _sortStorageKey(", body)
+        self.assertIn("localStorage.setItem(table.dataset.sortKey", body)
+        self.assertIn("localStorage.getItem(table.dataset.sortKey", body)
+
     def test_pie_filter_js_is_present_on_every_page(self):
         # Shared with every page (like the bulk-delete JS) even though only
         # Linked Positions currently has pie charts to click.
@@ -4134,6 +4146,55 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertIn("resetSelectedTransactionsExpenseFlag()", body)
         self.assertIn('class="transaction-check"', body)
 
+    def test_bulk_bar_has_income_kind_buttons(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("setSelectedTransactionsIncomeKind('income')", body)
+        self.assertIn("setSelectedTransactionsIncomeKind('expense')", body)
+        self.assertIn("setSelectedTransactionsIncomeKind('')", body)
+
+    def test_kind_filter_buttons_are_present_and_wired(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn('id="expenditure-kind-filter-all"', body)
+        self.assertIn('id="expenditure-kind-filter-income"', body)
+        self.assertIn('id="expenditure-kind-filter-expense"', body)
+        self.assertIn("setExpenditureKindFilter('income')", body)
+        self.assertIn("setExpenditureKindFilter('expense')", body)
+        # "All" is the only one active by default, since no filter is
+        # applied until a person clicks one of these.
+        self.assertIn('id="expenditure-kind-filter-all" class="kind-filter-btn active"', body)
+
+    def test_counted_rows_carry_a_data_kind_attribute_for_the_quick_filter(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-expense", amount=40.0, primary="FOOD_AND_DRINK", detailed="FOOD_AND_DRINK_COFFEE")
+        _seed_transaction("txn-income", amount=-500.0, primary="INCOME", detailed="INCOME_WAGES")
+        _seed_transaction(
+            "txn-excluded", amount=100.0, primary="TRANSFER_OUT", detailed="TRANSFER_OUT_ACCOUNT_TRANSFER",
+        )
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn('data-kind="expense"', body)
+        self.assertIn('data-kind="income"', body)
+        # The excluded (transfer) row's own <tr> never gets a data-kind
+        # at all -- confirmed by counting: exactly one expense row and
+        # one income row carry the attribute, not three.
+        self.assertEqual(body.count('data-kind="expense"'), 1)
+        self.assertEqual(body.count('data-kind="income"'), 1)
+
+    def test_marking_a_mislabeled_income_transaction_shows_the_override_badge(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1", amount=-500.0, name="APPLE INC. PAYROLL", primary="INCOME", detailed="INCOME_WAGES")
+        db.update_plaid_transaction_category(["txn-1"], "salary")
+        db.update_plaid_transaction_income_kind(["txn-1"], "income")
+        body = self._get("/real-expenditure.html").read().decode("utf-8")
+        self.assertIn("marked income", body)
+        # The override made it a real-income row again -- the heuristic-
+        # only "counted as income" badge is redundant once the override
+        # badge is already saying so, so it's suppressed.
+        self.assertNotIn("counted as income", body)
+
     def test_charts_and_table_rows_are_wired_for_click_to_filter(self):
         # The category/month bar charts and the transaction table below
         # them share the same click-to-filter contract Linked Positions
@@ -4421,6 +4482,77 @@ class TestClassifyTransactionExpenseFlagEndpoint(DashboardTestCase):
         })
         self.assertEqual(status, 400)
         self.assertFalse(payload["ok"])
+
+
+class TestClassifyTransactionIncomeKindEndpoint(DashboardTestCase):
+    """/api/classify-transaction-income-kind -- the Real Expenditure
+    page's "Mark as income"/"Mark as expense"/"Auto-detect" bulk action.
+    See plaid_categorize.is_real_income's own income_kind_override
+    docstring for why this exists: a manually-retyped category that IS
+    income but doesn't literally contain the word "income" ("salary",
+    "Rental-mp", "tax-refund" were real examples) was otherwise falling
+    out of "real income" with no text-matching fix available."""
+
+    def setUp(self):
+        _seed_transaction_item()
+        _seed_transaction("txn-1")
+
+    def tearDown(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM plaid_transactions")
+        db.delete_plaid_item("wells_fargo_checking")
+
+    def test_marking_as_income_sets_the_override(self):
+        status, payload = self._post("/api/classify-transaction-income-kind", {
+            "items": [{"transaction_id": "txn-1"}], "kind": "income",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 1)
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "income")
+
+    def test_marking_as_expense_sets_the_override(self):
+        status, payload = self._post("/api/classify-transaction-income-kind", {
+            "items": [{"transaction_id": "txn-1"}], "kind": "expense",
+        })
+        self.assertTrue(payload["ok"])
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "expense")
+
+    def test_blank_kind_clears_back_to_auto_detect(self):
+        db.update_plaid_transaction_income_kind(["txn-1"], "income")
+        status, payload = self._post("/api/classify-transaction-income-kind", {
+            "items": [{"transaction_id": "txn-1"}], "kind": "",
+        })
+        self.assertTrue(payload["ok"])
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["income_kind_override"], "")
+
+    def test_unknown_kind_returns_400(self):
+        status, payload = self._post("/api/classify-transaction-income-kind", {
+            "items": [{"transaction_id": "txn-1"}], "kind": "bogus",
+        })
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_the_override_makes_a_manually_mislabeled_real_income_row_count(self):
+        # End-to-end regression test for the actual reported bug: a
+        # payroll deposit (amount negative -- Plaid's money-in
+        # convention) hand-recategorized "salary" (no literal "income"
+        # in the text) stopped counting as real income once category_
+        # edited_by_user kicked in -- marking it as income directly fixes
+        # that without needing to retype the category.
+        _seed_transaction("txn-payroll", amount=-500.0, name="APPLE INC. PAYROLL", primary="INCOME", detailed="INCOME_WAGES")
+        db.update_plaid_transaction_category(["txn-payroll"], "salary")
+        from source.common import linked_data
+        before = {t["transaction_id"]: t for t in linked_data.read_transactions()}["txn-payroll"]
+        self.assertFalse(before["is_real_income"])
+        self._post("/api/classify-transaction-income-kind", {
+            "items": [{"transaction_id": "txn-payroll"}], "kind": "income",
+        })
+        after = {t["transaction_id"]: t for t in linked_data.read_transactions()}["txn-payroll"]
+        self.assertTrue(after["is_real_income"])
 
 
 class TestPlaidConnectTransactionsEndpoint(DashboardTestCase):

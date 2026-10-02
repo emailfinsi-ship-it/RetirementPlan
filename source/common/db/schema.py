@@ -264,6 +264,17 @@ CREATE TABLE IF NOT EXISTS plaid_transactions (
                                         -- (an internal transfer or credit card bill payment), editable
     excluded_edited_by_user INTEGER NOT NULL DEFAULT 0, -- same "don't clobber a manual edit on
                                         -- resync" guard as category_edited_by_user, for the flag above
+    income_kind_override TEXT NOT NULL DEFAULT '', -- '' (auto-detect, the default), 'income', or
+                                        -- 'expense' -- an explicit person-set override that
+                                        -- plaid_categorize.is_real_income() checks FIRST, ahead of
+                                        -- its own text-based heuristics. Exists because a category
+                                        -- someone hand-types (e.g. "salary", "Rental-mp", "tax-
+                                        -- refund") often doesn't literally contain the word "income",
+                                        -- so without an explicit override those real-income rows were
+                                        -- silently falling out of "real income" entirely the moment
+                                        -- they were manually recategorized -- a real person-reported
+                                        -- regression this column exists to fix for good, rather than
+                                        -- chasing more text-matching edge cases.
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(date);

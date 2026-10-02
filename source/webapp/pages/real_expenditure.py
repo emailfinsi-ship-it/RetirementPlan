@@ -189,6 +189,19 @@ def _render_real_expenditure_page() -> str:
             )
         else:
             duplicate_badge = ""
+        # A person's own explicit override (set via the bulk bar's "Mark
+        # as income"/"Mark as expense") always wins in is_real_income()
+        # itself, so it's worth surfacing on the row too -- otherwise
+        # there'd be no visible difference between "counted as income
+        # because of an override" and "counted as income because the
+        # heuristic guessed right," and no way to tell at a glance which
+        # rows to revisit if the override was a mistake.
+        if t["income_kind_override"] == "income":
+            override_badge = ' <span class="muted" style="font-size:11px;" title="Manually marked as income.">★ marked income</span>'
+        elif t["income_kind_override"] == "expense":
+            override_badge = ' <span class="muted" style="font-size:11px;" title="Manually marked as expense.">★ marked expense</span>'
+        else:
+            override_badge = ""
         if t["is_real_income"]:
             # Displayed as a plain positive figure (Plaid's own raw
             # convention has money-in as negative, which read as
@@ -197,13 +210,13 @@ def _render_real_expenditure_page() -> str:
             # chart on this page and Budget vs Actual actually sums.
             amount_html = f'<span class="status-ok">+{html.escape(_money(-t["amount"]))}</span>'
             # Only flagged when the category itself doesn't already say
-            # "Income" -- otherwise this would just repeat the category
-            # column for no reason. This is exactly the case that used
-            # to go uncounted: an inbound deposit Plaid couldn't
-            # classify, guessed into some expense-sounding category by
-            # name alone.
+            # "Income" (and there's no override badge already saying so)
+            # -- otherwise this would just repeat information already on
+            # the row. This is exactly the case that used to go
+            # uncounted: an inbound deposit Plaid couldn't classify,
+            # guessed into some expense-sounding category by name alone.
             income_badge = (
-                '' if t["category"].strip() == "Income" else
+                '' if t["category"].strip() == "Income" or override_badge else
                 ' <span class="muted" style="font-size:11px;" '
                 'title="Counted as real income even though its category isn\'t &quot;Income&quot; -- '
                 'Plaid couldn\'t classify this one, and it\'s inbound money.">counted as income</span>'
@@ -245,14 +258,20 @@ def _render_real_expenditure_page() -> str:
             split_attrs = f' data-expense-category="{html.escape(t["category"])}" data-expense-month="{month_key}"'
         else:
             split_attrs = ""
+        # data-kind backs the "Income only"/"Expense only" quick filter
+        # (applyExpenditureFilters' 'kind' dim) -- same "contributes" gate
+        # as the split attrs above, so an excluded row (never counted as
+        # either) simply has no data-kind and is left out of both filtered
+        # views rather than guessed into one.
+        kind_attr = f' data-kind="{"income" if t["is_real_income"] else "expense"}"' if contributes else ""
         return (
-            f'<tr data-category="{html.escape(t["category"])}" data-month="{month_key}"{split_attrs}>'
+            f'<tr data-category="{html.escape(t["category"])}" data-month="{month_key}"{split_attrs}{kind_attr}>'
             f'<td class="check-col"><input type="checkbox" class="transaction-check" '
             f'data-transaction-id="{html.escape(t["transaction_id"])}"></td>'
             f'<td>{html.escape(t["date"])}</td>'
             f'<td>{html.escape(t["institution"])}</td><td>{html.escape(t["account_name"])}</td>'
             f'<td>{description}{pending_badge}{duplicate_badge}</td>'
-            f'<td>{category_label}{income_badge}{categorize_similar_link}</td>'
+            f'<td>{category_label}{income_badge}{override_badge}{categorize_similar_link}</td>'
             f'<td class="num">{amount_html}</td>'
             f'<td>{excluded_badge}</td></tr>'
         )
@@ -314,6 +333,12 @@ def _render_real_expenditure_page() -> str:
 
 <h2>All transactions</h2>
 <p class="muted">Click a bar in any chart above (expense or income) to filter this list down to that category or month -- click it again (or "Clear all") to go back to everything.</p>
+<div style="display:flex; align-items:center; gap:6px; margin:6px 0;">
+<span class="muted">Show:</span>
+<button type="button" id="expenditure-kind-filter-all" class="kind-filter-btn active" onclick="setExpenditureKindFilter('')">All</button>
+<button type="button" id="expenditure-kind-filter-income" class="kind-filter-btn" onclick="setExpenditureKindFilter('income')">Income only</button>
+<button type="button" id="expenditure-kind-filter-expense" class="kind-filter-btn" onclick="setExpenditureKindFilter('expense')">Expense only</button>
+</div>
 <div id="expenditure-filter-bar" class="filter-bar"></div>
 <p id="real-expenditure-shown-count" class="muted"></p>
 <div id="transaction-bulk-bar" class="industry-bulk-bar">
@@ -325,6 +350,9 @@ def _render_real_expenditure_page() -> str:
   <button type="button" onclick="setSelectedTransactionsExcluded(true)" disabled>Exclude from total</button>
   <button type="button" onclick="setSelectedTransactionsExcluded(false)" disabled>Include in total</button>
   <button type="button" onclick="resetSelectedTransactionsExpenseFlag()" disabled>Reset to automatic</button>
+  <button type="button" onclick="setSelectedTransactionsIncomeKind('income')" disabled title="Counts these rows as real income no matter what their category text says -- fixes a hand-typed category like &quot;salary&quot; or &quot;Rental-mp&quot; that doesn't happen to contain the word &quot;income&quot;.">Mark as income</button>
+  <button type="button" onclick="setSelectedTransactionsIncomeKind('expense')" disabled>Mark as expense</button>
+  <button type="button" onclick="setSelectedTransactionsIncomeKind('')" disabled title="Clears a manual income/expense override and goes back to the automatic category-text heuristic.">Auto-detect income/expense</button>
   <button type="button" onclick="clearTransactionSelection()" disabled>Clear selection</button>
 </div>
 <table id="real-expenditure-table" class="sortable">

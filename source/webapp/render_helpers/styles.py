@@ -107,6 +107,13 @@ PAGE_CSS = """
     cursor: pointer; line-height: 1.4; }
   .filter-bar > button { background: transparent; border: none; color: var(--brand-dark); text-decoration: underline;
     padding: 0; font-size: 12px; cursor: pointer; }
+  /* Real Expenditure's "Show: All / Income only / Expense only" quick
+     filter -- a plain toggle-button row (not chart-driven, so it isn't
+     a .filter-chip), the active one filled in brand color same as a
+     selected chart segment reads. */
+  .kind-filter-btn { font-size: 12px; padding: 3px 10px; border: 1px solid #cbd5e1; border-radius: 999px;
+    background: #fff; color: var(--ink-soft); cursor: pointer; }
+  .kind-filter-btn.active { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
   .bar-chart { display: flex; flex-direction: column; gap: 2px; max-height: 480px; overflow-y: auto; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;

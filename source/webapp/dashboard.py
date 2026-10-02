@@ -796,6 +796,22 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError(f"Unknown action {action!r} -- expected 'exclude', 'include', or 'reset'.")
                 self._send_json({"ok": True, "count": count})
+            elif path == "/api/classify-transaction-income-kind":
+                # Backs the Real Expenditure page's "Mark as income"/"Mark
+                # as expense"/"Auto-detect" buttons -- an explicit person-
+                # set override (plaid_categorize.is_real_income's own
+                # income_kind_override) that beats the text-based
+                # heuristics outright, for exactly the case those
+                # heuristics can't win: a manually-retyped category that
+                # IS income but doesn't literally contain the word
+                # "income" ("salary", "Rental-mp", "tax-refund" were real
+                # examples that were falling out of "real income" with no
+                # override to set instead).
+                items = payload.get("items") or []
+                transaction_ids = [item["transaction_id"] for item in items if item.get("transaction_id")]
+                kind = (payload.get("kind") or "").strip().lower()
+                count = db.update_plaid_transaction_income_kind(transaction_ids, kind)
+                self._send_json({"ok": True, "count": count})
             else:
                 self._send_json({"ok": False, "error": "Not found"}, status=404)
         except xlsx_import.ImportError_ as exc:

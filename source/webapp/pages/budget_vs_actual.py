@@ -53,6 +53,7 @@ def _actual_expense_and_income_by_month(transactions: list[dict]) -> tuple[dict,
             primary=t.get("plaid_category_primary"), category=t.get("category"),
             amount=t["amount"], excluded_from_expense=t["excluded_from_expense"],
             category_edited_by_user=bool(t.get("category_edited_by_user")),
+            income_kind_override=t.get("income_kind_override") or "",
         ):
             income_by_month[key] += -t["amount"]
         else:

@@ -20,7 +20,12 @@ from __future__ import annotations
 
 from source.common.db.category_rules import load_active_overrides, upsert_category_rule
 from source.common.db.connection import _now, connect
-from source.common.plaid_categorize import default_category, default_excluded_from_expense, suggest_keyword_from_name
+from source.common.plaid_categorize import (
+    INCOME_KIND_OPTIONS,
+    default_category,
+    default_excluded_from_expense,
+    suggest_keyword_from_name,
+)
 
 
 def upsert_plaid_transaction(*, item_key: str, transaction: dict) -> None:
@@ -282,6 +287,37 @@ def clear_plaid_transaction_excluded_overrides(transaction_ids: list[str]) -> in
                 (1 if excluded else 0, now, row["transaction_id"]),
             )
         return len(rows)
+
+
+
+def update_plaid_transaction_income_kind(transaction_ids: list[str], kind: str) -> int:
+    """Bulk "Mark as income" / "Mark as expense" / "Auto-detect" -- sets
+    (or clears, for kind="") plaid_transactions.income_kind_override,
+    which plaid_categorize.is_real_income() checks ahead of its own
+    text-based heuristics (see that function's own docstring on
+    income_kind_override for why this exists: a manually-retyped
+    category that IS income but doesn't literally contain the word
+    "income" -- "salary", "Rental-mp", "tax-refund" were real examples --
+    was otherwise falling out of "real income" with no text-matching fix
+    that wouldn't just trade one false negative for a different one).
+    Unlike category/excluded_from_expense there's no separate "_edited_
+    by_user" companion flag here: the override column IS the "has a
+    person set this" signal, and '' always means "use the heuristic,"
+    so there's nothing a resync could clobber by overwriting a default.
+    Backs the Real Expenditure page's bulk-classify bar. Returns how
+    many rows were updated. Raises ValueError for an unknown kind."""
+    if kind not in INCOME_KIND_OPTIONS:
+        raise ValueError(f"Unknown income kind '{kind}' -- expected one of {INCOME_KIND_OPTIONS!r}.")
+    if not transaction_ids:
+        return 0
+    with connect() as conn:
+        placeholders = ", ".join("?" for _ in transaction_ids)
+        cur = conn.execute(
+            f"UPDATE plaid_transactions SET income_kind_override = ?, updated_at = ? "
+            f"WHERE transaction_id IN ({placeholders})",
+            [kind, _now(), *transaction_ids],
+        )
+        return cur.rowcount
 
 
 

@@ -312,6 +312,50 @@ class TestIsRealIncome(unittest.TestCase):
             excluded_from_expense=False, category_edited_by_user=False,
         ))
 
+    def test_income_kind_override_forces_a_manually_typed_non_income_label_to_count(self):
+        # The real, reported follow-up to the "mortgage"/"Food"/"Bank
+        # Fees" false-positive fix above: those same text heuristics
+        # have a false-NEGATIVE side too -- a person's own real income,
+        # hand-labeled "salary"/"Rental-mp"/"tax-refund" (none contain
+        # the word "income"), was falling out of real income entirely
+        # once category_edited_by_user kicked in. An explicit override
+        # sidesteps the text guess altogether.
+        for category in ("salary", "Rental-mp", "tax-refund", "mortgage", "Food"):
+            self.assertTrue(is_real_income(
+                primary="OTHER", category=category, amount=-500.0,
+                excluded_from_expense=False, category_edited_by_user=True,
+                income_kind_override="income",
+            ), f"expected {category!r} with income_kind_override='income' to count as income")
+
+    def test_income_kind_override_forces_an_income_looking_category_to_not_count(self):
+        self.assertFalse(is_real_income(
+            primary="INCOME", category="Income", amount=-2000.0, excluded_from_expense=False,
+            income_kind_override="expense",
+        ))
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="rental-income", amount=-2000.0,
+            excluded_from_expense=False, category_edited_by_user=True,
+            income_kind_override="expense",
+        ))
+
+    def test_income_kind_override_of_empty_string_falls_back_to_the_normal_heuristic(self):
+        # '' is "auto-detect" (the default), not a third forced state --
+        # same result as never passing the override at all.
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="mortgage", amount=-142.23,
+            excluded_from_expense=False, category_edited_by_user=True,
+            income_kind_override="",
+        ))
+
+    def test_excluded_transaction_is_never_income_even_with_an_income_override(self):
+        # excluded_from_expense is checked first and wins outright -- an
+        # override on a transfer/credit-card-payment row can't resurrect
+        # it into a counted total.
+        self.assertFalse(is_real_income(
+            primary="OTHER", category="salary", amount=-500.0,
+            excluded_from_expense=True, income_kind_override="income",
+        ))
+
 
 class TestSuggestKeywordFromName(unittest.TestCase):
     def test_prefers_merchant_name_when_present(self):

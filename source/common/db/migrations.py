@@ -105,3 +105,9 @@ def _migrate_schema(conn) -> None:
         # before (see schema.py's own comment on category_rules for what
         # the other three modes mean).
         conn.execute("ALTER TABLE category_rules ADD COLUMN match_mode TEXT NOT NULL DEFAULT 'contains'")
+    existing_pt = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_transactions)").fetchall()}
+    if existing_pt and "income_kind_override" not in existing_pt:
+        # '' (auto-detect, unchanged behavior for every pre-existing row)
+        # -- see schema.py's own comment on plaid_transactions for what
+        # this column is for.
+        conn.execute("ALTER TABLE plaid_transactions ADD COLUMN income_kind_override TEXT NOT NULL DEFAULT ''")
