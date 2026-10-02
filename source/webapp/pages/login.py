@@ -39,7 +39,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 <title>Retirement Plan -- Log in</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#0071e3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Retirement Plan">
 <style>{PAGE_CSS}

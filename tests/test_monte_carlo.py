@@ -1391,7 +1391,7 @@ class TestRenderFanSvg(unittest.TestCase):
     def test_defaults_to_the_shared_band_color(self):
         result = {"band": [{"year": 2027, "p10": 100, "median": 200, "p90": 300}]}
         svg = render_fan_svg(result)
-        self.assertIn("#2563eb", svg)
+        self.assertIn("#0071e3", svg)
 
     def test_custom_color_overrides_the_default_everywhere_it_appears(self):
         # The S&P 500 historical-bootstrap chart reuses this same
@@ -1400,7 +1400,7 @@ class TestRenderFanSvg(unittest.TestCase):
         result = {"band": [{"year": 2027, "p10": 100, "median": 200, "p90": 300}]}
         svg = render_fan_svg(result, color="#eb6834")
         self.assertIn("#eb6834", svg)
-        self.assertNotIn("#2563eb", svg)
+        self.assertNotIn("#0071e3", svg)
 
 
 class TestRunSensitivityAnalysis(unittest.TestCase):

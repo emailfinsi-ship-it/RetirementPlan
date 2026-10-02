@@ -3,6 +3,22 @@ PAGE_SHELL). Split out on its own purely because it's a long, purely
 declarative CSS blob with nothing else in common with the Python helpers
 around it -- nothing here depends on, or is depended on by, any other
 render_helpers submodule.
+
+Visual language is deliberately modeled on Apple's own first-party apps
+(Settings/System Preferences, Music, App Store) and apple.com's own
+marketing-site CSS: the canonical light-gray page background (#f5f5f7),
+near-black ink (#1d1d1f) rather than pure black, the "Buy button" blue
+(#0071e3), pill-shaped buttons (border-radius: 980px -- Apple's own
+trick for "however tall this button ends up, round it all the way"),
+large-radius cards, very soft/low-opacity shadows, and a translucent,
+sticky, blurred top toolbar (the macOS/iOS "vibrancy" effect, via
+backdrop-filter) standing in for a native title bar. Dark mode is a true
+second palette (not just an automatic filter) that follows the OS
+appearance automatically via prefers-color-scheme -- exactly how every
+native Apple app behaves, and meaningful here specifically because this
+program is meant to be run as a Mac app. `-apple-system` as the first
+font-family already resolves to actual San Francisco on the Mac this
+almost always runs on; nothing here loads a web font.
 """
 
 from __future__ import annotations
@@ -10,47 +26,73 @@ from __future__ import annotations
 
 PAGE_CSS = """
   :root {
-    --brand: #2563eb; --brand-dark: #1d4ed8; --brand-soft: #eef4ff;
-    --ink: #0f172a; --ink-muted: #64748b; --ink-soft: #475569;
-    --surface: #ffffff; --surface-alt: #f8fafc; --border: #e2e8f0;
-    --success: #16a34a; --warn: #ca8a04; --danger: #dc2626;
-    --radius: 10px; --radius-lg: 14px;
-    --shadow-sm: 0 1px 2px rgba(15,23,42,0.06), 0 1px 1px rgba(15,23,42,0.04);
-    --shadow-md: 0 8px 24px rgba(15,23,42,0.12);
+    --brand: #0071e3; --brand-dark: #0059b2; --brand-soft: #e8f1fc;
+    --ink: #1d1d1f; --ink-muted: #6e6e73; --ink-soft: #424245;
+    --surface: #ffffff; --surface-alt: #f5f5f7; --border: #d2d2d7;
+    --success: #1f8a3f; --warn: #b36200; --danger: #d70015;
+    --radius: 12px; --radius-lg: 18px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 1px 1px rgba(0,0,0,0.03);
+    --shadow-md: 0 16px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05);
+    --ease: cubic-bezier(0.28, 0.11, 0.32, 1);
+  }
+  /* Dark mode follows the Mac's own System Settings > Appearance
+     automatically (no in-app toggle, same as every native Apple app) --
+     re-points every token above to its dark-surface equivalent; nothing
+     below this block needs to know which mode is active, since
+     everything is already built on var(--...). Shadows soften in favor
+     of the hairline --border for card separation, same as macOS dark
+     mode's own preference for borders over cast shadows on a dark
+     background. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
+      --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc;
+      --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
+      --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+      --shadow-md: 0 16px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    }
   }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1080px; margin: 0 auto;
-    padding: 32px 20px 96px; color: var(--ink); background: var(--surface-alt); }
-  h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 700; letter-spacing: -0.01em; }
-  h2 { font-size: 15px; margin: 28px 0 10px 0; font-weight: 650; color: var(--ink); }
-  h3 { color: var(--ink); }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);
+    -webkit-font-smoothing: antialiased; }
+  h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 700; letter-spacing: -0.015em; }
+  h2 { font-size: 15px; margin: 28px 0 10px 0; font-weight: 600; color: var(--ink); letter-spacing: -0.005em; }
+  h3 { color: var(--ink); font-weight: 600; }
   .muted { color: var(--ink-muted); font-size: 12px; }
-  /* One row, always -- flex-wrap: nowrap plus flex: 1 1 0 on each link
-     divides the bar evenly across however many tabs there are, so
-     adding a tab (e.g. Budget vs Actual) never pushes the last one onto
-     its own second row. A multi-word label that doesn't fit its share
-     of the width wraps onto a second LINE WITHIN its own pill instead
-     (white-space: normal, text-align: center) -- the bar stays a single
-     row, just a couple px taller when a label wraps. */
+  /* macOS/iOS-style translucent toolbar -- sticky to the top of the
+     viewport, with the "vibrancy" frosted-glass blur Apple uses for
+     Safari's tab bar, Mail's toolbar, Settings' sidebar, etc. Falls
+     back to a plain opaque bar (no blur, no stick) on a browser engine
+     without backdrop-filter support -- @supports guards it rather than
+     relying on the property silently no-opping, since an unsupported
+     backdrop-filter MUST NOT leave the semi-transparent background on
+     its own (that would make nav text illegible against whatever
+     scrolls underneath it). */
   nav { display: flex; gap: 2px; flex-wrap: nowrap; margin: 18px 0 28px 0; background: var(--surface);
     border: 1px solid var(--border); border-radius: 12px; padding: 5px; box-shadow: var(--shadow-sm); }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    nav { position: sticky; top: 10px; z-index: 20; background: color-mix(in srgb, var(--surface) 72%, transparent);
+      -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  }
   nav a { padding: 7px 6px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 12px;
-    font-weight: 500; transition: background 0.15s ease, color 0.15s ease; white-space: normal;
+    font-weight: 500; transition: background 0.15s var(--ease), color 0.15s var(--ease); white-space: normal;
     flex: 1 1 0; text-align: center; }
-  nav a.active { background: var(--brand); color: #fff; }
+  nav a.active { background: var(--brand); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
   nav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
-  th { background: var(--surface-alt); font-weight: 650; color: var(--ink-soft); font-size: 11px;
+  th { background: var(--surface-alt); font-weight: 600; color: var(--ink-soft); font-size: 11px;
     text-transform: uppercase; letter-spacing: 0.04em; }
   td.num, th.num { text-align: right; }
-  tfoot td { font-weight: 650; border-top: 2px solid #cbd5e1; background: var(--surface-alt); }
+  tfoot td { font-weight: 600; border-top: 2px solid var(--border); background: var(--surface-alt); }
   .tiles { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 22px 0; }
   .tile { flex: 1 1 170px; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
     background: var(--surface); box-shadow: var(--shadow-sm); }
-  .tile .label { font-size: 11px; color: var(--ink-muted); font-weight: 650; text-transform: uppercase; letter-spacing: 0.03em; }
-  .tile .value { font-size: 21px; font-weight: 700; margin-top: 6px; color: var(--ink); }
-  .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin: 14px 0;
+  .tile .label { font-size: 11px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+  .tile .value { font-size: 21px; font-weight: 700; margin-top: 6px; color: var(--ink); letter-spacing: -0.01em; }
+  .card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin: 14px 0;
     background: var(--surface); box-shadow: var(--shadow-sm); }
   /* A <details>-based card (currently just _line_chart_html's "no data
      yet" state) -- collapsed by default so a chart with nothing to show
@@ -64,14 +106,26 @@ PAGE_CSS = """
   details.card[open] > summary::before { content: "\25be  "; }
   details.card > summary + p { margin-top: 8px; }
   form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
-  form.inline label { display: flex; flex-direction: column; font-size: 11px; color: #555; gap: 3px; font-weight: 500; }
-  form.inline input, form.inline select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
-  button { font: inherit; font-size: 13px; padding: 7px 13px; border: 1px solid #cbd5e1; border-radius: 8px;
-    background: #fff; cursor: pointer; font-weight: 500; color: var(--ink-soft); transition: background 0.15s, border-color 0.15s; }
+  form.inline label { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-muted); gap: 3px; font-weight: 500; }
+  form.inline input, form.inline select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink); }
+  /* Pill-shaped buttons (border-radius: 980px is Apple's own CSS trick
+     for apple.com's buttons -- round enough that any single-line
+     button, however tall its padding makes it, ends up a true pill
+     rather than just rounded corners). A light, tactile press (scale
+     down very slightly on :active) stands in for the native control
+     "squish" Apple's own buttons have. */
+  button { font: inherit; font-size: 13px; padding: 7px 16px; border: 1px solid var(--border); border-radius: 980px;
+    background: var(--surface); cursor: pointer; font-weight: 500; color: var(--ink-soft);
+    transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.1s var(--ease); }
   button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
-  button.primary:hover { background: var(--brand-dark); }
-  button.danger { background: #fff; border-color: #dc2626; color: #dc2626; padding: 3px 8px; font-size: 12px; }
-  button:hover { filter: brightness(0.97); }
+  button.primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
+  button.danger { background: var(--surface); border-color: var(--danger); color: var(--danger); padding: 3px 10px; font-size: 12px; }
+  button:hover { filter: brightness(0.98); }
+  button:active { transform: scale(0.96); }
+  button:disabled { opacity: 0.45; cursor: default; transform: none; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+    outline: none; box-shadow: 0 0 0 4px var(--brand-soft); border-radius: 6px; }
   .status-line { margin: 6px 0; font-size: 13px; }
   .status-ok { color: var(--success); }
   .status-warn { color: var(--warn); }
@@ -81,16 +135,27 @@ PAGE_CSS = """
   .link-col { width: 130px; max-width: 130px; white-space: normal; word-break: break-word; }
   .link-col select { width: 100%; white-space: normal; }
   th.sortable-col { cursor: pointer; user-select: none; }
-  th.sortable-col:hover { background: #eef2f7; }
+  th.sortable-col:hover { background: var(--border); }
   th.sort-asc::after { content: " \\25B2"; font-size: 10px; }
   th.sort-desc::after { content: " \\25BC"; font-size: 10px; }
-  td input[type=text], td input[type=number] { border: 1px solid transparent; background: transparent; border-radius: 4px; }
-  td input[type=text]:hover, td input[type=number]:hover { border-color: #ccc; }
-  td input[type=text]:focus, td input[type=number]:focus { border-color: var(--brand); background: #fff; outline: none; }
+  td input[type=text], td input[type=number] { border: 1px solid transparent; background: transparent; border-radius: 6px;
+    color: var(--ink); }
+  td input[type=text]:hover, td input[type=number]:hover { border-color: var(--border); }
+  td input[type=text]:focus, td input[type=number]:focus { border-color: var(--brand); background: var(--surface); outline: none; }
   .check-col { width: 28px; }
-  .bulk-bar { display: none; align-items: center; gap: 10px; background: #fff7ed; border: 1px solid #fdba74;
-    border-radius: 8px; padding: 8px 12px; margin: 0 0 16px 0; position: sticky; top: 8px; z-index: 5; }
-  .bulk-bar .bulk-count { font-weight: 600; color: #9a3412; font-size: 13px; }
+  /* Deliberately NOT position:sticky (unlike before this file's own
+     Apple-style pass) -- nav itself is sticky now (see above), and a
+     second sticky element stacked under it at a guessed pixel offset
+     would either overlap nav or leave an ugly gap depending on how many
+     of nav's own tab labels happen to wrap to a second line at a given
+     viewport width, which varies and can't be predicted from CSS alone.
+     Sitting in normal flow right after nav avoids that risk entirely --
+     it still appears the moment a row is checked, right where a person
+     is already looking. */
+  .bulk-bar { display: none; align-items: center; gap: 10px; background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius); padding: 8px 12px;
+    margin: 0 0 16px 0; box-shadow: var(--shadow-sm); }
+  .bulk-bar .bulk-count { font-weight: 600; color: var(--warn); font-size: 13px; }
   .pie-seg { cursor: pointer; }
   .pie-seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   circle.pie-seg.seg-selected { stroke-width: 30; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35)); }
@@ -98,9 +163,10 @@ PAGE_CSS = """
   .legend-row.seg-selected { background: var(--brand-soft); }
   .legend-row.seg-selected .legend-label { font-weight: 600; }
   .legend-row.seg-dimmed { opacity: 0.55; }
-  .legend-row:hover:not(.seg-selected) { background: #f5f5f5; }
+  .legend-row:hover:not(.seg-selected) { background: var(--surface-alt); }
   .filter-bar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--brand-soft);
-    border: 1px solid #bfdbfe; border-radius: 8px; padding: 6px 10px; margin: 10px 0; font-size: 12px; }
+    border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border)); border-radius: var(--radius); padding: 6px 10px;
+    margin: 10px 0; font-size: 12px; }
   .filter-chip { background: var(--brand); color: #fff; border-radius: 999px; padding: 2px 6px 2px 10px;
     display: inline-flex; align-items: center; gap: 4px; }
   .filter-chip button { background: transparent; border: none; color: #fff; padding: 0 4px; font-size: 12px;
@@ -111,49 +177,69 @@ PAGE_CSS = """
      filter -- a plain toggle-button row (not chart-driven, so it isn't
      a .filter-chip), the active one filled in brand color same as a
      selected chart segment reads. */
-  .kind-filter-btn { font-size: 12px; padding: 3px 10px; border: 1px solid #cbd5e1; border-radius: 999px;
-    background: #fff; color: var(--ink-soft); cursor: pointer; }
+  .kind-filter-btn { font-size: 12px; padding: 3px 12px; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--surface); color: var(--ink-soft); cursor: pointer; }
   .kind-filter-btn.active { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
   .bar-chart { display: flex; flex-direction: column; gap: 2px; max-height: 480px; overflow-y: auto; }
-  .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
-  .bar-row .bar-track { flex: 1; background: #eef1f5; border-radius: 4px; height: 14px; overflow: hidden; }
+  .bar-row .bar-track { flex: 1; background: var(--surface-alt); border-radius: 4px; height: 14px; overflow: hidden; }
   .bar-row .bar-fill { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
   .bar-row .bar-value { flex: 0 0 110px; text-align: right; font-size: 12px; color: var(--ink-muted); }
-  .bar-row:hover:not(.seg-selected) { background: #f5f5f5; }
+  .bar-row:hover:not(.seg-selected) { background: var(--surface-alt); }
   .bar-row.seg-selected { background: var(--brand-soft); }
   .bar-row.seg-selected .bar-label { font-weight: 600; }
   .bar-row.seg-dimmed { opacity: 0.5; }
-  .industry-bulk-bar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; background: #f0fdf4;
-    border: 1px solid #86efac; border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 12px; }
-  .industry-bulk-bar .bulk-count { font-weight: 600; color: #166534; }
-  .industry-bulk-bar input[type=text] { font: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid #ccc;
-    border-radius: 5px; width: 220px; }
+  .industry-bulk-bar { display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--success) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--success) 45%, var(--border)); border-radius: var(--radius);
+    padding: 8px 12px; margin: 10px 0; font-size: 12px; }
+  .industry-bulk-bar .bulk-count { font-weight: 600; color: var(--success); }
+  .industry-bulk-bar input[type=text] { font: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink); width: 220px; }
   .add-shortcut-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .fab-add { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 13px 22px; font-size: 14px;
-    font-weight: 650; border-radius: 999px; background: var(--brand); border-color: var(--brand); color: #fff;
+    font-weight: 600; border-radius: 999px; background: var(--brand); border-color: var(--brand); color: #fff;
     box-shadow: var(--shadow-md); }
   .fab-add:hover { background: var(--brand-dark); }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.45); align-items: center;
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); align-items: center;
     justify-content: center; z-index: 100; padding: 20px; }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .modal-overlay { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  }
   .modal-overlay:not([hidden]) { display: flex; }
-  .modal-card { background: #fff; border-radius: var(--radius-lg); padding: 22px 24px; width: 100%; max-width: 540px;
-    max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-md); }
+  .modal-card { background: var(--surface); border-radius: var(--radius-lg); padding: 22px 24px; width: 100%;
+    max-width: 540px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-md); }
   .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .modal-close { border: none; background: transparent; font-size: 22px; line-height: 1; padding: 2px 6px;
-    cursor: pointer; color: var(--ink-muted); }
+    cursor: pointer; color: var(--ink-muted); border-radius: 999px; }
   .modal-close:hover { color: var(--ink); }
-  .add-kind-field { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 4px; font-weight: 600;
+  .add-kind-field { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-muted); gap: 4px; font-weight: 600;
     margin-bottom: 16px; }
-  .add-kind-field select { font-size: 14px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+  .add-kind-field select { font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); color: var(--ink); }
   .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; border: none; padding: 0; margin: 0; }
   .field-grid[hidden] { display: none; }
-  .field-grid label { display: flex; flex-direction: column; font-size: 11px; color: #555; gap: 4px; font-weight: 500; }
-  .field-grid input, .field-grid select { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid #cbd5e1;
-    border-radius: 6px; }
+  .field-grid label { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-muted); gap: 4px; font-weight: 500; }
+  .field-grid input, .field-grid select { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
   .insight-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; margin: 12px 0; }
+
+  /* A thin, self-hiding scrollbar on any element that scrolls its own
+     content (a horizontally-scrolled table on a phone, a tall
+     .bar-chart list) -- the inset, barely-there scrollbar every native
+     macOS app uses, instead of the chunky default one a plain web page
+     gets. Webkit-only (Safari/Chrome, which covers this program's own
+     target), and purely cosmetic -- scrolling itself needs nothing
+     here, so a browser that ignores these rules just keeps its own
+     default scrollbar with no loss of function. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ink-muted) 45%, transparent); border-radius: 999px;
+    border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink-muted) 65%, transparent); background-clip: content-box; }
 
   /* -------------------------------------------------------------
      Phone layout (iPhone-width viewports and similar). Desktop/
@@ -168,7 +254,7 @@ PAGE_CSS = """
        horizontally-scrollable row reads as familiar "tab bar" UI
        instead, and keeps the page's own content starting higher up. */
     nav { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
-      scroll-padding-inline: 14px; }
+      scroll-padding-inline: 14px; top: 0; }
     nav::-webkit-scrollbar { display: none; }
     /* flex: 0 0 auto (not 1 1 0, the desktop rule) -- each tab sizes to
        its own label instead of splitting the row evenly, since with 10

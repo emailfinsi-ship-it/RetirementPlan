@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 
 
-_BAND_COLOR = "#2563eb"
+_BAND_COLOR = "#0071e3"  # matches the dashboard shell's own --brand (styles.py)
 
 _HISTORICAL_BAND_COLOR = "#eb6834"  # same 2nd-slot orange dashboard.py's own _DONUT_COLORS use
 
