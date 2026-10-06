@@ -23,6 +23,7 @@ class TestExcelExport(TempConfigTestCase):
             {
                 "Summary", "Asset", "Expense", "Income", "Real Estate Analysis",
                 "Linked Positions", "Linked Accounts", "Monte Carlo Simulation", "Monte Carlo Stress Test",
+                "Net Worth History",
             },
         )
 
@@ -258,6 +259,132 @@ class TestExcelExport(TempConfigTestCase):
         self.assertTrue(result["stress_test"]["per_scenario_tax"])
         self.assertTrue(result["gaussian"].get("pools"))
         self.assertTrue(result["sp500_bootstrap"].get("pools"))
+
+
+class TestExcelExportPresentation(TempConfigTestCase):
+    """The export is meant to be opened and skimmed (or handed to someone),
+    so it's styled consistently and carries native Excel charts."""
+
+    def setUp(self):
+        super().setUp()
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "institution": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
+        db.add_line_item("assets", {"kind": "asset", "category": "Cash", "name": "Checking", "institution": "Chase", "balance": 20_000})
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 40_000, "start_year": 2030})
+        db.add_line_item("income", {"name": "Pension", "category": "Benefit", "annual_amount": 12_000})
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 500_000, "loan_balance": 200_000})
+        for day, value in (("2026-09-01", 1_000_000.0), ("2026-09-02", 1_020_000.0), ("2026-09-03", 1_050_000.0)):
+            db.record_snapshot(
+                net_worth=value, manual_asset_total=value, linked_asset_total=0.0, liability_total=0.0,
+                real_estate_equity_total=0.0, retirement_liquid_total=value, snapshot_date=day,
+            )
+        self.wb = openpyxl.load_workbook(str(excel_export.export_current_state()))
+
+    @staticmethod
+    def _chart_count(ws) -> int:
+        return len(ws._charts)
+
+    def test_every_data_sheet_has_a_styled_frozen_header(self):
+        for name in ("Asset", "Expense", "Income", "Real Estate Analysis", "Net Worth History"):
+            ws = self.wb[name]
+            self.assertEqual(ws.freeze_panes, "A2", name)
+            header = ws["A1"]
+            self.assertTrue(header.font.bold, name)
+            self.assertEqual(header.font.name, "Arial", name)
+            self.assertEqual(header.fill.fgColor.rgb[-6:], "1D1D1F", name)
+
+    def test_money_percent_and_year_cells_use_real_number_formats(self):
+        ws = self.wb["Asset"]
+        balance = next(ws.cell(row=r, column=6) for r in range(2, ws.max_row + 1) if ws.cell(row=r, column=3).value == "Fidelity")
+        self.assertIn("$", balance.number_format)
+        ws = self.wb["Expense"]
+        self.assertEqual(ws["D2"].number_format, "0")  # Start Year is a year, not 2,026.00 money
+
+    def test_summary_sheet_has_charts_and_highlights_the_key_figures(self):
+        ws = self.wb["Summary"]
+        self.assertGreaterEqual(self._chart_count(ws), 2)
+        labels = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+        net_worth_row = labels["Net worth"]
+        self.assertTrue(ws.cell(row=net_worth_row, column=1).font.bold)
+
+    def test_net_worth_history_sheet_lists_snapshots_and_plots_them(self):
+        ws = self.wb["Net Worth History"]
+        dates = [ws.cell(row=r, column=1).value for r in range(2, 5)]
+        self.assertEqual(dates, ["2026-09-01", "2026-09-02", "2026-09-03"])
+        self.assertEqual(ws["B4"].value, 1_050_000.0)
+        self.assertEqual(self._chart_count(ws), 1)
+
+    def test_chart_series_start_at_the_first_data_row_not_the_header(self):
+        # A series reference that began on the header row would plot the
+        # header text as a zero-valued first point.
+        ws = self.wb["Net Worth History"]
+        chart = ws._charts[0]
+        ref = chart.series[0].val.numRef.f
+        self.assertIn("$B$2", ref)
+        self.assertNotIn("$B$1", ref)
+
+    def test_net_worth_history_with_a_single_snapshot_has_a_note_instead_of_a_chart(self):
+        db.clear_net_worth_snapshots() if hasattr(db, "clear_net_worth_snapshots") else None
+        from source.common.db.connection import connect
+
+        with connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots WHERE snapshot_date != '2026-09-01'")
+        wb = openpyxl.load_workbook(str(excel_export.export_current_state()))
+        ws = wb["Net Worth History"]
+        self.assertEqual(self._chart_count(ws), 0)
+        values = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        self.assertTrue(any(isinstance(v, str) and "captured automatically" in v for v in values))
+
+    def test_monte_carlo_sheet_has_fan_charts_with_percentage_success_rate(self):
+        ws = self.wb["Monte Carlo Simulation"]
+        self.assertEqual(self._chart_count(ws), 2)  # Gaussian + S&P 500
+        for chart in ws._charts:
+            self.assertEqual(len(chart.series), 3)  # 90th, median, 10th
+        row = next(r for r in range(1, ws.max_row + 1) if ws.cell(row=r, column=1).value == "Success rate")
+        self.assertIn("%", ws.cell(row=row, column=2).number_format)
+        self.assertLessEqual(ws.cell(row=row, column=2).value, 1.0)  # stored as a fraction
+
+    def test_stress_test_sheet_charts_every_scenario_balance(self):
+        ws = self.wb["Monte Carlo Stress Test"]
+        self.assertEqual(self._chart_count(ws), 2)
+        balance_chart = ws._charts[0]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        scenarios = sum(1 for h in headers if isinstance(h, str) and h.endswith(" Balance"))
+        self.assertEqual(len(balance_chart.series), scenarios)
+
+    def test_asset_expense_income_and_real_estate_sheets_chart_their_breakdowns(self):
+        for name in ("Asset", "Expense", "Income", "Real Estate Analysis"):
+            self.assertGreaterEqual(self._chart_count(self.wb[name]), 1, name)
+
+    def test_assumptions_are_written_as_numbers_with_readable_labels(self):
+        ws = self.wb["Monte Carlo Simulation"]
+        rows = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2) for r in range(1, 40)}
+        cell = rows["Expected return"]
+        self.assertIsInstance(cell.value, float)
+        self.assertIn("%", cell.number_format)
+
+    def test_sheets_have_print_setup(self):
+        ws = self.wb["Asset"]
+        self.assertEqual(ws.page_setup.orientation, "landscape")
+        self.assertTrue(ws.sheet_properties.pageSetUpPr.fitToPage)
+
+    def test_top_n_with_other_folds_the_tail_and_drops_non_positive_values(self):
+        from source.reporting.excel_style import top_n_with_other
+
+        items = [(f"c{i}", 100.0 - i) for i in range(10)] + [("neg", -5.0), ("zero", 0.0)]
+        folded = top_n_with_other(items, n=6)
+        self.assertEqual(len(folded), 7)
+        self.assertEqual(folded[-1][0], "Other")
+        self.assertAlmostEqual(folded[-1][1], sum(100.0 - i for i in range(6, 10)))
+        self.assertEqual([k for k, _ in folded[:3]], ["c0", "c1", "c2"])
+
+    def test_fitted_axis_min_leaves_headroom_below_the_data(self):
+        from source.reporting.excel_style import fitted_axis_min
+
+        floor = fitted_axis_min([7_100_000.0, 8_050_000.0])
+        self.assertLess(floor, 7_100_000.0)
+        self.assertGreater(floor, 6_000_000.0)
+        self.assertIsNone(fitted_axis_min([]))
+        self.assertIsNone(fitted_axis_min([-5.0, 10.0]))
 
 
 if __name__ == "__main__":
