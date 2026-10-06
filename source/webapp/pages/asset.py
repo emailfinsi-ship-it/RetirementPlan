@@ -223,6 +223,16 @@ def _category_table_html(
             f'<td>{html.escape(a["source"])}</td></tr>'
         ), balance
 
+    # Fixed column widths (same in every category's table) so Name,
+    # Balance, Linked account, etc. line up from one table to the next
+    # and the Linked account column can never collapse to a sliver.
+    col_widths = [30, 135, 115, 125, 95, 125, 170]
+    if is_asset_table:
+        col_widths += [125, 100, 100]
+    col_widths.append(80)
+    colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px">' for w in col_widths) + "</colgroup>"
+    table_width = sum(col_widths)
+
     rendered = [row_html(a) for a in rows]
     rows_html = "".join(r for r, _ in rendered)
     subtotal = sum(b for _, b in rendered)
@@ -231,7 +241,8 @@ def _category_table_html(
     return f"""
 <div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">{html.escape(category)}</div>
 <div style="overflow-x:auto">
-<table class="sortable">
+<table class="sortable asset-table" style="table-layout:fixed; width:{table_width}px; min-width:100%;">
+{colgroup}
 <thead><tr><th class="check-col"><input type="checkbox" class="select-all-check"></th><th>Name</th><th>Category</th><th>Institution</th><th>Account #</th><th class="num">Balance</th><th class="link-col">Linked account</th>{tax_treatment_th}{owner_th}{mc_th}<th>Source</th></tr></thead>
 <tbody>{rows_html}</tbody>
 <tfoot><tr><td colspan="{footer_colspan}">Subtotal</td><td class="num">{_money(subtotal)}</td>{footer_trailing_cols}</tr></tfoot>

@@ -134,7 +134,7 @@ PAGE_CSS = """
   .status-err { color: var(--danger); }
   .group-section { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
-  .link-col { width: 130px; max-width: 130px; white-space: normal; word-break: break-word; }
+  .link-col { min-width: 130px; white-space: normal; word-break: normal; }
   .link-col select { width: 100%; white-space: normal; }
   th.sortable-col { cursor: pointer; user-select: none; }
   th.sortable-col:hover { background: var(--border); }

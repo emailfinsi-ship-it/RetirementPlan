@@ -1047,6 +1047,20 @@ class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertEqual(body.count("<th>In Monte Carlo?</th>"), 2)
 
+    def test_every_asset_table_uses_the_same_fixed_column_widths(self):
+        """A fixed colgroup (not content-sized columns) keeps Name,
+        Balance, Linked account etc. aligned from one category's table to
+        the next and stops the Linked account column collapsing to a
+        sliver (its header wrapping one letter per line)."""
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "Cash", "balance": 20_000})
+        body = self._get("/asset.html").read().decode("utf-8")
+        colgroups = re.findall(r"<colgroup>.*?</colgroup>", body)
+        self.assertEqual(len(colgroups), 2)
+        self.assertEqual(colgroups[0], colgroups[1])
+        self.assertEqual(body.count("table-layout:fixed"), 2)
+        self.assertEqual(colgroups[0].count("<col "), 11)
+
     def test_new_asset_row_defaults_unchecked(self):
         item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
         row = db.get_line_item("assets", item_id)
