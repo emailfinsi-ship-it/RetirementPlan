@@ -1,4 +1,5 @@
 import random
+import re
 import unittest
 
 from source.reporting.monte_carlo import (
@@ -1387,6 +1388,28 @@ class TestRenderFanSvg(unittest.TestCase):
         self.assertIn("<polyline", svg)
         self.assertIn("2027", svg)
         self.assertIn("2028", svg)
+
+    def test_draws_dashed_90th_and_10th_percentile_lines_with_labels(self):
+        result = {"band": [
+            {"year": 2027, "p10": 100, "median": 200, "p90": 300},
+            {"year": 2028, "p10": 90, "median": 210, "p90": 320},
+        ]}
+        svg = render_fan_svg(result)
+        # median + p90 + p10 lines; the two percentile lines are dashed
+        self.assertEqual(svg.count("<polyline"), 3)
+        self.assertEqual(svg.count('stroke-dasharray="5 3"'), 2)
+        for label in ("90th pct", "Median", "10th pct"):
+            self.assertIn(label, svg)
+
+    def test_end_labels_do_not_overlap_when_the_lines_end_together(self):
+        result = {"band": [{"year": 2027, "p10": 100, "median": 100, "p90": 100}]}
+        svg = render_fan_svg(result)
+        ys = sorted(
+            float(m) for m in re.findall(r'<text x="[\d.]+" y="([\d.]+)" font-size="10" font-weight', svg)
+        )
+        self.assertEqual(len(ys), 3)
+        self.assertGreaterEqual(ys[1] - ys[0], 12.0 - 1e-6)
+        self.assertGreaterEqual(ys[2] - ys[1], 12.0 - 1e-6)
 
     def test_defaults_to_the_shared_band_color(self):
         result = {"band": [{"year": 2027, "p10": 100, "median": 200, "p90": 300}]}

@@ -1,4 +1,5 @@
-"""Rendering -- a single-hue fan chart (band + median line), per the
+"""Rendering -- a single-hue fan chart (p10-p90 band, dashed 90th/10th
+percentile lines and a solid median line), per the
 dataviz skill: one hue for a magnitude band, thin 2px median line,
 recessive gridlines, per-point <title> hover tooltips (this is a plain
 static SVG page, not a JS charting library).
@@ -35,7 +36,7 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
             "No simulation data yet.</text></svg>"
         )
 
-    margin_left, margin_right, margin_top, margin_bottom = 64, 16, 16, 28
+    margin_left, margin_right, margin_top, margin_bottom = 64, 62, 16, 28
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
 
@@ -70,6 +71,31 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
     )
     band_path = f"M {top_points} L {bottom_points} Z"
 
+    # Explicit 90th / 10th percentile lines along the band's edges (thin,
+    # dashed, same hue as the band -- the median stays the one solid,
+    # heavier line), plus direct end-of-line labels so nothing relies on
+    # color alone to say which line is which.
+    p90_points = " ".join(f"{x_for(i):.1f},{y_for(row['p90']):.1f}" for i, row in enumerate(band))
+    p10_points = " ".join(f"{x_for(i):.1f},{y_for(row['p10']):.1f}" for i, row in enumerate(band))
+    last = band[-1]
+    end_labels = [
+        ["90th pct", y_for(last["p90"]), 400],
+        ["Median", y_for(last["median"]), 600],
+        ["10th pct", y_for(last["p10"]), 400],
+    ]
+    # Lines can end close together -- push labels apart (top to bottom)
+    # so they never overprint one another.
+    end_labels.sort(key=lambda item: item[1])
+    min_gap = 12.0
+    for k in range(1, len(end_labels)):
+        if end_labels[k][1] - end_labels[k - 1][1] < min_gap:
+            end_labels[k][1] = end_labels[k - 1][1] + min_gap
+    end_label_svg = "".join(
+        f'<text x="{width - margin_right + 6}" y="{y + 3.5:.1f}" font-size="10" font-weight="{weight}" '
+        f'style="fill:var(--ink-muted,#777);">{html.escape(label)}</text>'
+        for label, y, weight in end_labels
+    )
+
     # Median line + hover points.
     median_points = " ".join(f"{x_for(i):.1f},{y_for(row['median']):.1f}" for i, row in enumerate(band))
     dots = []
@@ -77,11 +103,16 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
         if i % max(1, n // 12) != 0 and i != n - 1:
             continue
         cx, cy = x_for(i), y_for(row["median"])
-        dots.append(
-            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="3" fill="{color}">'
-            f"<title>{row['year']}: median {_money_short(row['median'])} "
-            f"(p10 {_money_short(row['p10'])} - p90 {_money_short(row['p90'])})</title></circle>"
+        tip = (
+            f"{row['year']}: median {_money_short(row['median'])} "
+            f"(p10 {_money_short(row['p10'])} - p90 {_money_short(row['p90'])})"
         )
+        dots.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="3" fill="{color}"><title>{tip}</title></circle>')
+        for key in ("p90", "p10"):
+            dots.append(
+                f'<circle cx="{cx:.1f}" cy="{y_for(row[key]):.1f}" r="2.5" fill="{color}" fill-opacity="0.8">'
+                f"<title>{tip}</title></circle>"
+            )
 
     # X-axis year labels, thinned to avoid overlap.
     x_labels = []
@@ -99,8 +130,11 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
         f'font-family="-apple-system, sans-serif">'
         + "".join(gridlines)
         + f'<path d="{band_path}" fill="{color}" fill-opacity="0.15" stroke="none" />'
+        + f'<polyline points="{p90_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-dasharray="5 3" />'
+        + f'<polyline points="{p10_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-dasharray="5 3" />'
         + f'<polyline points="{median_points}" fill="none" stroke="{color}" stroke-width="2" />'
         + "".join(dots)
+        + end_label_svg
         + "".join(x_labels)
         + "</svg>"
     )
