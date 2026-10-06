@@ -161,7 +161,7 @@ def _account_splits_card_html(
             for s in splits
         )
         groups_html += f"""
-<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">{header}</div>
+<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:var(--ink-soft);">{header}</div>
 {reconcile_note}
 <div style="overflow-x:auto">
 <table class="sortable">

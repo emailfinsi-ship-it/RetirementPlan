@@ -127,9 +127,9 @@ def _donut_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *,
     svg = (
         f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" font-family="-apple-system, sans-serif">'
         + "".join(segments)
-        + f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" font-size="14" font-weight="600" fill="#0b0b0b">'
+        + f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" font-size="14" font-weight="600" style="fill:var(--ink,#0b0b0b);">'
         f'{html.escape(_money_short(total))}</text>'
-        + f'<text x="{cx}" y="{cy + 12}" text-anchor="middle" font-size="10" fill="#777">Total</text>'
+        + f'<text x="{cx}" y="{cy + 12}" text-anchor="middle" font-size="10" style="fill:var(--ink-muted,#777);">Total</text>'
         + "</svg>"
     )
     return f"""
@@ -353,7 +353,7 @@ def _line_chart_html(
 # _multi_line_chart_html (the combined Total line, normally) always gets
 # this dark, un-rotated ink color instead of a rotation slot, so it
 # reads as "the headline total," never "series #5."
-_MULTI_LINE_EMPHASIS_COLOR = "#3a3833"
+_MULTI_LINE_EMPHASIS_COLOR = "var(--ink, #3a3833)"
 
 
 def _log_ticks(lo: float, hi: float, *, max_ticks: int = 6) -> list[float]:
@@ -468,8 +468,8 @@ def _multi_line_chart_html(
             ty = y_at(tick)
             grid_lines.append(
                 f'<line x1="{pad_left}" y1="{ty:.1f}" x2="{width - pad_right}" y2="{ty:.1f}" '
-                f'stroke="#e5e2db" stroke-width="1"/>'
-                f'<text x="{pad_left + 2}" y="{ty - 2:.1f}" font-size="9" fill="#777">{html.escape(_money_short(tick))}</text>'
+                f'style="stroke:var(--border,#e5e2db);" stroke-width="1"/>'
+                f'<text x="{pad_left + 2}" y="{ty - 2:.1f}" font-size="9" style="fill:var(--ink-muted,#777);">{html.escape(_money_short(tick))}</text>'
             )
         grid_svg = "".join(grid_lines)
     else:
@@ -484,7 +484,7 @@ def _multi_line_chart_html(
             zero_y = y_at(0.0)
             zero_line = (
                 f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
-                f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
+                f'style="stroke:var(--border,#e5e2db);" stroke-width="1" stroke-dasharray="3 3"/>'
             )
 
     direct_label_ok = len(non_empty) <= 4
@@ -519,18 +519,18 @@ def _multi_line_chart_html(
         if current:
             path_parts.append(current)
         lines_svg.append(
-            f'<path d="{" ".join(path_parts)}" fill="none" stroke="{color}" stroke-width="{stroke_width}" '
+            f'<path d="{" ".join(path_parts)}" fill="none" style="stroke:{color};" stroke-width="{stroke_width}" '
             f'stroke-linejoin="round" stroke-linecap="round"/>'
         )
         dots_svg.append("".join(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{dot_r}" fill="{color}">'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{dot_r}" style="fill:{color};">'
             f'<title>{html.escape(s["name"])} -- {html.escape(d)}: {html.escape(_money(v))}</title></circle>'
             for (x, y), (d, v) in zip(coords, pts)
         ))
         if direct_label_ok and coords:
             lx, ly = coords[-1]
             end_labels_svg.append(
-                f'<text x="{lx + 4:.1f}" y="{ly + 3:.1f}" font-size="9" fill="{color}">{html.escape(s["name"])}</text>'
+                f'<text x="{lx + 4:.1f}" y="{ly + 3:.1f}" font-size="9" style="fill:{color};">{html.escape(s["name"])}</text>'
             )
         legend_items.append(
             f'<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;">'
@@ -540,8 +540,8 @@ def _multi_line_chart_html(
 
     first_date, last_date = all_dates[0], all_dates[-1]
     x_labels = (
-        f'<text x="{pad_left}" y="{height - 6}" font-size="10" fill="#777">{html.escape(first_date)}</text>'
-        f'<text x="{width - pad_right}" y="{height - 6}" font-size="10" fill="#777" text-anchor="end">'
+        f'<text x="{pad_left}" y="{height - 6}" font-size="10" style="fill:var(--ink-muted,#777);">{html.escape(first_date)}</text>'
+        f'<text x="{width - pad_right}" y="{height - 6}" font-size="10" style="fill:var(--ink-muted,#777);" text-anchor="end">'
         f'{html.escape(last_date)}</text>'
     )
 

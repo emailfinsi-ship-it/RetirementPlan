@@ -24,6 +24,44 @@ almost always runs on; nothing here loads a web font.
 from __future__ import annotations
 
 
+# Runs in <head> (before first paint, so there's no light-to-dark flash)
+# on every page, login included: applies a saved Light/Dark choice as
+# <html data-theme>. No saved choice = "Auto" = follow the OS appearance
+# through the prefers-color-scheme block in PAGE_CSS. Also defines the
+# toggle's own cycle/label helpers (Auto -> Light -> Dark -> Auto). Kept
+# as a plain string substituted into the page (never .format()-ed), so
+# its literal braces need no doubling.
+THEME_INIT_SCRIPT = """<script>
+(function () {
+  function stored() { try { return localStorage.getItem('rp-theme') || ''; } catch (e) { return ''; } }
+  function apply(t) {
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+  }
+  apply(stored());
+  window.rpThemeSync = function () {
+    var b = document.getElementById('theme-toggle');
+    if (!b) return;
+    var t = stored();
+    b.textContent = 'Theme: ' + (t === 'light' ? 'Light' : t === 'dark' ? 'Dark' : 'Auto');
+  };
+  window.rpCycleTheme = function () {
+    var order = ['', 'light', 'dark'];
+    var next = order[(order.indexOf(stored()) + 1) % order.length];
+    try { if (next) localStorage.setItem('rp-theme', next); else localStorage.removeItem('rp-theme'); } catch (e) {}
+    apply(next);
+    window.rpThemeSync();
+  };
+})();
+</script>"""
+
+THEME_TOGGLE_HTML = (
+    '<button type="button" id="theme-toggle" onclick="rpCycleTheme()" '
+    'title="Switch between Auto (follow your Mac), Light and Dark">Theme: Auto</button>'
+    "<script>rpThemeSync();</script>"
+)
+
+
 PAGE_CSS = """
   :root {
     --brand: #0071e3; --brand-dark: #0059b2; --brand-soft: #e8f1fc;
@@ -35,16 +73,21 @@ PAGE_CSS = """
     --shadow-md: 0 16px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05);
     --ease: cubic-bezier(0.28, 0.11, 0.32, 1);
   }
-  /* Dark mode follows the Mac's own System Settings > Appearance
-     automatically (no in-app toggle, same as every native Apple app) --
-     re-points every token above to its dark-surface equivalent; nothing
-     below this block needs to know which mode is active, since
-     everything is already built on var(--...). Shadows soften in favor
-     of the hairline --border for card separation, same as macOS dark
-     mode's own preference for borders over cast shadows on a dark
-     background. */
+  /* Dark mode follows the Mac's own System Settings > Appearance by
+     default (same as every native Apple app), and the header's theme
+     toggle can force Light or Dark instead (stored in localStorage and
+     applied as <html data-theme="light|dark"> before first paint -- see
+     THEME_INIT_SCRIPT). Re-points every token above to its dark-surface
+     equivalent; nothing below this block needs to know which mode is
+     active, since everything is already built on var(--...). Shadows
+     soften in favor of the hairline --border for card separation, same
+     as macOS dark mode's own preference for borders over cast shadows
+     on a dark background. */
+  :root { color-scheme: light dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
       --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc;
       --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
@@ -53,6 +96,15 @@ PAGE_CSS = """
       --shadow-md: 0 16px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
     }
   }
+  :root[data-theme="dark"] {
+    --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
+    --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc;
+    --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
+    --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 16px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+  }
+  #theme-toggle { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
     max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);

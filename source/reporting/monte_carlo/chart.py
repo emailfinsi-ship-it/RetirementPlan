@@ -31,7 +31,7 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
     if not band:
         return (
             f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-            f'<text x="{width / 2}" y="{height / 2}" text-anchor="middle" fill="#999" font-size="13">'
+            f'<text x="{width / 2}" y="{height / 2}" text-anchor="middle" style="fill:var(--ink-muted,#999);" font-size="13">'
             "No simulation data yet.</text></svg>"
         )
 
@@ -56,10 +56,10 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
         y = y_for(val)
         gridlines.append(
             f'<line x1="{margin_left}" y1="{y:.1f}" x2="{width - margin_right}" y2="{y:.1f}" '
-            f'stroke="#e5e5e5" stroke-width="1" />'
+            f'style="stroke:var(--border,#e5e5e5);" stroke-width="1" />'
         )
         gridlines.append(
-            f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="#777">'
+            f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" font-size="11" style="fill:var(--ink-muted,#777);">'
             f"{html.escape(_money_short(val))}</text>"
         )
 
@@ -90,7 +90,7 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
         if i % label_stride != 0 and i != n - 1:
             continue
         x_labels.append(
-            f'<text x="{x_for(i):.1f}" y="{height - 8}" text-anchor="middle" font-size="11" fill="#777">'
+            f'<text x="{x_for(i):.1f}" y="{height - 8}" text-anchor="middle" font-size="11" style="fill:var(--ink-muted,#777);">'
             f"{row['year']}</text>"
         )
 

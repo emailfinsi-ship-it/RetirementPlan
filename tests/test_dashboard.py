@@ -541,9 +541,9 @@ class TestLineItemEndpoints(DashboardTestCase):
         # It no longer sits in a "Loan" category table at all (the category
         # heading itself, not just the word "Loan", which also appears in
         # this page's own help text as an example)...
-        loan_heading = '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">Loan</div>'
+        loan_heading = '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:var(--ink-soft);">Loan</div>'
         credit_card_heading = (
-            '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">Credit Card</div>'
+            '<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:var(--ink-soft);">Credit Card</div>'
         )
         self.assertNotIn(loan_heading, body)
         # ...and its balance is now grouped under a "Credit Card" category table instead.
@@ -5621,3 +5621,38 @@ class TestDailySnapshotLoop(unittest.TestCase):
             dashboard._daily_snapshot_loop(interval_seconds=1, max_ticks=2)
         # The failure didn't advance the "last captured" date, so the retry saw the same value.
         self.assertEqual(seen[0], seen[1])
+
+
+class TestThemeToggle(DashboardTestCase):
+    """A header Auto/Light/Dark toggle (persisted in localStorage and applied
+    as <html data-theme> before first paint) on top of the OS-following
+    prefers-color-scheme default; chart text uses theme variables so it's
+    readable on a dark surface."""
+
+    def test_every_page_has_the_toggle_and_the_early_init_script(self):
+        for path in ("/asset.html", "/linked-accounts.html", "/setup.html"):
+            body = self._get(path).read().decode("utf-8")
+            self.assertIn('id="theme-toggle"', body, path)
+            self.assertIn('onclick="rpCycleTheme()"', body, path)
+            self.assertIn("localStorage.getItem('rp-theme')", body, path)
+            # The init script sits in <head>, before <body>, so there is no flash.
+            self.assertLess(body.index("rp-theme"), body.index("<body"), path)
+
+    def test_css_supports_a_forced_light_and_forced_dark_theme(self):
+        from source.webapp.render_helpers.styles import PAGE_CSS
+
+        self.assertIn(':root[data-theme="dark"]', PAGE_CSS)
+        self.assertIn(':root:not([data-theme="light"])', PAGE_CSS)
+        self.assertIn("@media (prefers-color-scheme: dark)", PAGE_CSS)
+
+    def test_login_page_applies_the_saved_theme_too(self):
+        resp = self._get("/login.html")
+        body = resp.read().decode("utf-8")
+        self.assertIn("rp-theme", body)
+
+    def test_donut_total_uses_theme_ink_not_a_fixed_dark_color(self):
+        from source.webapp.render_helpers.charts import _donut_chart_html
+
+        html_out = _donut_chart_html("T", [("A", 100.0, ["a"]), ("B", 50.0, ["b"])], dim="type")
+        self.assertIn("fill:var(--ink", html_out)
+        self.assertNotIn('fill="#0b0b0b"', html_out)

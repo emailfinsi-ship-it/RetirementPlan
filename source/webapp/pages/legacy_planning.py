@@ -137,7 +137,7 @@ def _strategy_bar_html(value: float, max_value: float) -> str:
         width_pct = 0.0
     else:
         width_pct = max(0.0, min(100.0, value / max_value * 100.0))
-    return f"""<div style="position:relative; height:14px; background:#eef1f5; border-radius:4px;">
+    return f"""<div style="position:relative; height:14px; background:var(--border); border-radius:4px;">
 <div style="position:absolute; left:0; width:{width_pct:.1f}%; height:100%; border-radius:4px; background:#2a78d6;"></div>
 </div>"""
 

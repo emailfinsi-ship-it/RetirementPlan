@@ -10,7 +10,7 @@ import html
 from datetime import datetime
 
 from source.common import auth_store, db
-from source.webapp.render_helpers.styles import PAGE_CSS
+from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
 
 
 NAV_ITEMS = (
@@ -41,6 +41,7 @@ PAGE_SHELL = """<!doctype html>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Retirement Plan">
 <style>{css}</style>
+{theme_head_script}
 </head>
 <body data-current-year="{current_year}">
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
@@ -48,7 +49,7 @@ PAGE_SHELL = """<!doctype html>
     <h1>Retirement Plan</h1>
     <p class="muted">Your own retirement/asset plan -- standalone program, your own data.</p>
   </div>
-  {logout_html}
+  <div style="display:flex; gap:8px; align-items:flex-start;">{theme_toggle_html}{logout_html}</div>
 </div>
 <nav>{nav}</nav>
 <div id="bulk-bar" class="bulk-bar">
@@ -1081,7 +1082,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=body, current_year=current_year,
-        logout_html=_logout_html(),
+        logout_html=_logout_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
     )
 
 

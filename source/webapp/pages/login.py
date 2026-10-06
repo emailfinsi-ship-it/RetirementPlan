@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import html
 
-from source.webapp.render_helpers.styles import PAGE_CSS
+from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT
 
 
 def _render_login_page(*, error: str | None = None, first_time: bool = False) -> str:
@@ -48,6 +48,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
   .login-card input[type=password] {{ width: 100%; font-size: 16px; padding: 10px 12px; margin-top: 10px; }}
   .login-card button {{ width: 100%; margin-top: 14px; padding: 10px; font-size: 14px; }}
 </style>
+{THEME_INIT_SCRIPT}
 </head>
 <body>
 <h1 style="text-align:center;">Retirement Plan</h1>

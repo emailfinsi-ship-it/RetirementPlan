@@ -26,7 +26,7 @@ def _asset_category_summary_html(category_subtotals: list[tuple[str, float]], li
         for cat, subtotal in category_subtotals
     )
     return f"""
-<div style="font-weight:600; font-size:13px; margin:0 0 4px 0; color:#333;">Summary</div>
+<div style="font-weight:600; font-size:13px; margin:0 0 4px 0; color:var(--ink-soft);">Summary</div>
 <table class="sortable">
 <thead><tr><th>Category</th><th class="num">Amount</th></tr></thead>
 <tbody>

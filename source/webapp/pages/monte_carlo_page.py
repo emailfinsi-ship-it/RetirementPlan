@@ -392,9 +392,9 @@ def _tornado_track_html(row: dict, baseline_pct: float) -> str:
     # on this page's siblings starts with (source.webapp.render_helpers.
     # charts._DONUT_COLORS[0]); not imported directly since this is the
     # only mark on this page that isn't built through that module.
-    return f"""<div style="position:relative; height:14px; background:#eef1f5; border-radius:4px;">
+    return f"""<div style="position:relative; height:14px; background:var(--border); border-radius:4px;">
 <div style="position:absolute; left:{left:.1f}%; width:{width:.1f}%; height:100%; border-radius:4px; background:#2a78d6;"></div>
-<div style="position:absolute; left:{baseline_pct:.1f}%; top:-2px; width:2px; height:18px; background:#0f172a;" title="Baseline success rate: {baseline_pct:.0f}%"></div>
+<div style="position:absolute; left:{baseline_pct:.1f}%; top:-2px; width:2px; height:18px; background:var(--ink);" title="Baseline success rate: {baseline_pct:.0f}%"></div>
 </div>"""
 
 

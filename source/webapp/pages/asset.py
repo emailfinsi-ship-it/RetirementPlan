@@ -239,7 +239,7 @@ def _category_table_html(
     footer_colspan = 5
     footer_trailing_cols = "<td colspan=\"2\"></td>" if not is_asset_table else "<td colspan=\"5\"></td>"
     return f"""
-<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">{html.escape(category)}</div>
+<div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:var(--ink-soft);">{html.escape(category)}</div>
 <div style="overflow-x:auto">
 <table class="sortable asset-table" style="table-layout:fixed; width:{table_width}px; min-width:100%;">
 {colgroup}
