@@ -3,6 +3,7 @@ import unittest
 from source.common import db
 from source.reporting.aggregate import (
     build_summary,
+    capture_daily_snapshots_if_new_day,
     capture_investment_account_balances,
     capture_net_worth_snapshot,
     category_subtotals,
@@ -732,3 +733,38 @@ class TestCaptureInvestmentAccountBalances(TempConfigTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCaptureDailySnapshotsIfNewDay(TempConfigTestCase):
+    def _dates(self):
+        return [r["snapshot_date"] for r in db.list_net_worth_snapshots()]
+
+    def test_captures_when_the_date_has_changed(self):
+        from datetime import date
+        today = date.today().isoformat()
+        returned = capture_daily_snapshots_if_new_day("1999-01-01")
+        self.assertEqual(returned, today)
+        self.assertEqual(self._dates(), [today])
+
+    def test_the_first_ever_call_captures_today(self):
+        from datetime import date
+        today = date.today().isoformat()
+        self.assertEqual(capture_daily_snapshots_if_new_day(None), today)
+        self.assertEqual(self._dates(), [today])
+
+    def test_does_nothing_on_the_same_day(self):
+        returned = capture_daily_snapshots_if_new_day("2026-09-02", today="2026-09-02")
+        self.assertEqual(returned, "2026-09-02")
+        self.assertEqual(self._dates(), [])
+
+    def test_a_failed_capture_propagates_so_the_day_is_not_marked_done(self):
+        from unittest.mock import patch
+        with patch("source.reporting.aggregate.capture_net_worth_snapshot", side_effect=RuntimeError("disk full")):
+            with self.assertRaises(RuntimeError):
+                capture_daily_snapshots_if_new_day("2026-09-01", today="2026-09-02")
+
+    def test_also_records_investment_account_balances(self):
+        from unittest.mock import patch
+        with patch("source.reporting.aggregate.capture_investment_account_balances") as balances:
+            capture_daily_snapshots_if_new_day("2026-09-01", today="2026-09-02")
+        balances.assert_called_once()

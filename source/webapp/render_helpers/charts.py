@@ -18,6 +18,7 @@ from __future__ import annotations
 import html
 import json
 import math
+from datetime import date, timedelta
 
 from source.webapp.render_helpers.formatting import _money, _money_short
 
@@ -151,6 +152,47 @@ _DEFAULT_LINE_CHART_EMPTY_MESSAGE = (
 )
 
 
+def _parse_iso_date(label: str):
+    """A "YYYY-MM-DD" label as a date, or None for anything else (e.g. a
+    "YYYY-MM" month label) -- _line_chart_html uses this to decide between
+    date-proportional x positions and plain even spacing."""
+    try:
+        return date.fromisoformat(label)
+    except (TypeError, ValueError):
+        return None
+
+
+def _nice_axis_range(lo: float, hi: float) -> tuple[float, float]:
+    """A y-axis range hugging the data (NOT forced down to zero) with a
+    little headroom, so a net worth that moves a fraction of a percent
+    still reads as a visible line instead of a flat one pinned to the top
+    of a chart that starts at $0. A flat series gets a symmetric band
+    around its value so it still draws mid-chart."""
+    if hi - lo <= 1e-9:
+        pad = max(abs(hi) * 0.01, 1.0)
+        return lo - pad, hi + pad
+    pad = (hi - lo) * 0.12
+    return lo - pad, hi + pad
+
+
+def _axis_money_label(value: float, step: float) -> str:
+    """A y-axis tick label precise enough that neighboring ticks never
+    read the same or out of step: _money_short's fixed one-decimal
+    millions would label a $14.65M gridline "$14.7M" right next to a
+    $14.7M one. Shows as many decimals as the tick spacing `step` needs
+    (two for millions once ticks are closer than $0.5M, three under
+    $50K..., whole thousands/dollars below a million)."""
+    sign = "-" if value < 0 else ""
+    magnitude = abs(value)
+    if magnitude >= 1_000_000:
+        decimals = 1 if step >= 500_000 else 2 if step >= 50_000 else 3
+        return f"{sign}${magnitude / 1_000_000:.{decimals}f}M"
+    if magnitude >= 1_000:
+        decimals = 0 if step >= 500 else 1 if step >= 50 else 2
+        return f"{sign}${magnitude / 1_000:.{decimals}f}K"
+    return f"{sign}${magnitude:.0f}" if step >= 1 else f"{sign}${magnitude:.2f}"
+
+
 def _line_chart_html(
     title: str, points: list[tuple[str, float]], *, note: str = "",
     empty_message: str = _DEFAULT_LINE_CHART_EMPTY_MESSAGE,
@@ -159,16 +201,24 @@ def _line_chart_html(
     to-whole donut/bar charts above (dataviz skill: a trend belongs on
     one axis, read left-to-right, not ranked by magnitude). Currently
     only the Asset tab's net-worth-over-time card uses this (source.
-    common.db.net_worth_snapshots, reduced to one point per calendar
-    month -- see source.webapp.pages.asset._monthly_net_worth_points),
-    so it's deliberately minimal: no click-to-filter (there's no table
-    of individual snapshots to filter down to), evenly-spaced x
-    positions (real date-proportional spacing would mostly just
-    reproduce even spacing anyway for points that are roughly evenly
-    spread over time), and direct labels only at the first/last point
-    plus one hover tooltip per point rather than a label on every point
-    (dataviz skill: selective direct labels,
-    never one on every mark)."""
+    common.db.net_worth_snapshots, one point per captured day -- see
+    source.webapp.pages.asset._net_worth_points).
+
+    Adapts to whatever data it's given rather than assuming a fixed
+    shape: the y-axis is fitted to the data's own range (with headroom)
+    and labeled with gridlines, rather than always starting at $0 -- a
+    plan worth millions that moved by tens of thousands would otherwise
+    draw as an unreadably flat line; and when every label is a
+    "YYYY-MM-DD" date the x positions are proportional to real elapsed
+    time (a gap of a few days with the app closed shows as a gap, not as
+    two adjacent points), with date ticks along the bottom. Any other
+    label shape (e.g. "YYYY-MM") falls back to even spacing. Draws
+    scale to the card's width (viewBox + width:100%) rather than a fixed
+    pixel size, and with many points (daily data adds up) only the
+    latest point is drawn as a visible dot -- the rest keep an invisible
+    hover target, so every day still has its own tooltip without the
+    line turning into a string of beads (dataviz skill: selective
+    direct labels, never one on every mark)."""
     if len(points) < 2:
         # A <details> disclosure, not the plain always-open card the real
         # chart below renders as -- nothing to actually look at yet (just
@@ -182,17 +232,23 @@ def _line_chart_html(
             f'<summary style="font-size:13px; font-weight:650;">{html.escape(title)} <span class="muted" style="font-weight:500;">(no data yet)</span></summary>'
             f'<p class="muted" style="margin-bottom:0;">{html.escape(empty_message)}</p></details>'
         )
-    width, height = 640, 180
-    pad_left, pad_right, pad_top, pad_bottom = 8, 8, 12, 22
+    width, height = 960, 270
+    pad_left, pad_right, pad_top, pad_bottom = 84, 18, 14, 54
     plot_w = width - pad_left - pad_right
     plot_h = height - pad_top - pad_bottom
+    plot_bottom = pad_top + plot_h
+    plot_right = width - pad_right
 
     values = [v for _, v in points]
-    lo, hi = min(0.0, min(values)), max(values)
-    if hi - lo <= 0:
-        hi = lo + max(abs(lo) * 0.1, 1.0)  # a flat/all-zero series still gets a visible range
+    lo, hi = _nice_axis_range(min(values), max(values))
+
+    dates = [_parse_iso_date(label) for label, _ in points]
+    by_date = all(d is not None for d in dates) and dates[-1] > dates[0]
+    span_days = (dates[-1] - dates[0]).days if by_date else 0
 
     def x_at(i: int) -> float:
+        if by_date:
+            return pad_left + ((dates[i] - dates[0]).days / span_days) * plot_w
         return pad_left + (i / (len(points) - 1)) * plot_w
 
     def y_at(v: float) -> float:
@@ -201,25 +257,68 @@ def _line_chart_html(
     coords = [(x_at(i), y_at(v)) for i, (_, v) in enumerate(points)]
     path = "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in coords)
 
+    axis_style = 'style="stroke:var(--ink-muted);" stroke-width="1"'
+    text_style = 'style="fill:var(--ink-muted);"'
+
+    # Y axis: a real axis line with a tick mark, a faint gridline and a
+    # value label at each of five evenly spaced levels across the fitted
+    # range, plus a rotated axis title.
+    grid = ""
+    for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
+        v = lo + (hi - lo) * frac
+        y = y_at(v)
+        grid += (
+            f'<line x1="{pad_left}" y1="{y:.1f}" x2="{plot_right}" y2="{y:.1f}" '
+            f'style="stroke:var(--border);" stroke-width="1" stroke-dasharray="3 3"/>'
+            f'<line x1="{pad_left - 5}" y1="{y:.1f}" x2="{pad_left}" y2="{y:.1f}" {axis_style}/>'
+            f'<text x="{pad_left - 9}" y="{y + 3:.1f}" font-size="10" text-anchor="end" '
+            f'{text_style}>{html.escape(_axis_money_label(v, (hi - lo) / 4))}</text>'
+        )
+    axes = (
+        f'<line x1="{pad_left}" y1="{pad_top}" x2="{pad_left}" y2="{plot_bottom}" {axis_style}/>'
+        f'<line x1="{pad_left}" y1="{plot_bottom}" x2="{plot_right}" y2="{plot_bottom}" {axis_style}/>'
+        f'<text transform="translate(14 {pad_top + plot_h / 2:.1f}) rotate(-90)" font-size="10" '
+        f'text-anchor="middle" {text_style}>Net worth</text>'
+        f'<text x="{pad_left + plot_w / 2:.1f}" y="{height - 6}" font-size="10" text-anchor="middle" '
+        f'{text_style}>Date</text>'
+    )
     zero_line = ""
     if lo < 0 < hi:
         zero_y = y_at(0.0)
         zero_line = (
-            f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{width - pad_right}" y2="{zero_y:.1f}" '
-            f'stroke="#d8d5cf" stroke-width="1" stroke-dasharray="3 3"/>'
+            f'<line x1="{pad_left}" y1="{zero_y:.1f}" x2="{plot_right}" y2="{zero_y:.1f}" '
+            f'style="stroke:var(--ink-muted);" stroke-width="1"/>'
         )
 
-    dots = "".join(
-        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{_LINE_CHART_COLOR}">'
-        f'<title>{html.escape(date)}: {html.escape(_money(value))}</title></circle>'
-        for (date, value), (x, y) in zip(points, coords)
-    )
+    show_all_dots = len(points) <= 45
+    last_index = len(points) - 1
+    dots = ""
+    for i, ((label, value), (x, y)) in enumerate(zip(points, coords)):
+        visible = show_all_dots or i == last_index
+        dots += (
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{3 if visible else 5}" '
+            + (f'fill="{_LINE_CHART_COLOR}"' if visible else 'fill="transparent"')
+            + f'><title>{html.escape(label)}: {html.escape(_money(value))}</title></circle>'
+        )
+
     first_date, first_value = points[0]
     last_date, last_value = points[-1]
-    labels = (
-        f'<text x="{pad_left}" y="{height - 6}" font-size="10" fill="#777">{html.escape(first_date)}</text>'
-        f'<text x="{width - pad_right}" y="{height - 6}" font-size="10" fill="#777" text-anchor="end">'
-        f'{html.escape(last_date)}</text>'
+    # X axis: a tick mark and a date label at each tick. Date-proportional
+    # charts get the full first/last ISO dates at the ends and up to five
+    # evenly spaced short dates between (only when the span is long enough
+    # for them not to collide); any other label shape just labels its
+    # first and last point.
+    x_ticks = [(pad_left, first_date, "start"), (plot_right, last_date, "end")]
+    if by_date and span_days >= 8:
+        for frac in (1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6):
+            tick = dates[0] + timedelta(days=round(span_days * frac))
+            tx = pad_left + ((tick - dates[0]).days / span_days) * plot_w
+            x_ticks.append((tx, f"{tick.strftime('%b')} {tick.day}", "middle"))
+    labels = "".join(
+        f'<line x1="{tx:.1f}" y1="{plot_bottom}" x2="{tx:.1f}" y2="{plot_bottom + 5}" {axis_style}/>'
+        f'<text x="{tx:.1f}" y="{plot_bottom + 18}" font-size="10" text-anchor="{anchor}" '
+        f'{text_style}>{html.escape(text)}</text>'
+        for tx, text, anchor in x_ticks
     )
 
     change = last_value - first_value
@@ -232,8 +331,9 @@ def _line_chart_html(
     )
 
     svg = (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
-        f'{zero_line}'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}" '
+        f'style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">'
+        f'{grid}{zero_line}{axes}'
         f'<path d="{path}" fill="none" stroke="{_LINE_CHART_COLOR}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
         f'{dots}{labels}'
         '</svg>'

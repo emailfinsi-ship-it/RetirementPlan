@@ -24,7 +24,7 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -36,7 +36,11 @@ from source.collector import sync as plaid_sync
 from source.common import app_settings, auth_store, backup, config, db, linked_data, secrets_store
 from source.importer import xlsx_import
 from source.reporting import excel_export
-from source.reporting.aggregate import capture_investment_account_balances, capture_net_worth_snapshot
+from source.reporting.aggregate import (
+    capture_daily_snapshots_if_new_day,
+    capture_investment_account_balances,
+    capture_net_worth_snapshot,
+)
 from source.webapp.render_helpers import (
     NAV_ITEMS,
     PAGE_CSS,
@@ -842,6 +846,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
 
+_DAILY_SNAPSHOT_CHECK_SECONDS = 15 * 60
+
+
+def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECONDS, max_ticks: int | None = None) -> None:
+    """Wakes every `interval_seconds` and records a new day's snapshot the
+    first time the local date has changed since the last one (see
+    aggregate.capture_daily_snapshots_if_new_day). The date it starts
+    from is "today" -- run() has just captured today at startup. A failed
+    capture is logged and retried on the next tick rather than stopping
+    the loop. `max_ticks` exists only so a test can run the loop a fixed
+    number of times instead of forever."""
+    last_captured = date.today().isoformat()
+    ticks = 0
+    while max_ticks is None or ticks < max_ticks:
+        time.sleep(interval_seconds)
+        ticks += 1
+        try:
+            last_captured = capture_daily_snapshots_if_new_day(last_captured)
+        except Exception as exc:
+            print(f"Daily snapshot failed (will retry): {exc}")
+
+
 def run(*, open_browser: bool = True) -> None:
     config.ensure_directories()
     db.init_db()
@@ -871,6 +897,15 @@ def run(*, open_browser: bool = True) -> None:
         capture_investment_account_balances()
     except Exception as exc:
         print(f"Startup investment-balance snapshot failed (continuing anyway): {exc}")
+
+    # Keeps the history growing on days nobody opens the app: while this
+    # process is running, a background timer re-checks the date every
+    # few minutes and records that new day's net-worth/investment-balance
+    # snapshot as soon as the date rolls over (see
+    # aggregate.capture_daily_snapshots_if_new_day). A daemon thread, so
+    # it never keeps the dashboard from shutting down; best-effort, same
+    # as the startup captures above.
+    threading.Thread(target=_daily_snapshot_loop, daemon=True).start()
 
     # Catches up on Plaid data if it's gone stale (see source.collector.
     # auto_sync's own module docstring for exactly when this fires, and

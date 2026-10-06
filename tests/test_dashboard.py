@@ -4609,101 +4609,156 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
 
 
 class TestAssetPageNetWorthHistory(DashboardTestCase):
-    """Moved here from the Summary tab (see source.webapp.pages.asset's
-    _monthly_net_worth_points) -- also covers the reduction from the
-    net_worth_snapshots table's one-row-per-day storage down to the
-    chart's one-point-per-calendar-month display. Storage itself stays
-    daily throughout (nothing in source.common.db.net_worth_snapshots
-    or source.reporting.aggregate.capture_net_worth_snapshot changed);
-    only what gets plotted is coarser."""
+    """The Asset tab's "Net worth over time" card (see source.webapp.pages.
+    asset._net_worth_points): one point per captured day, laid out by real
+    elapsed time on a y-axis fitted to the data. (It used to collapse
+    each calendar month to a single point.)"""
 
     def tearDown(self):
         with db.connect() as conn:
             conn.execute("DELETE FROM net_worth_snapshots")
 
+    def _snap(self, net_worth, snapshot_date):
+        db.record_snapshot(
+            net_worth=net_worth, manual_asset_total=0, linked_asset_total=0,
+            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
+            snapshot_date=snapshot_date,
+        )
+
     def test_summary_page_no_longer_has_this_card(self):
-        db.record_snapshot(
-            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-01",
-        )
-        db.record_snapshot(
-            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-10-01",
-        )
+        self._snap(100_000.0, "2026-09-01")
+        self._snap(110_000.0, "2026-10-01")
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertNotIn("Net worth over time", body)
 
-    def test_with_snapshots_from_only_one_calendar_month_shows_the_come_back_later_message(self):
-        db.record_snapshot(
-            net_worth=100.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-01",
-        )
-        db.record_snapshot(
-            net_worth=105.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-15",
-        )
+    def test_a_single_day_of_history_shows_the_collapsed_come_back_tomorrow_message(self):
+        self._snap(100.0, "2026-09-01")
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn("Net worth over time", body)
-        self.assertIn("Come back next month", body)
-        self.assertIn("one point per calendar month", body.lower())
+        self.assertIn("Come back tomorrow", body)
         # Collapsed by default (no `open` attribute) -- nothing to look
-        # at yet besides the note, so it shouldn't claim a full card's
-        # worth of space at the top of the page until there's real data.
+        # at yet besides the note.
         self.assertIn('<details class="card">', body)
         self.assertNotIn("<details open", body)
 
-    def test_multiple_snapshots_in_the_same_month_collapse_to_that_months_latest_value(self):
-        db.record_snapshot(
-            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-01",
-        )
-        # A second, later snapshot in the SAME month -- should overwrite
-        # (not add to) September's point on the chart.
-        db.record_snapshot(
-            net_worth=999_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-20",
-        )
-        db.record_snapshot(
-            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-10-01",
-        )
+    def test_every_day_is_its_own_point_not_collapsed_to_a_month(self):
+        self._snap(100_000.0, "2026-09-01")
+        self._snap(101_000.0, "2026-09-02")
+        self._snap(103_500.0, "2026-09-03")
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn("<svg", body)
-        # September's point is the LATEST (09-20) value, $999,000 -- not
-        # the first (09-01) one, $100,000 (which shouldn't appear at all).
-        self.assertNotIn("$100,000.00", body)
-        self.assertIn("999,000.00", body)
-        # October ($110,000) down from September's $999,000 -- a big drop.
-        self.assertIn("-$889,000.00", body)
-        self.assertIn("2026-09", body)
-        self.assertIn("2026-10", body)
-
-    def test_two_or_more_distinct_months_show_the_trend_line_and_change(self):
-        db.record_snapshot(
-            net_worth=100_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-09-01",
-        )
-        db.record_snapshot(
-            net_worth=110_000.0, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date="2026-10-01",
-        )
-        body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn("<svg", body)
-        self.assertIn("+$10,000.00", body)
-        self.assertIn("2026-09", body)
-        self.assertIn("2026-10", body)
-        # Real data -- a plain always-open card, not the collapsed
-        # <details> the no-data-yet state above renders as.
+        # Each day keeps its own hover tooltip with that day's value.
+        self.assertIn("2026-09-01: $100,000.00", body)
+        self.assertIn("2026-09-02: $101,000.00", body)
+        self.assertIn("2026-09-03: $103,500.00", body)
+        self.assertIn("+$3,500.00", body)
+        self.assertIn("since 2026-09-01", body)
+        # Real data -- a plain always-open card, not the collapsed <details>.
         self.assertNotIn("<details class=", body)
+
+    def test_a_second_capture_the_same_day_replaces_that_days_point(self):
+        self._snap(100_000.0, "2026-09-01")
+        self._snap(999_000.0, "2026-09-01")
+        self._snap(110_000.0, "2026-09-02")
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn("2026-09-01: $100,000.00", body)
+        self.assertIn("2026-09-01: $999,000.00", body)
+        self.assertIn("-$889,000.00", body)
+
+
+class TestNetWorthPoints(unittest.TestCase):
+    def test_one_point_per_day_in_date_order(self):
+        from source.webapp.pages.asset import _net_worth_points
+        rows = [
+            {"snapshot_date": "2026-09-03", "net_worth": 3.0},
+            {"snapshot_date": "2026-09-01", "net_worth": 1.0},
+            {"snapshot_date": "2026-09-02", "net_worth": 2.0},
+        ]
+        self.assertEqual(
+            _net_worth_points(rows),
+            [("2026-09-01", 1.0), ("2026-09-02", 2.0), ("2026-09-03", 3.0)],
+        )
+
+    def test_empty_history(self):
+        from source.webapp.pages.asset import _net_worth_points
+        self.assertEqual(_net_worth_points([]), [])
+
+
+class TestLineChartHtml(unittest.TestCase):
+    def _render(self, points):
+        from source.webapp.render_helpers import _line_chart_html
+        return _line_chart_html("Trend", points)
+
+    def test_y_axis_fits_the_data_instead_of_starting_at_zero(self):
+        # $7.9M moving by only ~$70K: if the axis began at $0 the line
+        # would be flat; fitted, the axis labels stay near the data.
+        body = self._render([("2026-09-01", 7_838_000.0), ("2026-09-02", 7_908_000.0)])
+        self.assertNotIn(">$0<", body)
+        self.assertIn(">$7.830M</text>", body)
+        self.assertIn(">$7.916M</text>", body)
+
+    def test_the_line_spans_a_visible_share_of_the_plot_height(self):
+        import re
+        body = self._render([("2026-09-01", 7_838_000.0), ("2026-09-02", 7_908_000.0)])
+        path = re.search(r'<path d="M ([\d.]+) ([\d.]+) L ([\d.]+) ([\d.]+)"', body)
+        y_first, y_last = float(path.group(2)), float(path.group(4))
+        self.assertGreater(y_first - y_last, 100)  # most of the 270px-tall plot
+
+    def test_x_positions_follow_real_elapsed_time(self):
+        import re
+        body = self._render([("2026-09-01", 1.0), ("2026-09-02", 2.0), ("2026-09-11", 3.0)])
+        path = re.search(r'<path d="M ([\d.]+) [\d.]+ L ([\d.]+) [\d.]+ L ([\d.]+) [\d.]+"', body)
+        x0, x1, x2 = (float(path.group(i)) for i in (1, 2, 3))
+        # day 1 of 10 vs day 10 of 10: the first gap is a tenth of the second... of the total.
+        self.assertAlmostEqual((x1 - x0) / (x2 - x0), 0.1, places=2)
+
+    def test_non_date_labels_fall_back_to_even_spacing(self):
+        import re
+        body = self._render([("2026-09", 1.0), ("2026-10", 2.0), ("2026-12", 3.0)])
+        path = re.search(r'<path d="M ([\d.]+) [\d.]+ L ([\d.]+) [\d.]+ L ([\d.]+) [\d.]+"', body)
+        x0, x1, x2 = (float(path.group(i)) for i in (1, 2, 3))
+        self.assertAlmostEqual((x1 - x0) / (x2 - x0), 0.5, places=2)
+
+    def test_scales_to_the_card_width(self):
+        body = self._render([("2026-09-01", 1.0), ("2026-09-02", 2.0)])
+        self.assertIn("width:100%", body)
+        self.assertIn('viewBox="0 0 960 270"', body)
+
+    def test_a_flat_series_still_draws_mid_chart(self):
+        import re
+        body = self._render([("2026-09-01", 5_000.0), ("2026-09-02", 5_000.0)])
+        path = re.search(r'<path d="M [\d.]+ ([\d.]+) L [\d.]+ ([\d.]+)"', body)
+        self.assertEqual(path.group(1), path.group(2))
+
+    def test_a_long_history_keeps_hover_targets_but_only_the_latest_dot_is_visible(self):
+        from datetime import date, timedelta
+        start = date(2026, 1, 1)
+        points = [((start + timedelta(days=i)).isoformat(), 1000.0 + i) for i in range(100)]
+        body = self._render(points)
+        self.assertEqual(body.count("<circle"), 100)  # every day still has a tooltip
+        self.assertEqual(body.count('fill="transparent"'), 99)
+        self.assertIn("2026-01-01: $1,000.00", body)
+
+    def test_has_labeled_x_and_y_axes(self):
+        body = self._render([("2026-09-01", 7_000_000.0), ("2026-10-01", 8_000_000.0)])
+        self.assertIn(">Net worth</text>", body)  # y-axis title
+        self.assertIn(">Date</text>", body)  # x-axis title
+        # Five y value labels, evenly spaced over the fitted range...
+        for label in ("$6.88M", "$7.19M", "$7.50M", "$7.81M", "$8.12M"):
+            self.assertIn(f">{label}</text>", body)
+        # ...and dated x ticks: both ends in full plus short in-between dates.
+        for label in ("2026-09-01", "2026-10-01", "Sep 6", "Sep 11", "Sep 16", "Sep 21", "Sep 26"):
+            self.assertIn(f">{label}</text>", body)
+
+    def test_draws_the_axis_lines_themselves(self):
+        body = self._render([("2026-09-01", 1.0), ("2026-09-20", 2.0)])
+        # The y axis (vertical, at the plot's left edge) and x axis (horizontal, along its bottom).
+        self.assertIn('x1="84" y1="14" x2="84" y2="216"', body)
+        self.assertIn('x1="84" y1="216" x2="942" y2="216"', body)
+
+    def test_in_between_date_ticks_appear_on_a_longer_span(self):
+        body = self._render([("2026-09-01", 1.0), ("2026-10-01", 2.0)])
+        self.assertIn("Sep 16", body)
 
 
 class TestBudgetVsActualRouting(DashboardTestCase):
@@ -5514,3 +5569,41 @@ class TestLogTicks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDailySnapshotLoop(unittest.TestCase):
+    """dashboard._daily_snapshot_loop -- the background timer that records
+    a new day's snapshot even if nobody opens the app that day."""
+
+    def test_each_tick_passes_the_last_captured_date_forward(self):
+        from unittest.mock import patch
+        calls = []
+
+        def fake_capture(last):
+            calls.append(last)
+            return f"day-{len(calls)}"
+
+        with patch.object(dashboard, "capture_daily_snapshots_if_new_day", side_effect=fake_capture), \
+                patch.object(dashboard.time, "sleep") as sleeper:
+            dashboard._daily_snapshot_loop(interval_seconds=7, max_ticks=3)
+        self.assertEqual(sleeper.call_count, 3)
+        sleeper.assert_called_with(7)
+        self.assertEqual(calls[1:], ["day-1", "day-2"])  # carries each result into the next tick
+
+    def test_a_failed_capture_is_retried_on_the_next_tick_and_never_stops_the_loop(self):
+        from unittest.mock import patch
+        outcomes = [RuntimeError("boom"), "2026-09-02"]
+        seen = []
+
+        def fake_capture(last):
+            seen.append(last)
+            result = outcomes.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        with patch.object(dashboard, "capture_daily_snapshots_if_new_day", side_effect=fake_capture), \
+                patch.object(dashboard.time, "sleep"):
+            dashboard._daily_snapshot_loop(interval_seconds=1, max_ticks=2)
+        # The failure didn't advance the "last captured" date, so the retry saw the same value.
+        self.assertEqual(seen[0], seen[1])

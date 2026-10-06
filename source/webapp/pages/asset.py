@@ -29,30 +29,21 @@ from source.webapp.render_helpers import (
 )
 
 
-def _monthly_net_worth_points(snapshots: list[dict]) -> list[tuple[str, float]]:
-    """Reduces source.common.db.net_worth_snapshots' one-row-per-day
-    history down to one point per calendar month, for the "Net worth
-    over time" chart below -- the LAST snapshot recorded in each month
-    (i.e. that month's most up to date net worth), labeled "YYYY-MM"
-    rather than a specific day since each point now represents a whole
-    month, not one day. This is a display-only reduction: capture
-    itself is untouched and still writes one row per day (see
-    source.reporting.aggregate.capture_net_worth_snapshot), same as
-    always -- nothing here changes what's stored, only what the chart
-    plots. Relies on list_net_worth_snapshots' own ORDER BY
-    snapshot_date (ascending), so simply overwriting each month's entry
-    as we go leaves the last (most recent) row for that month."""
-    by_month: dict[str, dict] = {}
-    for row in snapshots:
-        month = row["snapshot_date"][:7]  # "YYYY-MM-DD" -> "YYYY-MM"
-        by_month[month] = row
-    return [(month, row["net_worth"]) for month, row in sorted(by_month.items())]
+def _net_worth_points(snapshots: list[dict]) -> list[tuple[str, float]]:
+    """One (YYYY-MM-DD, net worth) point per captured day, for the "Net
+    worth over time" chart below. net_worth_snapshots stores exactly one
+    row per calendar day (a later capture the same day overwrites that
+    day's row -- see source.common.db.net_worth_snapshots), so this is
+    just that history in date order, nothing to reduce. (The chart used to
+    collapse these to one point per month; it now plots every day and
+    spaces them by real elapsed time.)"""
+    return [(row["snapshot_date"], row["net_worth"]) for row in sorted(snapshots, key=lambda r: r["snapshot_date"])]
 
 
 _NET_WORTH_CHART_EMPTY_MESSAGE = (
-    "Come back next month to see a trend here -- this chart plots one point per calendar month "
-    "(this program still captures a snapshot every time it's opened or synced, same as always; "
-    "there's just only one month's worth of it so far)."
+    "Come back tomorrow to see a trend here -- this chart plots one point per day, and it needs at least two "
+    "days of history. This program captures net worth automatically once a day (whenever it's opened or "
+    "synced, and in the background each new day while it's running), so there's nothing to set up."
 )
 
 
@@ -115,9 +106,10 @@ def _render_asset_page() -> str:
 
     net_worth_history_html = _line_chart_html(
         "Net worth over time",
-        _monthly_net_worth_points(db.list_net_worth_snapshots()),
-        note="One point per calendar month (that month's latest value) -- captured automatically "
-        "every time this program is opened or synced, nothing to set up.",
+        _net_worth_points(db.list_net_worth_snapshots()),
+        note="One point per day -- captured automatically once a day (when this program is opened or synced, "
+        "and in the background each new day while it's running), nothing to set up. The vertical scale fits "
+        "your own data, so small changes stay visible.",
         empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
     )
 

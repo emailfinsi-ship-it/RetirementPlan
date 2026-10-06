@@ -246,6 +246,28 @@ def capture_investment_account_balances(accounts: list[dict] | None = None) -> N
         db.record_account_balance_snapshot(account_id=a["account_id"], balance=a["balance"])
 
 
+def capture_daily_snapshots_if_new_day(last_captured_date: str | None, today: str | None = None) -> str:
+    """The once-a-day capture the dashboard's background timer drives
+    (source.webapp.dashboard._daily_snapshot_loop): if `today` (default:
+    the local date) differs from `last_captured_date`, records today's
+    net-worth snapshot and today's per-account investment balances (the
+    same two captures the dashboard already does at startup and after a
+    sync), and returns today's date string; if it's still the same day,
+    does nothing and returns `last_captured_date` unchanged. Lets net
+    worth history accumulate one point per day for as long as the
+    dashboard process is running, even on days nobody opens it -- the
+    startup/sync captures alone only ever fired on days the app was
+    actually opened or synced. Any exception from a capture propagates,
+    so the caller doesn't mark the day as captured and tries again on its
+    next tick."""
+    today = today or date.today().isoformat()
+    if today == last_captured_date:
+        return today
+    capture_net_worth_snapshot()
+    capture_investment_account_balances()
+    return today
+
+
 def build_summary() -> dict:
     assets = db.list_line_items("assets")
     real_estate = db.list_line_items("real_estate")
