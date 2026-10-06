@@ -41,6 +41,12 @@ def _migrate_schema(conn) -> None:
         conn.execute("ALTER TABLE security_industries ADD COLUMN sector TEXT")
     if "tax_treatment" not in existing:
         conn.execute("ALTER TABLE assets ADD COLUMN tax_treatment TEXT NOT NULL DEFAULT ''")
+    if "owner" not in existing:
+        # '' (Unassigned) for every pre-existing row -- see schema.py's
+        # own comment on assets.owner for what that means for the
+        # simulation. No silent change in anyone's numbers: Unassigned is
+        # modeled exactly as every account was before owners existed.
+        conn.execute("ALTER TABLE assets ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
     if "include_in_monte_carlo" not in existing_re:
         conn.execute("ALTER TABLE real_estate ADD COLUMN include_in_monte_carlo INTEGER NOT NULL DEFAULT 0")
     if "include_in_monte_carlo" not in existing:

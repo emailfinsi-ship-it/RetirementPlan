@@ -25,9 +25,10 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_retirement_year,
+    _resolve_spouse_birth_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need
 
 
@@ -49,6 +50,15 @@ def deterministic_drawdown_schedule(
     balances AFTER that year's growth and withdrawal (so `rows[-1]` is
     the projection's ending balance by pool).
 
+    When some Tax-deferred money is assigned to the spouse (the derived
+    `spouse_tax_deferred_share` assumption -- see assumptions.
+    _resolve_spouse_tax_deferred_share), each row also carries the
+    per-person breakdown: "spouse_age", "rmd_self", "rmd_spouse",
+    "tax_deferred_self", "tax_deferred_spouse" (each person's own
+    balance AFTER that year), and the result's "has_spouse" is True --
+    all None/absent otherwise, so a single-owner plan's rows are exactly
+    what they were before.
+
     When the "Retirement year" assumption is set
     (_resolve_retirement_year), every year before it withdraws nothing
     (see annual_net_withdrawal_need's own docstring) -- the pools still
@@ -68,6 +78,7 @@ def deterministic_drawdown_schedule(
     current_year_raw = assumptions.get("current_year")
     current_year = int(current_year_raw) if current_year_raw not in (None, "") else date.today().year
     birth_year = _resolve_birth_year(assumptions)
+    spouse_birth_year = _resolve_spouse_birth_year(assumptions)
     gains_fraction = _resolve_gains_fraction(assumptions)
     retirement_year = _resolve_retirement_year(assumptions)
     early_tax_deferred_age = _resolve_early_tax_deferred_age(assumptions)
@@ -79,6 +90,7 @@ def deterministic_drawdown_schedule(
         "taxable": pools.get("taxable", 0.0),
         "real_estate": pools.get("real_estate", 0.0),
     }
+    owners = new_owner_state(path_pools["tax_deferred"], assumptions)
     rows = []
     for year in years:
         for name in path_pools:
@@ -93,9 +105,10 @@ def deterministic_drawdown_schedule(
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
+            owners=owners,
         )
         withdrawn = result["withdrawn"]
-        rows.append({
+        row = {
             "year": year,
             "age": age,
             "need": need,
@@ -118,9 +131,17 @@ def deterministic_drawdown_schedule(
             "roth": path_pools["roth"],
             "real_estate": path_pools["real_estate"],
             "total": sum(path_pools.values()),
-        })
+        }
+        if owners is not None:
+            row["spouse_age"] = (year - spouse_birth_year) if spouse_birth_year is not None else None
+            row["rmd_self"] = result["rmd_by_owner"]["self"]
+            row["rmd_spouse"] = result["rmd_by_owner"]["spouse"]
+            row["tax_deferred_self"] = owners["self"]
+            row["tax_deferred_spouse"] = owners["spouse"]
+        rows.append(row)
 
     return {
         "years": years, "rows": rows, "expected_return": expected_return,
         "retirement_year": retirement_year, "early_tax_deferred_age": early_tax_deferred_age,
+        "has_spouse": owners is not None,
     }

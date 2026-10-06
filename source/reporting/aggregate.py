@@ -151,6 +151,30 @@ def category_subtotals(rows: list[dict], live_by_account_id: dict) -> list[tuple
     return [(cat, totals[cat]) for cat in order]
 
 
+def _owner_key(owner) -> str:
+    """The bucket an account's Owner value falls into for the per-owner
+    Tax-deferred totals below: 'self', 'spouse', or 'unassigned' (blank,
+    or anything unrecognized)."""
+    return owner if owner in ("self", "spouse") else "unassigned"
+
+
+def _spouse_share(by_owner: dict) -> float:
+    """The fraction (0..1) of a by-owner Tax-deferred breakdown that
+    belongs to the spouse -- what the engine's derived
+    `spouse_tax_deferred_share` assumption carries (see
+    monte_carlo.assumptions._resolve_spouse_tax_deferred_share). Computed
+    against the GROSS Tax-deferred total (before _pools_net_of_liabilities
+    nets any liability out of it), which only differs from the netted pool
+    in the rare case a liability exceeds the whole Taxable pool; the engine
+    applies this fraction to whatever the actual starting pool is. 0.0
+    whenever the spouse owns none of it (including a zero total), which
+    keeps every engine on its original single-owner path."""
+    total = sum(by_owner.values())
+    if total <= 0:
+        return 0.0
+    return min(1.0, max(0.0, by_owner.get("spouse", 0.0) / total))
+
+
 def _pools_net_of_liabilities(
     tax_deferred_total: float, roth_total: float, taxable_total: float, liability_total: float,
 ) -> dict:
@@ -293,6 +317,19 @@ def build_summary() -> dict:
         amount for buckets in retirement_row_buckets.values() for bucket, amount in buckets if bucket == "taxable"
     )
 
+    # The Tax-deferred total split by account OWNER (assets.owner) -- the
+    # input to the per-person RMD modeling. A row's whole balance (or
+    # each of its manual splits' pieces) belongs to that row's owner;
+    # Unassigned money is reported separately here so the UI can flag it,
+    # even though the engine models it under the plan owner (see
+    # source.common.db.owners).
+    tax_deferred_by_owner = {"self": 0.0, "spouse": 0.0, "unassigned": 0.0}
+    for a in retirement_rows:
+        key = _owner_key(a.get("owner"))
+        for bucket, amount in retirement_row_buckets[a["id"]]:
+            if bucket == "tax_deferred":
+                tax_deferred_by_owner[key] += amount
+
     # Any Plaid account a manual line item or real-estate row is now
     # linked to is already folded into manual_asset_total/liability_total/
     # re_equity_total above via its live balance -- excluding it here is
@@ -384,15 +421,26 @@ def build_summary() -> dict:
                 "split_total": split_total,
             })
 
+    # Owner of each live account that ISN'T tied to an Asset-tab row
+    # (source.common.db.owners) -- the Asset row's own owner column
+    # covers the linked case.
+    account_owners = db.get_account_owners()
+    drawdown_tax_deferred_by_owner = dict(tax_deferred_by_owner)
+
     drawdown_unlinked_totals = {"tax_deferred": 0.0, "roth": 0.0, "taxable": 0.0}
     for acc in unlinked_investment_accounts:
+        owner_key = _owner_key(account_owners.get(acc["account_id"]))
         if acc["account_id"] in split_unlinked_account_ids:
             for split in splits_by_account[acc["account_id"]]:
                 bucket = split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable"
                 drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + (split["amount"] or 0.0)
+                if bucket == "tax_deferred":
+                    drawdown_tax_deferred_by_owner[owner_key] += split["amount"] or 0.0
         else:
             bucket = acc.get("detected_tax_treatment") or "taxable"
             drawdown_unlinked_totals[bucket] = drawdown_unlinked_totals.get(bucket, 0.0) + acc["balance"]
+            if bucket == "tax_deferred":
+                drawdown_tax_deferred_by_owner[owner_key] += acc["balance"]
 
     # The starting pools for the Drawdown Planning tab's year-by-year
     # projection, and the numbers behind its snapshot tiles/chart: the
@@ -432,6 +480,8 @@ def build_summary() -> dict:
                     "origin": "Linked account (Asset tab, manually split)",
                     "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
                     "balance": split["amount"] or 0.0,
+                    "owner": db.normalize_owner(a.get("owner")),
+                    "owner_target": {"kind": "asset", "id": a["id"]},
                 })
         else:
             drawdown_sources.append({
@@ -440,6 +490,8 @@ def build_summary() -> dict:
                 "origin": "Linked account (Asset tab)" if live else "Manual entry (Asset tab)",
                 "tax_bucket": effective_tax_treatment(a, live_by_account_id),
                 "balance": effective_balance(a, live_by_account_id),
+                "owner": db.normalize_owner(a.get("owner")),
+                "owner_target": {"kind": "asset", "id": a["id"]},
             })
     for acc in unlinked_investment_accounts:
         if acc["account_id"] in split_unlinked_account_ids:
@@ -450,6 +502,8 @@ def build_summary() -> dict:
                     "origin": "Linked account (not on Asset tab, manually split)",
                     "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
                     "balance": split["amount"] or 0.0,
+                    "owner": db.normalize_owner(account_owners.get(acc["account_id"])),
+                    "owner_target": {"kind": "account", "id": acc["account_id"]},
                 })
         else:
             drawdown_sources.append({
@@ -458,6 +512,8 @@ def build_summary() -> dict:
                 "origin": "Linked account (not on Asset tab)",
                 "tax_bucket": acc.get("detected_tax_treatment") or "taxable",
                 "balance": acc["balance"],
+                "owner": db.normalize_owner(account_owners.get(acc["account_id"])),
+                "owner_target": {"kind": "account", "id": acc["account_id"]},
             })
     for r in real_estate:
         if r.get("include_in_monte_carlo"):
@@ -468,6 +524,15 @@ def build_summary() -> dict:
                 "tax_bucket": "real_estate",
                 "balance": real_estate_equity(r, loan_balance=effective_loan_balance(r, live_by_account_id)),
             })
+
+    # The derived spouse share of the Tax-deferred pool -- see
+    # monte_carlo.assumptions._resolve_spouse_tax_deferred_share. Injected
+    # into this fresh (never-persisted) assumptions dict so every
+    # simulation entry point, which already takes `assumptions`, sees it
+    # without a new parameter. It describes retirement_pools; the Drawdown
+    # and Legacy pages, whose pools ALSO include unlinked Plaid accounts,
+    # layer drawdown_spouse_tax_deferred_share over it instead.
+    assumptions["spouse_tax_deferred_share"] = _spouse_share(tax_deferred_by_owner)
 
     this_year = int(assumptions.get("current_year") or date.today().year)
     from source.reporting.monte_carlo import annual_expense_need, annual_income_need
@@ -516,6 +581,9 @@ def build_summary() -> dict:
         "net_worth": net_worth,
         "retirement_liquid_total": retirement_liquid_total,
         "tax_deferred_total": tax_deferred_total,
+        "tax_deferred_by_owner": tax_deferred_by_owner,
+        "drawdown_tax_deferred_by_owner": drawdown_tax_deferred_by_owner,
+        "drawdown_spouse_tax_deferred_share": _spouse_share(drawdown_tax_deferred_by_owner),
         "roth_total": roth_total,
         "taxable_total": taxable_total,
         "asset_category_subtotals": asset_category_subtotals,

@@ -13,7 +13,7 @@ from source.common.db.connection import _now, connect
 
 
 _TABLE_COLUMNS = {
-    "assets": ("kind", "category", "name", "institution", "last4", "balance", "notes", "source", "linked_account_id", "tax_treatment", "include_in_monte_carlo"),
+    "assets": ("kind", "category", "name", "institution", "last4", "balance", "notes", "source", "linked_account_id", "tax_treatment", "include_in_monte_carlo", "owner"),
     "real_estate": ("name", "purchase_price", "current_value", "ownership_pct", "loan_balance", "annual_income", "notes", "source", "linked_account_id", "include_in_monte_carlo"),
     "expenses": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source"),
     "income": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source", "include_in_monte_carlo"),
@@ -49,6 +49,12 @@ _NUMERIC_FIELDS = {
 
 _INT_FLAG_FIELDS = {"inflates", "include_in_monte_carlo"}
 
+# assets.owner -- see source.common.db.owners.OWNER_OPTIONS. Duplicated
+# as a literal rather than imported to keep this module's import graph
+# unchanged; owners.normalize_owner is the one place that logic lives
+# for callers outside this file.
+_OWNER_VALUES = {"", "self", "spouse"}
+
 
 
 def _coerce_line_item_value(field: str, value):
@@ -72,6 +78,8 @@ def _coerce_line_item_value(field: str, value):
             return int(float(value))
         except ValueError:
             return 0
+    if field == "owner":
+        return value.lower() if value.lower() in _OWNER_VALUES else ""
     return value
 
 

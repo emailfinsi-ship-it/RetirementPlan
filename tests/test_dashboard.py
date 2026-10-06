@@ -4830,7 +4830,7 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertIn("Starts with", body)
         # This row's own Match mode select is a live, enabled control
         # (unlike a "primary"/"detailed" rule's -- see the next test).
-        self.assertIn('name="match_mode" style="width:130px;">', body)
+        self.assertIn('name="match_mode" style="width:115px;">', body)
 
     def test_setup_page_disables_match_mode_for_a_primary_or_detailed_rule(self):
         # match_mode is meaningless for a "primary"/"detailed" rule
@@ -4839,7 +4839,7 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         # that wouldn't do anything.
         db.upsert_category_rule(rule_type="primary", match_key="general_merchandise", category="Shopping")
         body = self._get("/setup.html").read().decode("utf-8")
-        self.assertIn('name="match_mode" disabled style="width:130px;">', body)
+        self.assertIn('name="match_mode" disabled style="width:115px;">', body)
 
     def test_saving_a_keyword_rule_with_match_mode_persists_it(self):
         status, payload = self._post("/api/category-rule/save", {

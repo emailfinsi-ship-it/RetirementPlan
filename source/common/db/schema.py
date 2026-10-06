@@ -33,7 +33,26 @@ CREATE TABLE IF NOT EXISTS assets (
                                                     -- default for a brand-new row; existing rows are
                                                     -- backfilled on migration from whatever category list
                                                     -- was previously configured (see _migrate_schema below).
+    owner TEXT NOT NULL DEFAULT '',                -- 'self' | 'spouse', or '' (Unassigned -- the default for
+                                                    -- every pre-existing row). Whose account this is, so the
+                                                    -- Monte Carlo engine can compute each person's Required
+                                                    -- Minimum Distribution from their own balance and their
+                                                    -- own birth year (see source.reporting.rmd and
+                                                    -- source.reporting.monte_carlo.pools). Unassigned is
+                                                    -- modeled under the plan owner's own birth year until
+                                                    -- someone assigns it -- the UI flags it so it isn't
+                                                    -- silently left that way.
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS account_owners (
+    account_id TEXT PRIMARY KEY,                   -- plaid_accounts.account_id -- a live linked account that is NOT
+                                                    -- tied to an Asset-tab row (an Asset row's own `owner` column
+                                                    -- covers that case), so its owner has to live somewhere too.
+                                                    -- A split account (account_tax_splits) takes this same owner
+                                                    -- for every one of its pieces.
+    owner TEXT NOT NULL DEFAULT '',                -- 'self' | 'spouse' | '' -- same vocabulary as assets.owner
     updated_at TEXT NOT NULL
 );
 
@@ -409,6 +428,12 @@ DEFAULT_ASSUMPTIONS = {
     # set", which simply skips RMD modeling rather than blocking the
     # rest of the simulation on it. See source.reporting.rmd.
     "birth_year": "",
+    # The spouse's birth year, for HER own RMD start age (73 vs 75) and
+    # her own age each simulated year -- applies only to accounts whose
+    # Owner is set to the spouse. "" means "not set", which skips RMDs
+    # for her accounts (same as an unset birth_year does for the plan
+    # owner's). See source.reporting.monte_carlo.pools.
+    "spouse_birth_year": "",
     # The calendar year retirement starts -- "" means "not set", which
     # skips retirement-year gating entirely (every simulated year is
     # eligible for a withdrawal, matching this program's behavior before

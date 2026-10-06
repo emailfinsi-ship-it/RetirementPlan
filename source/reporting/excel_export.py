@@ -283,7 +283,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
     # on that same tab) gets its own sheet below since its per-scenario
     # detail table is much wider.
     ws_mc = wb.create_sheet("Monte Carlo Simulation")
-    assumption_rows = [(k, v) for k, v in sorted(summary["assumptions"].items())]
+    assumption_rows = [(k, v) for k, v in sorted(summary["assumptions"].items()) if k != "spouse_tax_deferred_share"]  # derived, not a user setting
     row = _write_table(ws_mc, headers=["Assumption", "Value"], rows=assumption_rows, start_row=1)
     row += 1
 

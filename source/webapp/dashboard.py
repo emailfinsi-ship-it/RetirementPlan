@@ -506,6 +506,12 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 item_id = db.add_line_item("assets", fields)
                 self._send_json({"ok": True, "id": item_id})
+            elif path == "/api/account-owner/set":
+                # Who owns a live linked account that isn't tied to an
+                # Asset-tab row (an Asset row's own owner goes through
+                # /api/line-item/update) -- see source.common.db.owners.
+                db.set_account_owner(payload.get("account_id") or "", payload.get("owner") or "")
+                self._send_json({"ok": True})
             elif path == "/api/assumptions":
                 updates = {}
                 for key, raw in payload.items():

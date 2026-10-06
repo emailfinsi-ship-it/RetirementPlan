@@ -191,6 +191,7 @@ def _category_table_html(
     # starting pools, so it skips both columns entirely rather than
     # showing controls that wouldn't do anything.
     tax_treatment_th = '<th>Tax treatment</th>' if is_asset_table else ""
+    owner_th = '<th>Owner</th>' if is_asset_table else ""
     mc_th = '<th>In Monte Carlo?</th>' if is_asset_table else ""
 
     def row_html(a):
@@ -203,7 +204,14 @@ def _category_table_html(
             balance_cell if is_linked else _editable_number_cell("assets", a["id"], "balance", a["balance"])
         )
         tax_treatment_td = (
-            f'<td>{_editable_select_cell("assets", a["id"], "tax_treatment", effective_tax_treatment(a, live_by_account_id), _TAX_TREATMENT_OPTIONS)}</td>'
+            f'<td>{_editable_select_cell("assets", a["id"], "tax_treatment", effective_tax_treatment(a, live_by_account_id), _TAX_TREATMENT_OPTIONS, width="110px")}</td>'
+            if is_asset_table else ""
+        )
+        # Whose account this is -- drives each person's own RMD (see
+        # source.common.db.owners). Unassigned (the default) is modeled
+        # under the plan owner's birth year until someone picks.
+        owner_td = (
+            f'<td>{_editable_select_cell("assets", a["id"], "owner", a.get("owner") or "", db.OWNER_OPTIONS, width="90px")}</td>'
             if is_asset_table else ""
         )
         mc_td = (
@@ -219,7 +227,7 @@ def _category_table_html(
             f'<td>{_editable_text_cell("assets", a["id"], "last4", a["last4"], width="90px")}</td>'
             f'<td class="num">{balance_display}</td>'
             f'<td class="link-col">{_link_select_html(a, linkable)}</td>'
-            f'{tax_treatment_td}{mc_td}'
+            f'{tax_treatment_td}{owner_td}{mc_td}'
             f'<td>{html.escape(a["source"])}</td></tr>'
         ), balance
 
@@ -227,14 +235,16 @@ def _category_table_html(
     rows_html = "".join(r for r, _ in rendered)
     subtotal = sum(b for _, b in rendered)
     footer_colspan = 5
-    footer_trailing_cols = "<td colspan=\"2\"></td>" if not is_asset_table else "<td colspan=\"4\"></td>"
+    footer_trailing_cols = "<td colspan=\"2\"></td>" if not is_asset_table else "<td colspan=\"5\"></td>"
     return f"""
 <div style="font-weight:600; font-size:13px; margin:16px 0 4px 0; color:#333;">{html.escape(category)}</div>
+<div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th class="check-col"><input type="checkbox" class="select-all-check"></th><th>Name</th><th>Category</th><th>Institution</th><th>Account #</th><th class="num">Balance</th><th class="link-col">Linked account</th>{tax_treatment_th}{mc_th}<th>Source</th></tr></thead>
+<thead><tr><th class="check-col"><input type="checkbox" class="select-all-check"></th><th>Name</th><th>Category</th><th>Institution</th><th>Account #</th><th class="num">Balance</th><th class="link-col">Linked account</th>{tax_treatment_th}{owner_th}{mc_th}<th>Source</th></tr></thead>
 <tbody>{rows_html}</tbody>
 <tfoot><tr><td colspan="{footer_colspan}">Subtotal</td><td class="num">{_money(subtotal)}</td>{footer_trailing_cols}</tr></tfoot>
 </table>
+</div>
 """
 
 def _editable_category_cell(item_id: int, category: str) -> str:

@@ -21,6 +21,45 @@ def _resolve_birth_year(assumptions: dict) -> int | None:
 
 
 
+def _resolve_spouse_birth_year(assumptions: dict) -> int | None:
+    """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year,
+    for the spouse's own "Wife's birth year" assumption -- what her own
+    RMD start age (73 vs 75) and her own age each simulated year come
+    from, independent of the plan owner's. None means "not set", which
+    skips RMD modeling for her accounts only (just like an unset birth
+    year already skips it for the plan owner)."""
+    raw = assumptions.get("spouse_birth_year")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+
+def _resolve_spouse_tax_deferred_share(assumptions: dict) -> float:
+    """The fraction (0..1) of the starting Tax-deferred pool that sits in
+    accounts assigned to the spouse -- NOT a user-entered assumption, but
+    a derived figure source.reporting.aggregate.build_summary computes
+    from each account's Owner and injects into the `assumptions` dict it
+    hands back (and the Drawdown/Legacy pages inject their own, since
+    their starting pools also include unlinked Plaid accounts), so every
+    simulation entry point -- which all already take `assumptions` --
+    picks it up without a new parameter threaded through each one. 0.0
+    (missing, blank, garbage, or no spouse-owned Tax-deferred money at
+    all) means "no per-owner tracking": every engine behaves exactly as
+    it did before owners existed."""
+    raw = assumptions.get("spouse_tax_deferred_share")
+    if raw in (None, ""):
+        return 0.0
+    try:
+        return min(1.0, max(0.0, float(raw)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+
 def _resolve_retirement_year(assumptions: dict) -> int | None:
     """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year
     above, for the "Retirement year" assumption -- None means "not set",

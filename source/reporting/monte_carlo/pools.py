@@ -39,6 +39,7 @@ year's withdrawal happens in three steps:
 from __future__ import annotations
 
 from source.reporting import rmd
+from source.reporting.monte_carlo.assumptions import _resolve_spouse_birth_year, _resolve_spouse_tax_deferred_share
 from source.reporting.monte_carlo.tax import _pool_year_tax
 
 
@@ -91,9 +92,80 @@ def _simulate_fill(available: dict, order: tuple, amount: float) -> dict:
 
 
 
+def new_owner_state(tax_deferred_balance: float, assumptions: dict) -> dict | None:
+    """A fresh per-path/per-scenario "who owns the Tax-deferred pool"
+    tracker for _apply_year_withdrawal's `owners` parameter, or None when
+    no tax-deferred money is assigned to the spouse (the original
+    single-owner behavior -- every caller can pass this straight through
+    without checking). Splits `tax_deferred_balance` (a path's starting
+    Tax-deferred pool) by the derived spouse share (see
+    assumptions._resolve_spouse_tax_deferred_share); the plan owner's
+    side gets everything not assigned to the spouse, including accounts
+    still marked Unassigned, which are modeled under the plan owner's
+    own birth year until someone assigns them. Every simulation site
+    calls this once per path/scenario, since each path's own balances
+    (and therefore each person's own RMD) evolve independently."""
+    share = _resolve_spouse_tax_deferred_share(assumptions)
+    if share <= 0:
+        return None
+    balance = max(0.0, tax_deferred_balance)
+    return {
+        "self": balance * (1.0 - share),
+        "spouse": balance * share,
+        "spouse_birth_year": _resolve_spouse_birth_year(assumptions),
+    }
+
+
+def _sync_owner_balances(owners: dict, tax_deferred_total: float) -> None:
+    """Rescales each owner's balance so they sum to the pool's actual
+    current Tax-deferred total, keeping their relative proportions.
+    Growth is applied to the shared pools dict by every caller (one
+    blended return, same as always) and Roth conversions pull from it
+    too -- neither touches `owners` itself, so this is what keeps the two
+    views from drifting apart before each year's RMD is computed."""
+    total = owners["self"] + owners["spouse"]
+    target = max(0.0, tax_deferred_total)
+    if total > 0:
+        scale = target / total
+        owners["self"] *= scale
+        owners["spouse"] *= scale
+    else:
+        owners["self"], owners["spouse"] = target, 0.0
+
+
+def _split_extra_tax_deferred(
+    amount: float, remaining_self: float, remaining_spouse: float, self_birth_year: int | None, spouse_birth_year: int | None,
+) -> tuple[float, float]:
+    """Divides an `amount` of ordinary (beyond-the-RMD) Tax-deferred
+    spending between the two owners' remaining balances: the OLDER
+    spouse's accounts first (the person who reaches RMD age sooner --
+    drawing theirs down shrinks the balance their own future RMDs are
+    calculated on), the other's only once that one's remaining balance
+    is exhausted. Falls back to splitting proportionally to remaining
+    balances when either birth year is unknown or both are equal, so
+    there's never an arbitrary winner. Returns (from_self, from_spouse),
+    never more than either person's own remaining balance."""
+    amount = max(0.0, amount)
+    if amount == 0.0:
+        return 0.0, 0.0
+    total_remaining = remaining_self + remaining_spouse
+    if total_remaining <= 0:
+        return 0.0, 0.0
+    amount = min(amount, total_remaining)
+    if self_birth_year is not None and spouse_birth_year is not None and self_birth_year != spouse_birth_year:
+        first_is_self = self_birth_year < spouse_birth_year
+        first_remaining = remaining_self if first_is_self else remaining_spouse
+        from_first = min(amount, first_remaining)
+        from_second = amount - from_first
+        return (from_first, from_second) if first_is_self else (from_second, from_first)
+    from_self = amount * (remaining_self / total_remaining)
+    return from_self, amount - from_self
+
+
 def _apply_year_withdrawal(
     pools: dict, *, need: float, age: int | None, birth_year: int | None, gains_fraction: float,
     year: int, inflation_rate: float, apply_drawdown_tax: bool, order: tuple | None = None,
+    owners: dict | None = None,
 ) -> dict:
     """Withdraws one simulated year's need (+ its own tax, if
     apply_drawdown_tax) from `pools` IN PLACE (mutates
@@ -121,10 +193,34 @@ def _apply_year_withdrawal(
     breakdown of the "beyond the RMD" draw (extra_withdrawn) -- a
     caller that wants "how much actually came out of each pool this
     year" adds `rmd` to withdrawn["tax_deferred"] itself, since the RMD
-    is a separate, mandatory draw from that same pool."""
+    is a separate, mandatory draw from that same pool.
+
+    `owners` (see new_owner_state) is None by default -- the original
+    behavior, where one RMD is computed on the WHOLE Tax-deferred pool
+    from the plan owner's own age, untouched byte for byte. Passed a
+    tracker instead (one is only ever created when some Tax-deferred
+    money is assigned to the spouse), each person's RMD is computed on
+    THEIR OWN share of the pool using THEIR OWN age/birth year (so
+    someone born 1962 isn't forced out at 73 just because their spouse
+    was born 1955), the two are summed, and any ordinary Tax-deferred
+    spending beyond the RMDs comes from the older spouse's remaining
+    balance first (_split_extra_tax_deferred). `owners` is mutated in
+    place to each person's new balance; the returned dict also gains
+    "rmd_by_owner": {"self": ..., "spouse": ...}. Everything else --
+    the pools dict, the withdrawal order, tax -- is unchanged, since
+    the pools dict itself never splits Tax-deferred by owner."""
     withdrawal_order = order or _WITHDRAWAL_ORDER
     rmd_amount = 0.0
-    if birth_year is not None and age is not None:
+    rmd_self = rmd_spouse = 0.0
+    if owners is not None:
+        _sync_owner_balances(owners, pools["tax_deferred"])
+        if birth_year is not None and age is not None:
+            rmd_self = rmd.required_minimum_distribution(owners["self"], age, birth_year)
+        spouse_birth_year = owners.get("spouse_birth_year")
+        if spouse_birth_year is not None:
+            rmd_spouse = rmd.required_minimum_distribution(owners["spouse"], year - spouse_birth_year, spouse_birth_year)
+        rmd_amount = rmd_self + rmd_spouse
+    elif birth_year is not None and age is not None:
         rmd_amount = rmd.required_minimum_distribution(pools["tax_deferred"], age, birth_year)
     rmd_amount = min(rmd_amount, max(0.0, pools["tax_deferred"]))
     need_after_rmd = max(0.0, need - rmd_amount)
@@ -158,6 +254,14 @@ def _apply_year_withdrawal(
 
     shortfall = max(0.0, extra_total - sum(extra_withdrawn.values()))
 
+    if owners is not None:
+        from_self, from_spouse = _split_extra_tax_deferred(
+            extra_withdrawn["tax_deferred"], max(0.0, owners["self"] - rmd_self), max(0.0, owners["spouse"] - rmd_spouse),
+            birth_year, owners.get("spouse_birth_year"),
+        )
+        owners["self"] = max(0.0, owners["self"] - rmd_self - from_self)
+        owners["spouse"] = max(0.0, owners["spouse"] - rmd_spouse - from_spouse)
+
     pools["tax_deferred"] -= rmd_amount + extra_withdrawn["tax_deferred"]
     pools["taxable"] -= extra_withdrawn["taxable"]
     pools["roth"] -= extra_withdrawn["roth"]
@@ -177,4 +281,7 @@ def _apply_year_withdrawal(
         if pools[name] < 0:
             pools[name] = 0.0
 
-    return {"rmd": rmd_amount, "tax": tax, "shortfall": shortfall, "withdrawn": extra_withdrawn}
+    result = {"rmd": rmd_amount, "tax": tax, "shortfall": shortfall, "withdrawn": extra_withdrawn}
+    if owners is not None:
+        result["rmd_by_owner"] = {"self": rmd_self, "spouse": rmd_spouse}
+    return result

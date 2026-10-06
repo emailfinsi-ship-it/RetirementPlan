@@ -20,7 +20,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_retirement_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.withdrawal import (
     annual_expense_need,
     annual_income_need,
@@ -190,6 +190,7 @@ def run_historical_stress_test(
                 "taxable": pools.get("taxable", 0.0),
                 "real_estate": pools.get("real_estate", 0.0),
             }
+            owners = new_owner_state(scen_pools["tax_deferred"], assumptions)
             depleted = False
             depleted_year = None
             path = []
@@ -203,7 +204,7 @@ def run_historical_stress_test(
                 age = (year - birth_year) if birth_year is not None else None
                 year_result = _apply_year_withdrawal(
                     scen_pools, need=yearly_needs[offset], age=age, birth_year=birth_year, gains_fraction=gains_fraction,
-                    year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax,
+                    year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, owners=owners,
                 )
                 scen_tax.append(year_result["tax"])
                 scen_rmd.append(year_result["rmd"])

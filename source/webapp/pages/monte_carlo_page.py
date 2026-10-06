@@ -170,6 +170,7 @@ def _render_monte_carlo_page() -> str:
   <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
   <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
   <label>Birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
+  <label>Wife's birth year (for her RMDs)<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get('spouse_birth_year') or ''))}"></label>
   <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
   <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>
   <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>

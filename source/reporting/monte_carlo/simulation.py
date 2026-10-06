@@ -23,7 +23,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_retirement_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.stress_test import _SP500_ANNUAL_RETURNS
 from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need, yearly_withdrawal_schedule
 
@@ -118,6 +118,7 @@ def _run_random_simulation(
                 "taxable": pools.get("taxable", 0.0),
                 "real_estate": pools.get("real_estate", 0.0),
             }
+            owners = new_owner_state(path_pools["tax_deferred"], assumptions)
             path = []
             path_tax_total = 0.0
             depleted = False
@@ -128,7 +129,7 @@ def _run_random_simulation(
                 age = (year - birth_year) if birth_year is not None else None
                 year_result = _apply_year_withdrawal(
                     path_pools, need=needs[i], age=age, birth_year=birth_year, gains_fraction=gains_fraction,
-                    year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax,
+                    year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, owners=owners,
                 )
                 path_tax_total += year_result["tax"]
                 if i == 0:

@@ -47,7 +47,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_retirement_year,
     _truthy_assumption,
 )
-from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal
+from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.tax import (
     CA_TAX_BRACKETS_MFJ_2026,
     FEDERAL_STANDARD_DEDUCTION_MFJ_2026,
@@ -318,6 +318,7 @@ def _run_conversion_schedule(
         "taxable": pools.get("taxable", 0.0),
         "real_estate": pools.get("real_estate", 0.0),
     }
+    owners = new_owner_state(path_pools["tax_deferred"], assumptions)
     total_lifetime_tax = 0.0
     total_converted = 0.0
     depletes = False
@@ -337,6 +338,7 @@ def _run_conversion_schedule(
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
+            owners=owners,
         )
         if result["shortfall"] > 1e-6:
             depletes = True

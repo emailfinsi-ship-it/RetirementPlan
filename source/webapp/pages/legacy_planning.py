@@ -226,6 +226,10 @@ def _render_legacy_planning_page() -> str:
     s = build_summary()
     assumptions = s["assumptions"]
     pools = s["drawdown_pools"]
+    # Same starting pools as the Drawdown Planning tab (unlinked live
+    # accounts included), so the same drawdown-wide spouse share of the
+    # Tax-deferred pool applies -- see that page for why.
+    assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
 
     result = compare_roth_conversion_strategies(
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
