@@ -655,6 +655,13 @@ _NW_EXPLORER_JS = """
   var mode = 'value';
   var showNw = true;
   var selected = {};
+  var state = null;
+  var holder = document.createElement('div');
+  chart.appendChild(holder);
+  var tip = document.createElement('div');
+  tip.className = 'nw-tip';
+  tip.hidden = true;
+  chart.appendChild(tip);
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function day(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
@@ -705,7 +712,8 @@ _NW_EXPLORER_JS = """
     }).filter(function (s) { return s.pts.length >= 1; });
 
     if (!list.length) {
-      chart.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick Net worth or one or more assets above to plot them.</p>';
+      state = null; hideTip();
+      holder.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick Net worth or one or more assets above to plot them.</p>';
       return;
     }
     var d0 = Infinity, d1 = -Infinity, lo = Infinity, hi = -Infinity;
@@ -762,13 +770,66 @@ _NW_EXPLORER_JS = """
       s.pts.forEach(function (p, i) {
         var visible = all || i === s.pts.length - 1;
         svg += '<circle cx="' + xAt(p.d).toFixed(1) + '" cy="' + yAt(p.y).toFixed(1) + '" r="' + (visible ? 3 : 5) + '" ' +
-          (visible ? 'style="fill:' + s.color + ';"' : 'fill="transparent"') + '><title>' + esc(s.name) + ' -- ' + p.label + ': ' +
-          money(p.raw) + (mode === 'pct' ? ' (' + (p.y >= 0 ? '+' : '') + p.y.toFixed(2) + '%)' : '') + '</title></circle>';
+          (visible ? 'style="fill:' + s.color + ';"' : 'fill="transparent"') + '/>';
       });
     });
-    chart.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Net worth and selected assets over time" ' +
+    svg += '<line class="nw-guide" x1="0" y1="' + PT + '" x2="0" y2="' + PBOT + '" visibility="hidden" ' +
+      'style="stroke:var(--ink-muted);" stroke-width="1" stroke-dasharray="2 3"/><g class="nw-hl"></g>';
+    holder.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Net worth and selected assets over time" ' +
       'style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">' + svg + '</svg>';
+    var dayset = {};
+    list.forEach(function (s) { s.pts.forEach(function (p) { dayset[p.d] = true; }); });
+    state = { list: list, xAt: xAt, yAt: yAt, days: Object.keys(dayset).map(Number).sort(function (a, b) { return a - b; }) };
   }
+
+  function hideTip() {
+    tip.hidden = true;
+    var g = holder.querySelector('.nw-guide');
+    if (g) g.setAttribute('visibility', 'hidden');
+    var h = holder.querySelector('.nw-hl');
+    if (h) h.innerHTML = '';
+  }
+
+  function showTip(ev) {
+    var svgEl = holder.querySelector('svg');
+    if (!state || !svgEl) return;
+    var r = svgEl.getBoundingClientRect();
+    var sx = (ev.clientX - r.left) / r.width * W;
+    if (sx < PL - 8 || sx > PRIGHT + 8) { hideTip(); return; }
+    var best = null, bestDist = Infinity;
+    state.days.forEach(function (d) {
+      var dist = Math.abs(state.xAt(d) - sx);
+      if (dist < bestDist) { bestDist = dist; best = d; }
+    });
+    if (best === null) return;
+    var rows = [];
+    state.list.forEach(function (s) {
+      s.pts.forEach(function (p) { if (p.d === best) rows.push({ s: s, p: p }); });
+    });
+    var x = state.xAt(best);
+    var guide = holder.querySelector('.nw-guide');
+    guide.setAttribute('x1', x.toFixed(1)); guide.setAttribute('x2', x.toFixed(1));
+    guide.setAttribute('visibility', 'visible');
+    holder.querySelector('.nw-hl').innerHTML = rows.map(function (row) {
+      return '<circle cx="' + x.toFixed(1) + '" cy="' + state.yAt(row.p.y).toFixed(1) + '" r="5" stroke-width="2" ' +
+        'style="fill:' + row.s.color + '; stroke:var(--surface);"/>';
+    }).join('');
+    var label = rows.length ? rows[0].p.label : '';
+    tip.innerHTML = '<div class="nw-tip-date">' + esc(label) + '</div>' + rows.map(function (row) {
+      return '<div class="nw-tip-row"><span class="nw-swatch" style="background:' + row.s.color + ';"></span>' +
+        '<span class="nw-tip-name">' + esc(row.s.name) + '</span><span class="nw-tip-val">' + money(row.p.raw) +
+        (mode === 'pct' ? ' <span class="nw-tip-pct">(' + (row.p.y >= 0 ? '+' : '') + row.p.y.toFixed(2) + '%)</span>' : '') +
+        '</span></div>';
+    }).join('');
+    tip.hidden = false;
+    var px = x / W * r.width, w = tip.offsetWidth;
+    var left = px + 14;
+    if (left + w > r.width) left = Math.max(0, px - w - 14);
+    tip.style.left = left + 'px';
+    tip.style.top = '8px';
+  }
+  chart.addEventListener('pointermove', showTip);
+  chart.addEventListener('pointerleave', hideTip);
 
   function sync() {
     var nwChip = root.querySelector('.nw-chip[data-nw]');

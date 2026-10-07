@@ -196,6 +196,16 @@ PAGE_CSS = """
   .nw-chip[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-muted); background: var(--surface-alt); font-weight: 600; }
   .nw-chip[aria-pressed="false"] .nw-swatch { opacity: 0.35; }
   .nw-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+  .nw-chart { position: relative; }
+  .nw-tip { position: absolute; z-index: 5; pointer-events: none; min-width: 190px; max-width: 340px; padding: 8px 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-md);
+    font-size: 11px; color: var(--ink); }
+  .nw-tip[hidden] { display: none; }
+  .nw-tip-date { font-weight: 600; margin-bottom: 4px; color: var(--ink-muted); }
+  .nw-tip-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+  .nw-tip-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nw-tip-val { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .nw-tip-pct { font-weight: 500; color: var(--ink-muted); }
   .nw-tools { display: inline-flex; gap: 2px; margin-left: 4px; }
   .nw-link { background: none; border: none; padding: 2px 6px; font-size: 11px; color: var(--brand); cursor: pointer; border-radius: 6px; }
   .nw-seg { display: inline-flex; margin-left: auto; border: 1px solid var(--border); border-radius: 980px; overflow: hidden; }

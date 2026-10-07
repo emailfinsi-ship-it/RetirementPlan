@@ -5718,3 +5718,14 @@ class TestNetWorthExplorer(DashboardTestCase):
         # The script handles it and remembers the choice.
         self.assertIn("showNw", body)
         self.assertIn("rp-nw-show", body)
+
+    def test_hovering_the_chart_shows_a_values_tooltip_not_just_a_native_title(self):
+        self._net_worth([1_000_000.0, 1_010_000.0])
+        self._history("Fidelity 401k", [400_000.0, 405_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        # A hover readout (guide line + one row per visible series) driven by pointer events...
+        self.assertIn("addEventListener('pointermove', showTip)", body)
+        self.assertIn("nw-tip-row", body)
+        self.assertIn("nw-guide", body)
+        # ...and its styling ships in the shared stylesheet.
+        self.assertIn(".nw-tip {", body)
