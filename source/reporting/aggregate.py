@@ -220,6 +220,56 @@ def capture_net_worth_snapshot(summary: dict | None = None) -> None:
         real_estate_equity_total=s["real_estate_equity_total"],
         retirement_liquid_total=s["retirement_liquid_total"],
     )
+    capture_asset_balance_snapshots(s)
+
+
+def capture_asset_balance_snapshots(summary: dict | None = None) -> None:
+    """Records today's effective balance for every Asset-tab asset row (not
+    liabilities) into source.common.db.asset_balance_snapshots -- called
+    from capture_net_worth_snapshot, so every place that already captures
+    a net-worth point (startup, after a Plaid sync, the once-a-day
+    background check) also captures each asset's own point, keeping the
+    two series on the same days. Idempotent per row per day."""
+    s = summary if summary is not None else build_summary()
+    live_by_account_id = {a["account_id"]: a for a in linked_data.linkable_accounts()}
+    for a in s["assets"]:
+        if a.get("kind") == "liability":
+            continue
+        db.record_asset_balance_snapshot(
+            asset_id=a["id"], balance=effective_balance(a, live_by_account_id),
+            name=a.get("name") or "", category=a.get("category") or "",
+        )
+
+
+def asset_balance_history(assets: list[dict]) -> list[dict]:
+    """Each current Asset-tab asset row's balance-over-time, for the net-
+    worth chart's "plot individual assets" picker: [{"id", "name",
+    "category", "points": [(date, balance), ...]}], largest current
+    balance first. A row's own daily snapshots are authoritative; days
+    before those began are backfilled from the linked Plaid account's own
+    history (account_balance_snapshots, recorded for linked investment
+    accounts) when the row is linked to one -- so a long-linked 401(k)
+    already has a trend the first day this feature exists."""
+    own: dict[int, dict[str, float]] = {}
+    for row in db.list_asset_balance_snapshots():
+        own.setdefault(row["asset_id"], {})[row["snapshot_date"]] = row["balance"]
+    by_account: dict[str, dict[str, float]] = {}
+    for row in db.list_account_balance_snapshots():
+        by_account.setdefault(row["account_id"], {})[row["snapshot_date"]] = row["balance"]
+    result = []
+    for a in assets:
+        if a.get("kind") == "liability":
+            continue
+        merged: dict[str, float] = dict(by_account.get(a.get("linked_account_id") or "", {}))
+        merged.update(own.get(a["id"], {}))
+        if not merged:
+            continue
+        points = sorted(merged.items())
+        result.append({
+            "id": a["id"], "name": a.get("name") or "", "category": a.get("category") or "", "points": points,
+        })
+    result.sort(key=lambda r: r["points"][-1][1], reverse=True)
+    return result
 
 
 def capture_investment_account_balances(accounts: list[dict] | None = None) -> None:

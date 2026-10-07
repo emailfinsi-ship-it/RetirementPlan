@@ -406,6 +406,30 @@ CREATE TABLE IF NOT EXISTS account_balance_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_account_balance_snapshots_account
     ON account_balance_snapshots(account_id, snapshot_date);
+
+-- One row per (Asset-tab row, calendar day): that row's effective balance
+-- (the live Plaid balance for a linked row, the typed balance otherwise)
+-- as of that day. Written alongside every net-worth snapshot (see
+-- source.reporting.aggregate.capture_net_worth_snapshot), so the Asset
+-- tab's net-worth chart can plot individual assets next to the total.
+-- name/category are stored too so a row's history still reads sensibly
+-- after it's renamed; a row that's deleted simply stops appearing (the
+-- chart only lists assets that still exist). asset_id is the assets
+-- table's id; there's deliberately no foreign key -- history outlives
+-- the row it came from.
+CREATE TABLE IF NOT EXISTS asset_balance_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    snapshot_date TEXT NOT NULL,              -- "YYYY-MM-DD", local date
+    balance REAL NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(asset_id, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_balance_snapshots_asset
+    ON asset_balance_snapshots(asset_id, snapshot_date);
 """
 
 

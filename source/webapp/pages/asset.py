@@ -7,6 +7,7 @@ import html
 
 from source.common import db, linked_data
 from source.reporting.aggregate import (
+    asset_balance_history,
     category_subtotals,
     effective_loan_balance,
     effective_tax_treatment,
@@ -22,6 +23,7 @@ from source.webapp.render_helpers import (
     _editable_text_cell,
     _effective_balance_html,
     _line_chart_html,
+    _net_worth_explorer_html,
     _link_select_html,
     _money,
     _shell,
@@ -104,14 +106,29 @@ def _render_asset_page() -> str:
     asset_summary_html = _asset_category_summary_html(asset_category_subtotals, liability_total, net_liquid_asset)
     asset_rollup_html = _asset_rollup_summary_html(net_liquid_asset, real_estate_total)
 
-    net_worth_history_html = _line_chart_html(
-        "Net worth over time",
-        _net_worth_points(db.list_net_worth_snapshots()),
-        note="One point per day -- captured automatically once a day (when this program is opened or synced, "
+    net_worth_points = _net_worth_points(db.list_net_worth_snapshots())
+    # Individual assets with at least two days of history can be plotted next
+    # to the total (linked rows backfill from their Plaid account's own
+    # history, so a long-linked account already has a trend).
+    plottable_assets = [h for h in asset_balance_history(asset_rows) if len(h["points"]) >= 2]
+    chart_note = (
+        "One point per day -- captured automatically once a day (when this program is opened or synced, "
         "and in the background each new day while it's running), nothing to set up. The vertical scale fits "
-        "your own data, so small changes stay visible.",
-        empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
+        "what's shown, so small changes stay visible."
     )
+    if len(net_worth_points) >= 2 and plottable_assets:
+        net_worth_history_html = _net_worth_explorer_html(
+            "Net worth over time", net_worth_points, plottable_assets,
+            note=chart_note + " Pick assets above to plot them alongside; \"% change\" starts every line at 0 so "
+            "different-sized assets are comparable. Assets appear once they have two days of history.",
+        )
+    else:
+        net_worth_history_html = _line_chart_html(
+            "Net worth over time",
+            net_worth_points,
+            note=chart_note + " Individual assets can be plotted here once they have two days of history.",
+            empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
+        )
 
     body = f"""
 <h2 style="margin-top:0">Assets</h2>

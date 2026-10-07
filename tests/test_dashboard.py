@@ -5656,3 +5656,55 @@ class TestThemeToggle(DashboardTestCase):
         html_out = _donut_chart_html("T", [("A", 100.0, ["a"]), ("B", 50.0, ["b"])], dim="type")
         self.assertIn("fill:var(--ink", html_out)
         self.assertNotIn('fill="#0b0b0b"', html_out)
+
+
+class TestNetWorthExplorer(DashboardTestCase):
+    """The Asset tab's net-worth card with a picker for plotting individual
+    assets next to the total (charts._net_worth_explorer_html)."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+            conn.execute("DELETE FROM asset_balance_snapshots")
+
+    def _history(self, name, values):
+        asset_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": name, "balance": values[-1]})
+        for i, v in enumerate(values, start=1):
+            db.record_asset_balance_snapshot(asset_id=asset_id, balance=v, name=name, snapshot_date=f"2026-09-0{i}")
+        return asset_id
+
+    def _net_worth(self, values):
+        for i, v in enumerate(values, start=1):
+            db.record_snapshot(
+                net_worth=v, manual_asset_total=0, linked_asset_total=0, liability_total=0,
+                real_estate_equity_total=0, retirement_liquid_total=0, snapshot_date=f"2026-09-0{i}",
+            )
+
+    def test_explorer_replaces_the_static_chart_when_an_asset_has_history(self):
+        self._net_worth([1_000_000.0, 1_010_000.0, 1_030_000.0])
+        asset_id = self._history("Fidelity 401k", [400_000.0, 405_000.0, 410_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('id="nw-explorer"', body)
+        self.assertIn(f'data-id="{asset_id}"', body)
+        self.assertIn("Fidelity 401k", body)
+        self.assertIn('data-mode="pct"', body)
+        self.assertIn('"nw": [["2026-09-01", 1000000.0]', body)
+        self.assertIn("+$30,000.00 (+3.0%) since 2026-09-01", body)
+
+    def test_static_chart_is_kept_when_no_asset_has_two_days_of_history(self):
+        self._net_worth([1_000_000.0, 1_010_000.0])
+        asset_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "New", "balance": 5})
+        db.record_asset_balance_snapshot(asset_id=asset_id, balance=5.0, name="New", snapshot_date="2026-09-02")
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn('id="nw-explorer"', body)
+        self.assertIn("<svg", body)
+        self.assertIn("two days of history", body)
+
+    def test_asset_names_are_escaped_and_cannot_break_out_of_the_embedded_json(self):
+        self._net_worth([1.0, 2.0])
+        self._history("</script><b>x</b>", [10.0, 11.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn("</script><b>", body)
+        self.assertIn("&lt;/script&gt;&lt;b&gt;x&lt;/b&gt;", body)  # the chip label
+        self.assertIn("<\\/script>", body)  # ...and the JSON payload's escaped form

@@ -2,7 +2,9 @@ import unittest
 
 from source.common import db
 from source.reporting.aggregate import (
+    asset_balance_history,
     build_summary,
+    capture_asset_balance_snapshots,
     capture_daily_snapshots_if_new_day,
     capture_investment_account_balances,
     capture_net_worth_snapshot,
@@ -768,3 +770,56 @@ class TestCaptureDailySnapshotsIfNewDay(TempConfigTestCase):
         with patch("source.reporting.aggregate.capture_investment_account_balances") as balances:
             capture_daily_snapshots_if_new_day("2026-09-01", today="2026-09-02")
         balances.assert_called_once()
+
+
+class TestAssetBalanceSnapshots(TempConfigTestCase):
+    """Per-asset daily history behind the Asset tab's "plot individual
+    assets next to net worth" chart."""
+
+    def _asset(self, name, balance, **extra):
+        return db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": name, "balance": balance, **extra})
+
+    def test_capture_records_one_row_per_asset_and_skips_liabilities(self):
+        a = self._asset("Fidelity", 100_000)
+        db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
+        capture_asset_balance_snapshots()
+        rows = db.list_asset_balance_snapshots()
+        self.assertEqual([(r["asset_id"], r["balance"], r["name"]) for r in rows], [(a, 100_000.0, "Fidelity")])
+
+    def test_capturing_twice_the_same_day_overwrites_instead_of_duplicating(self):
+        a = self._asset("Fidelity", 100_000)
+        capture_asset_balance_snapshots()
+        db.update_line_item("assets", a, {"balance": 120_000})
+        capture_asset_balance_snapshots()
+        rows = db.list_asset_balance_snapshots(a)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["balance"], 120_000.0)
+
+    def test_capture_net_worth_snapshot_also_captures_assets(self):
+        a = self._asset("Fidelity", 100_000)
+        capture_net_worth_snapshot()
+        self.assertEqual(len(db.list_asset_balance_snapshots(a)), 1)
+
+    def test_history_is_sorted_largest_first_and_sorted_by_date(self):
+        small = self._asset("Small", 1_000)
+        big = self._asset("Big", 9_000)
+        for d, v in (("2026-09-02", 9_100.0), ("2026-09-01", 9_000.0)):
+            db.record_asset_balance_snapshot(asset_id=big, balance=v, name="Big", snapshot_date=d)
+        db.record_asset_balance_snapshot(asset_id=small, balance=1_000.0, name="Small", snapshot_date="2026-09-01")
+        history = asset_balance_history(db.list_line_items("assets"))
+        self.assertEqual([h["name"] for h in history], ["Big", "Small"])
+        self.assertEqual(history[0]["points"], [("2026-09-01", 9_000.0), ("2026-09-02", 9_100.0)])
+
+    def test_linked_rows_backfill_from_their_accounts_own_history_and_own_snapshots_win(self):
+        a = self._asset("Linked 401k", 1, linked_account_id="acc-1")
+        db.record_account_balance_snapshot(account_id="acc-1", balance=50_000.0, snapshot_date="2026-09-01")
+        db.record_account_balance_snapshot(account_id="acc-1", balance=51_000.0, snapshot_date="2026-09-02")
+        db.record_asset_balance_snapshot(asset_id=a, balance=52_500.0, name="Linked 401k", snapshot_date="2026-09-02")
+        history = asset_balance_history(db.list_line_items("assets"))
+        self.assertEqual(history[0]["points"], [("2026-09-01", 50_000.0), ("2026-09-02", 52_500.0)])
+
+    def test_rows_with_no_history_and_liabilities_are_left_out(self):
+        self._asset("No history", 5_000)
+        liab = db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
+        db.record_asset_balance_snapshot(asset_id=liab, balance=5_000.0, name="Card", snapshot_date="2026-09-01")
+        self.assertEqual(asset_balance_history(db.list_line_items("assets")), [])

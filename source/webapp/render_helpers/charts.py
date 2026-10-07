@@ -628,3 +628,234 @@ def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, d
 <div class="bar-chart">{"".join(rows)}</div>
 </div>
 """
+
+
+# ---------------------------------------------------------------------------
+# Net worth explorer: the Asset tab's net-worth line plus a picker for
+# plotting individual assets next to it.
+# ---------------------------------------------------------------------------
+
+_NW_EXPLORER_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#898781")
+_NW_EXPLORER_DEFAULT_SELECTED = 3  # the largest assets are shown until the person picks their own
+
+# Plain string (never .format()-ed / f-string-ed), so its braces need no
+# doubling. Draws the same chart _line_chart_html does -- fitted y-range,
+# five gridlines, labeled axes, date-proportional x -- for however many
+# series are currently picked, in either dollar or %-change terms.
+_NW_EXPLORER_JS = """
+(function () {
+  var root = document.getElementById('nw-explorer');
+  if (!root) return;
+  var data = JSON.parse(root.querySelector('script[type="application/json"]').textContent);
+  var chart = root.querySelector('.nw-chart');
+  var COLORS = data.colors;
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var W = 960, H = 270, PL = 84, PR = 18, PT = 14, PB = 54;
+  var PW = W - PL - PR, PH = H - PT - PB, PBOT = PT + PH, PRIGHT = W - PR;
+  var mode = 'value';
+  var selected = {};
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function day(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
+  function money(v) {
+    var sign = v < 0 ? '-' : '';
+    return sign + '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  function axisMoney(v, step) {
+    var sign = v < 0 ? '-' : '', m = Math.abs(v);
+    if (m >= 1e6) { var d = step >= 5e5 ? 1 : step >= 5e4 ? 2 : 3; return sign + '$' + (m / 1e6).toFixed(d) + 'M'; }
+    if (m >= 1e3) { var k = step >= 500 ? 0 : step >= 50 ? 1 : 2; return sign + '$' + (m / 1e3).toFixed(k) + 'K'; }
+    return sign + '$' + (step >= 1 ? m.toFixed(0) : m.toFixed(2));
+  }
+  function axisPct(v, step) {
+    var d = step >= 5 ? 0 : step >= 0.5 ? 1 : 2;
+    return (v > 0 ? '+' : '') + v.toFixed(d) + '%';
+  }
+
+  var topIds = data.assets.slice(0, data.defaultSelected).map(function (a) { return a.id; });
+  var valid = {};
+  data.assets.forEach(function (a) { valid[a.id] = true; });
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem('rp-nw-assets') || 'null'); } catch (e) {}
+  (Array.isArray(saved) ? saved.filter(function (id) { return valid[id]; }) : topIds).forEach(function (id) { selected[id] = true; });
+  try { var m = localStorage.getItem('rp-nw-mode'); if (m === 'value' || m === 'pct') mode = m; } catch (e) {}
+
+  function series() {
+    var out = [{ name: 'Net worth', color: 'var(--ink)', width: 3, dash: '', pts: data.nw }];
+    data.assets.forEach(function (a, i) {
+      if (selected[a.id]) out.push({
+        name: a.name, color: COLORS[i % COLORS.length], width: 2, dash: i >= COLORS.length ? '5 3' : '', pts: a.points,
+      });
+    });
+    return out;
+  }
+
+  function draw() {
+    var list = series().map(function (s) {
+      var base = s.pts.length ? s.pts[0][1] : 0;
+      var pts = [];
+      s.pts.forEach(function (p) {
+        var y = p[1];
+        if (mode === 'pct') { if (!base) return; y = (p[1] - base) / Math.abs(base) * 100; }
+        pts.push({ d: day(p[0]), label: p[0], raw: p[1], y: y });
+      });
+      return { name: s.name, color: s.color, width: s.width, dash: s.dash, pts: pts };
+    }).filter(function (s) { return s.pts.length >= 1; });
+
+    var d0 = Infinity, d1 = -Infinity, lo = Infinity, hi = -Infinity;
+    list.forEach(function (s) { s.pts.forEach(function (p) {
+      d0 = Math.min(d0, p.d); d1 = Math.max(d1, p.d); lo = Math.min(lo, p.y); hi = Math.max(hi, p.y);
+    }); });
+    if (mode === 'pct') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    if (hi - lo <= 1e-9) { var padFlat = Math.max(Math.abs(hi) * 0.01, 1); lo -= padFlat; hi += padFlat; }
+    else { var padY = (hi - lo) * 0.12; lo -= padY; hi += padY; }
+    var span = d1 - d0;
+    function xAt(d) { return PL + (span > 0 ? (d - d0) / span : 0.5) * PW; }
+    function yAt(v) { return PT + (1 - (v - lo) / (hi - lo)) * PH; }
+
+    var axis = 'style="stroke:var(--ink-muted);" stroke-width="1"';
+    var text = 'style="fill:var(--ink-muted);"';
+    var svg = '';
+    var step = (hi - lo) / 4;
+    for (var g = 0; g <= 4; g++) {
+      var v = lo + (hi - lo) * g / 4, y = yAt(v);
+      svg += '<line x1="' + PL + '" y1="' + y.toFixed(1) + '" x2="' + PRIGHT + '" y2="' + y.toFixed(1) + '" style="stroke:var(--border);" stroke-width="1" stroke-dasharray="3 3"/>' +
+        '<line x1="' + (PL - 5) + '" y1="' + y.toFixed(1) + '" x2="' + PL + '" y2="' + y.toFixed(1) + '" ' + axis + '/>' +
+        '<text x="' + (PL - 9) + '" y="' + (y + 3).toFixed(1) + '" font-size="10" text-anchor="end" ' + text + '>' +
+        (mode === 'pct' ? axisPct(v, step) : axisMoney(v, step)) + '</text>';
+    }
+    if (lo < 0 && hi > 0) {
+      var zy = yAt(0).toFixed(1);
+      svg += '<line x1="' + PL + '" y1="' + zy + '" x2="' + PRIGHT + '" y2="' + zy + '" style="stroke:var(--ink-muted);" stroke-width="1"/>';
+    }
+    svg += '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + PBOT + '" ' + axis + '/>' +
+      '<line x1="' + PL + '" y1="' + PBOT + '" x2="' + PRIGHT + '" y2="' + PBOT + '" ' + axis + '/>' +
+      '<text transform="translate(14 ' + (PT + PH / 2).toFixed(1) + ') rotate(-90)" font-size="10" text-anchor="middle" ' + text + '>' +
+      (mode === 'pct' ? 'Change since first reading' : 'Balance') + '</text>' +
+      '<text x="' + (PL + PW / 2).toFixed(1) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" ' + text + '>Date</text>';
+
+    function iso(d) { var t = new Date(d * 86400000); return t.toISOString().slice(0, 10); }
+    var ticks = [[PL, iso(d0), 'start'], [PRIGHT, iso(d1), 'end']];
+    if (span >= 8) {
+      [1, 2, 3, 4, 5].forEach(function (k) {
+        var td = d0 + Math.round(span * k / 6), t = new Date(td * 86400000);
+        ticks.push([xAt(td), MONTHS[t.getUTCMonth()] + ' ' + t.getUTCDate(), 'middle']);
+      });
+    }
+    ticks.forEach(function (t) {
+      svg += '<line x1="' + t[0].toFixed(1) + '" y1="' + PBOT + '" x2="' + t[0].toFixed(1) + '" y2="' + (PBOT + 5) + '" ' + axis + '/>' +
+        '<text x="' + t[0].toFixed(1) + '" y="' + (PBOT + 18) + '" font-size="10" text-anchor="' + t[2] + '" ' + text + '>' + t[1] + '</text>';
+    });
+
+    // Assets first, net worth last, so the headline line is never hidden under one.
+    list.slice().reverse().forEach(function (s) {
+      var path = s.pts.map(function (p, i) { return (i ? 'L ' : 'M ') + xAt(p.d).toFixed(1) + ' ' + yAt(p.y).toFixed(1); }).join(' ');
+      svg += '<path d="' + path + '" fill="none" style="stroke:' + s.color + ';" stroke-width="' + s.width + '"' +
+        (s.dash ? ' stroke-dasharray="' + s.dash + '"' : '') + ' stroke-linejoin="round" stroke-linecap="round"/>';
+      var all = s.pts.length <= 45;
+      s.pts.forEach(function (p, i) {
+        var visible = all || i === s.pts.length - 1;
+        svg += '<circle cx="' + xAt(p.d).toFixed(1) + '" cy="' + yAt(p.y).toFixed(1) + '" r="' + (visible ? 3 : 5) + '" ' +
+          (visible ? 'style="fill:' + s.color + ';"' : 'fill="transparent"') + '><title>' + esc(s.name) + ' -- ' + p.label + ': ' +
+          money(p.raw) + (mode === 'pct' ? ' (' + (p.y >= 0 ? '+' : '') + p.y.toFixed(2) + '%)' : '') + '</title></circle>';
+      });
+    });
+    chart.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Net worth and selected assets over time" ' +
+      'style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">' + svg + '</svg>';
+  }
+
+  function sync() {
+    root.querySelectorAll('.nw-chip[data-id]').forEach(function (b) {
+      var on = !!selected[b.getAttribute('data-id') * 1];
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    root.querySelectorAll('.nw-mode').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-mode') === mode ? 'true' : 'false');
+    });
+  }
+  function save() {
+    try {
+      localStorage.setItem('rp-nw-assets', JSON.stringify(Object.keys(selected).filter(function (k) { return selected[k]; }).map(Number)));
+      localStorage.setItem('rp-nw-mode', mode);
+    } catch (e) {}
+  }
+  root.addEventListener('click', function (ev) {
+    var chip = ev.target.closest('.nw-chip[data-id]');
+    if (chip) { var id = chip.getAttribute('data-id') * 1; selected[id] = !selected[id]; }
+    var m = ev.target.closest('.nw-mode');
+    if (m) mode = m.getAttribute('data-mode');
+    var act = ev.target.closest('[data-action]');
+    if (act) {
+      selected = {};
+      if (act.getAttribute('data-action') === 'all') data.assets.forEach(function (a) { selected[a.id] = true; });
+    }
+    if (chip || m || act) { save(); sync(); draw(); }
+  });
+  sync();
+  draw();
+})();
+"""
+
+
+def _net_worth_explorer_html(
+    title: str, nw_points: list[tuple[str, float]], assets: list[dict], *, note: str = "",
+) -> str:
+    """The Asset tab's net-worth-over-time card with a picker for plotting
+    individual assets next to the total: toggle chips (one per asset with at
+    least two days of history, colored in the same fixed palette order as
+    the donut charts), an "All"/"None" shortcut, and a "$ value" / "% change"
+    switch -- % change starts every line at 0 so a $100K account and a
+    $14M net worth can share one axis. The y-axis refits to whatever is
+    currently shown. `assets` is aggregate.asset_balance_history()'s shape
+    (largest first); the picked set and mode persist in localStorage. The
+    chart itself is drawn client-side from the embedded JSON (same layout
+    rules as _line_chart_html)."""
+    first_date, first_value = nw_points[0]
+    last_date, last_value = nw_points[-1]
+    change = last_value - first_value
+    change_pct = (change / abs(first_value) * 100) if first_value else None
+    change_color = "#1baf7a" if change >= 0 else "#c94a4a"
+    change_label = (
+        f"{'+' if change >= 0 else ''}{_money(change)}"
+        + (f" ({'+' if change_pct >= 0 else ''}{change_pct:.1f}%)" if change_pct is not None else "")
+        + f" since {first_date}"
+    )
+    payload = {
+        "nw": [[d, v] for d, v in nw_points],
+        "assets": [
+            {"id": a["id"], "name": a["name"], "category": a["category"], "points": [[d, v] for d, v in a["points"]]}
+            for a in assets
+        ],
+        "colors": list(_NW_EXPLORER_COLORS),
+        "defaultSelected": _NW_EXPLORER_DEFAULT_SELECTED,
+    }
+    data_json = json.dumps(payload).replace("</", "<\\/")
+    chips = "".join(
+        f'<button type="button" class="nw-chip" data-id="{a["id"]}" aria-pressed="false" '
+        f'title="{html.escape(a["category"])} -- {html.escape(_money(a["points"][-1][1]))} on {html.escape(a["points"][-1][0])}">'
+        f'<span class="nw-swatch" style="background:{_NW_EXPLORER_COLORS[i % len(_NW_EXPLORER_COLORS)]};"></span>'
+        f'{html.escape(a["name"])}</button>'
+        for i, a in enumerate(assets)
+    )
+    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    return f"""
+<div class="card nw-explorer" id="nw-explorer" style="flex:2 1 480px;">
+<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+<div class="nw-controls">
+  <span class="nw-chip nw-chip-fixed" title="Always shown"><span class="nw-swatch" style="background:var(--ink);"></span>Net worth</span>
+  {chips}
+  <span class="nw-tools">
+    <button type="button" class="nw-link" data-action="all">All</button>
+    <button type="button" class="nw-link" data-action="none">None</button>
+  </span>
+  <span class="nw-seg" role="group" aria-label="Chart units">
+    <button type="button" class="nw-mode" data-mode="value" aria-pressed="true">$ value</button>
+    <button type="button" class="nw-mode" data-mode="pct" aria-pressed="false">% change</button>
+  </span>
+</div>
+<div class="nw-chart"></div>
+{note_html}
+<script type="application/json">{data_json}</script>
+<script>{_NW_EXPLORER_JS}</script>
+</div>
+"""

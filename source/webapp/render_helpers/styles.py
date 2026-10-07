@@ -188,6 +188,20 @@ PAGE_CSS = """
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
   .link-col { min-width: 130px; white-space: normal; word-break: normal; }
   .link-col select { width: 100%; white-space: normal; }
+  /* Net worth explorer (charts._net_worth_explorer_html): asset toggle
+     chips + a $/% segmented switch above the chart. */
+  .nw-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 4px; }
+  .nw-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 10px; border-radius: 980px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-muted); cursor: pointer; font-weight: 500; }
+  .nw-chip[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-muted); background: var(--surface-alt); font-weight: 600; }
+  .nw-chip[aria-pressed="false"] .nw-swatch { opacity: 0.35; }
+  .nw-chip-fixed { cursor: default; color: var(--ink); font-weight: 600; background: var(--surface-alt); border-color: var(--ink-muted); }
+  .nw-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+  .nw-tools { display: inline-flex; gap: 2px; margin-left: 4px; }
+  .nw-link { background: none; border: none; padding: 2px 6px; font-size: 11px; color: var(--brand); cursor: pointer; border-radius: 6px; }
+  .nw-seg { display: inline-flex; margin-left: auto; border: 1px solid var(--border); border-radius: 980px; overflow: hidden; }
+  .nw-mode { border: none; border-radius: 0; padding: 3px 12px; font-size: 11px; background: var(--surface); color: var(--ink-muted); }
+  .nw-mode[aria-pressed="true"] { background: var(--brand); color: #fff; font-weight: 600; }
   th.sortable-col { cursor: pointer; user-select: none; }
   th.sortable-col:hover { background: var(--border); }
   th.sort-asc::after { content: " \\25B2"; font-size: 10px; }
