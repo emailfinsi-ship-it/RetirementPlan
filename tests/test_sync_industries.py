@@ -111,5 +111,27 @@ class TestSyncMissingIndustries(TempConfigTestCase):
         self.assertEqual(result.get("error"), "yfinance not installed")
 
 
+class TestYfinanceWarningFilter(unittest.TestCase):
+    def test_pandas_utcnow_deprecation_noise_from_yfinance_is_silenced(self):
+        # Run in a fresh interpreter: the unittest runner installs its own
+        # "default" warning filter ahead of anything a module sets up.
+        import pathlib
+        import subprocess
+        import sys
+
+        root = str(pathlib.Path(__file__).resolve().parent.parent)
+        code = (
+            "import warnings\n"
+            "import source.collector.sync_industries\n"
+            "warnings.warn('Timestamp.utcnow is deprecated and will be removed', DeprecationWarning)\n"
+            "warnings.warn('some other deprecation', DeprecationWarning)\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-W", "default", "-c", code], cwd=root, capture_output=True, text=True, timeout=60,
+        )
+        self.assertNotIn("utcnow", result.stderr)
+        self.assertIn("some other deprecation", result.stderr)  # only that one message is filtered
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,9 +39,17 @@ Usage:
 from __future__ import annotations
 
 import sys
+import warnings
 from datetime import datetime, timezone
 
 from source.common import config, db
+
+# yfinance (third-party) still calls pandas' Timestamp.utcnow(), which newer
+# pandas versions flag with a deprecation warning on every lookup. It's
+# harmless noise from inside that library -- nothing here can fix it -- so
+# keep it out of the dashboard's terminal output. Matched by message only
+# (the warning class, Pandas4Warning, doesn't exist on older pandas).
+warnings.filterwarnings("ignore", message=r"Timestamp\.utcnow is deprecated")
 
 
 def _fetch_industry(ticker: str) -> str | None:
