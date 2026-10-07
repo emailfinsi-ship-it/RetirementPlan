@@ -653,6 +653,7 @@ _NW_EXPLORER_JS = """
   var W = 960, H = 270, PL = 84, PR = 18, PT = 14, PB = 54;
   var PW = W - PL - PR, PH = H - PT - PB, PBOT = PT + PH, PRIGHT = W - PR;
   var mode = 'value';
+  var showNw = true;
   var selected = {};
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -679,9 +680,10 @@ _NW_EXPLORER_JS = """
   try { saved = JSON.parse(localStorage.getItem('rp-nw-assets') || 'null'); } catch (e) {}
   (Array.isArray(saved) ? saved.filter(function (id) { return valid[id]; }) : topIds).forEach(function (id) { selected[id] = true; });
   try { var m = localStorage.getItem('rp-nw-mode'); if (m === 'value' || m === 'pct') mode = m; } catch (e) {}
+  try { if (localStorage.getItem('rp-nw-show') === '0') showNw = false; } catch (e) {}
 
   function series() {
-    var out = [{ name: 'Net worth', color: 'var(--ink)', width: 3, dash: '', pts: data.nw }];
+    var out = showNw ? [{ name: 'Net worth', color: 'var(--ink)', width: 3, dash: '', pts: data.nw }] : [];
     data.assets.forEach(function (a, i) {
       if (selected[a.id]) out.push({
         name: a.name, color: COLORS[i % COLORS.length], width: 2, dash: i >= COLORS.length ? '5 3' : '', pts: a.points,
@@ -702,6 +704,10 @@ _NW_EXPLORER_JS = """
       return { name: s.name, color: s.color, width: s.width, dash: s.dash, pts: pts };
     }).filter(function (s) { return s.pts.length >= 1; });
 
+    if (!list.length) {
+      chart.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick Net worth or one or more assets above to plot them.</p>';
+      return;
+    }
     var d0 = Infinity, d1 = -Infinity, lo = Infinity, hi = -Infinity;
     list.forEach(function (s) { s.pts.forEach(function (p) {
       d0 = Math.min(d0, p.d); d1 = Math.max(d1, p.d); lo = Math.min(lo, p.y); hi = Math.max(hi, p.y);
@@ -765,6 +771,8 @@ _NW_EXPLORER_JS = """
   }
 
   function sync() {
+    var nwChip = root.querySelector('.nw-chip[data-nw]');
+    if (nwChip) nwChip.setAttribute('aria-pressed', showNw ? 'true' : 'false');
     root.querySelectorAll('.nw-chip[data-id]').forEach(function (b) {
       var on = !!selected[b.getAttribute('data-id') * 1];
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -777,11 +785,14 @@ _NW_EXPLORER_JS = """
     try {
       localStorage.setItem('rp-nw-assets', JSON.stringify(Object.keys(selected).filter(function (k) { return selected[k]; }).map(Number)));
       localStorage.setItem('rp-nw-mode', mode);
+      localStorage.setItem('rp-nw-show', showNw ? '1' : '0');
     } catch (e) {}
   }
   root.addEventListener('click', function (ev) {
     var chip = ev.target.closest('.nw-chip[data-id]');
     if (chip) { var id = chip.getAttribute('data-id') * 1; selected[id] = !selected[id]; }
+    var nwc = ev.target.closest('.nw-chip[data-nw]');
+    if (nwc) showNw = !showNw;
     var m = ev.target.closest('.nw-mode');
     if (m) mode = m.getAttribute('data-mode');
     var act = ev.target.closest('[data-action]');
@@ -789,7 +800,7 @@ _NW_EXPLORER_JS = """
       selected = {};
       if (act.getAttribute('data-action') === 'all') data.assets.forEach(function (a) { selected[a.id] = true; });
     }
-    if (chip || m || act) { save(); sync(); draw(); }
+    if (chip || nwc || m || act) { save(); sync(); draw(); }
   });
   sync();
   draw();
@@ -842,7 +853,7 @@ def _net_worth_explorer_html(
 <div class="card nw-explorer" id="nw-explorer" style="flex:2 1 480px;">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
 <div class="nw-controls">
-  <span class="nw-chip nw-chip-fixed" title="Always shown"><span class="nw-swatch" style="background:var(--ink);"></span>Net worth</span>
+  <button type="button" class="nw-chip" data-nw="1" aria-pressed="true" title="Show or hide the net worth line"><span class="nw-swatch" style="background:var(--ink);"></span>Net worth</button>
   {chips}
   <span class="nw-tools">
     <button type="button" class="nw-link" data-action="all">All</button>

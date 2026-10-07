@@ -195,7 +195,6 @@ PAGE_CSS = """
     border: 1px solid var(--border); background: var(--surface); color: var(--ink-muted); cursor: pointer; font-weight: 500; }
   .nw-chip[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-muted); background: var(--surface-alt); font-weight: 600; }
   .nw-chip[aria-pressed="false"] .nw-swatch { opacity: 0.35; }
-  .nw-chip-fixed { cursor: default; color: var(--ink); font-weight: 600; background: var(--surface-alt); border-color: var(--ink-muted); }
   .nw-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
   .nw-tools { display: inline-flex; gap: 2px; margin-left: 4px; }
   .nw-link { background: none; border: none; padding: 2px 6px; font-size: 11px; color: var(--brand); cursor: pointer; border-radius: 6px; }

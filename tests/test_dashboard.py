@@ -5708,3 +5708,13 @@ class TestNetWorthExplorer(DashboardTestCase):
         self.assertNotIn("</script><b>", body)
         self.assertIn("&lt;/script&gt;&lt;b&gt;x&lt;/b&gt;", body)  # the chip label
         self.assertIn("<\\/script>", body)  # ...and the JSON payload's escaped form
+
+    def test_net_worth_chip_is_a_toggle_like_the_asset_chips(self):
+        self._net_worth([1_000_000.0, 1_010_000.0])
+        self._history("Fidelity 401k", [400_000.0, 405_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('<button type="button" class="nw-chip" data-nw="1" aria-pressed="true"', body)
+        self.assertNotIn("nw-chip-fixed", body)
+        # The script handles it and remembers the choice.
+        self.assertIn("showNw", body)
+        self.assertIn("rp-nw-show", body)
