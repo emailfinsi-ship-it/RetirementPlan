@@ -381,6 +381,12 @@ CREATE TABLE IF NOT EXISTS net_worth_snapshots (
     liability_total REAL NOT NULL,
     real_estate_equity_total REAL NOT NULL,
     retirement_liquid_total REAL NOT NULL,
+    -- Your share of every property's market value (current_value x
+    -- ownership %, before subtracting loans). NULL on snapshots taken
+    -- before this column existed -- no value history was kept then, so
+    -- the Asset tab's real-estate line simply starts on the first day
+    -- this was recorded (equity, above, has the longer history).
+    real_estate_value_total REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

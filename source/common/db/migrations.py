@@ -69,6 +69,12 @@ def _migrate_schema(conn) -> None:
             f"WHERE kind = 'asset' AND lower(trim(category)) IN ({placeholders})",
             list(categories),
         )
+    existing_nws = {row["name"] for row in conn.execute("PRAGMA table_info(net_worth_snapshots)").fetchall()}
+    if existing_nws and "real_estate_value_total" not in existing_nws:
+        # Nullable on purpose: snapshots from before this column existed
+        # have no recorded property value, and a made-up backfill would
+        # draw a false history on the Asset tab's real-estate line.
+        conn.execute("ALTER TABLE net_worth_snapshots ADD COLUMN real_estate_value_total REAL")
     existing_pi = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_items)").fetchall()}
     if "credential_profile" not in existing_pi:
         # Every Item linked before this column existed used the one

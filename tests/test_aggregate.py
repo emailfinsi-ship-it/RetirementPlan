@@ -772,6 +772,24 @@ class TestCaptureDailySnapshotsIfNewDay(TempConfigTestCase):
         balances.assert_called_once()
 
 
+class TestRealEstateValueCapture(TempConfigTestCase):
+    def test_value_is_your_ownership_share_of_market_value_before_loans(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 1_000_000, "loan_balance": 400_000})
+        db.add_line_item("real_estate", {
+            "name": "Cabin", "current_value": 200_000, "loan_balance": 50_000, "ownership_pct": 50,
+        })
+        s = build_summary()
+        self.assertEqual(s["real_estate_value_total"], 1_100_000.0)
+        self.assertEqual(s["real_estate_equity_total"], 600_000.0 + 75_000.0)
+
+    def test_capture_net_worth_snapshot_records_the_value(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 800_000, "loan_balance": 300_000})
+        capture_net_worth_snapshot()
+        row = db.list_net_worth_snapshots()[0]
+        self.assertEqual(row["real_estate_value_total"], 800_000.0)
+        self.assertEqual(row["real_estate_equity_total"], 500_000.0)
+
+
 class TestAssetBalanceSnapshots(TempConfigTestCase):
     """Per-asset daily history behind the Asset tab's "plot individual
     assets next to net worth" chart."""

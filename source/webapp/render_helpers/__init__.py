@@ -61,6 +61,7 @@ from source.webapp.render_helpers.charts import (
     _grouped_slices,
     _line_chart_html,
     _multi_line_chart_html,
+    _trend_lines_chart_html,
     _net_worth_explorer_html,
 )
 
@@ -97,5 +98,6 @@ __all__ = [
     "_grouped_slices",
     "_line_chart_html",
     "_multi_line_chart_html",
+    "_trend_lines_chart_html",
     "_net_worth_explorer_html",
 ]

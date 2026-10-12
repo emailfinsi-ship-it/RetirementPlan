@@ -5664,6 +5664,7 @@ class TestNetWorthExplorer(DashboardTestCase):
 
     def tearDown(self):
         db.clear_section("assets")
+        db.clear_section("real_estate")
         with db.connect() as conn:
             conn.execute("DELETE FROM net_worth_snapshots")
             conn.execute("DELETE FROM asset_balance_snapshots")
@@ -5691,6 +5692,31 @@ class TestNetWorthExplorer(DashboardTestCase):
         self.assertIn('data-mode="pct"', body)
         self.assertIn('"nw": [["2026-09-01", 1000000.0]', body)
         self.assertIn("+$30,000.00 (+3.0%) since 2026-09-01", body)
+
+    def test_real_estate_chart_plots_net_worth_value_and_equity_when_a_property_exists(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
+        for i, (nw, value, equity) in enumerate(
+            [(1_000_000.0, None, 590_000.0), (1_010_000.0, 900_000.0, 600_000.0), (1_020_000.0, 905_000.0, 605_000.0)],
+            start=1,
+        ):
+            db.record_snapshot(
+                net_worth=nw, manual_asset_total=0, linked_asset_total=0, liability_total=0,
+                real_estate_equity_total=equity, retirement_liquid_total=0,
+                real_estate_value_total=value, snapshot_date=f"2026-09-0{i}",
+            )
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("Net worth &amp; real estate over time", body)
+        self.assertIn("Real estate value", body)
+        self.assertIn("Real estate equity", body)
+        # Value starts on the first day it was recorded; equity has the full history.
+        self.assertIn("Real estate value -- 2026-09-02: $900,000.00", body)
+        self.assertNotIn("Real estate value -- 2026-09-01", body)
+        self.assertIn("Real estate equity -- 2026-09-01: $590,000.00", body)
+
+    def test_real_estate_chart_is_absent_without_a_property(self):
+        self._net_worth([1_000_000.0, 1_010_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn("Net worth &amp; real estate over time", body)
 
     def test_static_chart_is_kept_when_no_asset_has_two_days_of_history(self):
         self._net_worth([1_000_000.0, 1_010_000.0])

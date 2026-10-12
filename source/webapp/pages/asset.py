@@ -28,7 +28,20 @@ from source.webapp.render_helpers import (
     _money,
     _shell,
     _TAX_TREATMENT_OPTIONS,
+    _trend_lines_chart_html,
 )
+
+
+def _real_estate_series(snapshots: list[dict]) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    """(value points, equity points) from the daily net-worth snapshots, in
+    date order. Equity has a point for every snapshot; value only for
+    snapshots taken since property values started being recorded (older
+    rows have NULL -- there is no honest way to reconstruct them)."""
+    ordered = sorted(snapshots, key=lambda r: r["snapshot_date"])
+    value = [(r["snapshot_date"], r["real_estate_value_total"]) for r in ordered
+             if r.get("real_estate_value_total") is not None]
+    equity = [(r["snapshot_date"], r["real_estate_equity_total"]) for r in ordered]
+    return value, equity
 
 
 def _net_worth_points(snapshots: list[dict]) -> list[tuple[str, float]]:
@@ -106,7 +119,9 @@ def _render_asset_page() -> str:
     asset_summary_html = _asset_category_summary_html(asset_category_subtotals, liability_total, net_liquid_asset)
     asset_rollup_html = _asset_rollup_summary_html(net_liquid_asset, real_estate_total)
 
-    net_worth_points = _net_worth_points(db.list_net_worth_snapshots())
+    snapshots = db.list_net_worth_snapshots()
+    net_worth_points = _net_worth_points(snapshots)
+    real_estate_value_points, real_estate_equity_points = _real_estate_series(snapshots)
     # Individual assets with at least two days of history can be plotted next
     # to the total (linked rows backfill from their Plaid account's own
     # history, so a long-linked account already has a trend).
@@ -130,11 +145,29 @@ def _render_asset_page() -> str:
             empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
         )
 
+    real_estate_vs_net_worth_html = ""
+    if real_estate_rows:
+        real_estate_vs_net_worth_html = _trend_lines_chart_html(
+            "Net worth & real estate over time",
+            [
+                {"name": "Net worth", "points": net_worth_points, "color": "var(--ink, #3a3833)", "width": 2.5},
+                {"name": "Real estate value", "points": real_estate_value_points, "color": "#eb6834"},
+                {"name": "Real estate equity", "points": real_estate_equity_points, "color": "#1baf7a",
+                 "dash": "6 4"},
+            ],
+            y_label="Net worth / real estate",
+            note="Real estate value is your share of each property's market value (before loans); equity is "
+            "that value less what's owed. Value is recorded daily from the day this chart was added, so its "
+            "line starts there -- equity already has the longer history. Everything shares one dollar scale.",
+            empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
+        )
+
     body = f"""
 <h2 style="margin-top:0">Assets</h2>
 <p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In Monte Carlo?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
 {asset_rollup_html}
 {net_worth_history_html}
+{real_estate_vs_net_worth_html}
 {asset_summary_html}
 {asset_tables_html}
 {real_estate_line_html}

@@ -22,6 +22,7 @@ def record_snapshot(
     liability_total: float,
     real_estate_equity_total: float,
     retirement_liquid_total: float,
+    real_estate_value_total: float | None = None,
     snapshot_date: str | None = None,
 ) -> None:
     """Upserts today's (or an explicitly given) snapshot_date's row --
@@ -36,9 +37,9 @@ def record_snapshot(
             INSERT INTO net_worth_snapshots (
                 snapshot_date, net_worth, manual_asset_total, linked_asset_total,
                 liability_total, real_estate_equity_total, retirement_liquid_total,
-                created_at, updated_at
+                real_estate_value_total, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(snapshot_date) DO UPDATE SET
                 net_worth = excluded.net_worth,
                 manual_asset_total = excluded.manual_asset_total,
@@ -46,12 +47,13 @@ def record_snapshot(
                 liability_total = excluded.liability_total,
                 real_estate_equity_total = excluded.real_estate_equity_total,
                 retirement_liquid_total = excluded.retirement_liquid_total,
+                real_estate_value_total = COALESCE(excluded.real_estate_value_total, real_estate_value_total),
                 updated_at = excluded.updated_at
             """,
             (
                 snapshot_date, net_worth, manual_asset_total, linked_asset_total,
                 liability_total, real_estate_equity_total, retirement_liquid_total,
-                now, now,
+                real_estate_value_total, now, now,
             ),
         )
 

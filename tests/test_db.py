@@ -1447,6 +1447,50 @@ class TestNetWorthSnapshots(TempConfigTestCase):
         self.assertEqual(db.list_net_worth_snapshots()[0]["snapshot_date"], date.today().isoformat())
 
 
+class TestRealEstateValueSnapshots(TempConfigTestCase):
+    def _record(self, snapshot_date, value=None):
+        db.record_snapshot(
+            net_worth=100.0, manual_asset_total=10.0, linked_asset_total=20.0,
+            liability_total=5.0, real_estate_equity_total=30.0, retirement_liquid_total=40.0,
+            real_estate_value_total=value, snapshot_date=snapshot_date,
+        )
+
+    def test_value_is_stored_and_defaults_to_null(self):
+        self._record("2026-09-01")
+        self._record("2026-09-02", value=900_000.0)
+        rows = db.list_net_worth_snapshots()
+        self.assertIsNone(rows[0]["real_estate_value_total"])
+        self.assertEqual(rows[1]["real_estate_value_total"], 900_000.0)
+
+    def test_a_same_day_recapture_without_a_value_keeps_the_recorded_one(self):
+        self._record("2026-09-02", value=900_000.0)
+        self._record("2026-09-02")
+        self.assertEqual(db.list_net_worth_snapshots()[0]["real_estate_value_total"], 900_000.0)
+        self._record("2026-09-02", value=950_000.0)
+        self.assertEqual(db.list_net_worth_snapshots()[0]["real_estate_value_total"], 950_000.0)
+
+    def test_init_db_adds_the_column_to_a_snapshots_table_created_without_it(self):
+        with db.connect() as conn:
+            conn.execute("DROP TABLE net_worth_snapshots")
+            conn.execute("""
+                CREATE TABLE net_worth_snapshots (
+                    snapshot_date TEXT PRIMARY KEY, net_worth REAL NOT NULL, manual_asset_total REAL NOT NULL,
+                    linked_asset_total REAL NOT NULL, liability_total REAL NOT NULL,
+                    real_estate_equity_total REAL NOT NULL, retirement_liquid_total REAL NOT NULL,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "INSERT INTO net_worth_snapshots VALUES ('2026-08-01', 1, 1, 1, 1, 1, 1, 'x', 'x')"
+            )
+        db.init_db()  # the migration under test
+        rows = db.list_net_worth_snapshots()
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["real_estate_value_total"])
+        self._record("2026-09-01", value=5.0)  # and the new column is writable
+        self.assertEqual(db.list_net_worth_snapshots()[1]["real_estate_value_total"], 5.0)
+
+
 class TestAccountBalanceSnapshots(TempConfigTestCase):
     def test_record_and_list(self):
         db.record_account_balance_snapshot(account_id="acc1", balance=1000.0, snapshot_date="2026-09-01")

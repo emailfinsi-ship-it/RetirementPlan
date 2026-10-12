@@ -78,6 +78,14 @@ def real_estate_equity(row: dict, *, loan_balance: float | None = None) -> float
     return ((row.get("current_value") or 0.0) - balance) * share
 
 
+def real_estate_value(row: dict) -> float:
+    """Your share of a property's market value (current_value x ownership
+    %), before any loan -- the "Real estate value" the Asset tab charts over
+    time, as opposed to real_estate_equity above (value less loan)."""
+    share = (row.get("ownership_pct") or 100.0) / 100.0
+    return (row.get("current_value") or 0.0) * share
+
+
 def effective_loan_balance(row: dict, live_by_account_id: dict) -> float:
     """A real_estate row's loan balance for totals: the live Plaid balance
     when it's linked to a still-connected loan/HELOC account, otherwise
@@ -219,6 +227,7 @@ def capture_net_worth_snapshot(summary: dict | None = None) -> None:
         liability_total=s["liability_total"],
         real_estate_equity_total=s["real_estate_equity_total"],
         retirement_liquid_total=s["retirement_liquid_total"],
+        real_estate_value_total=s.get("real_estate_value_total"),
     )
     capture_asset_balance_snapshots(s)
 
@@ -355,6 +364,7 @@ def build_summary() -> dict:
     re_equity_total = sum(
         real_estate_equity(r, loan_balance=effective_loan_balance(r, live_by_account_id)) for r in real_estate
     )
+    re_value_total = sum(real_estate_value(r) for r in real_estate)
 
     # Monte Carlo's starting balance -- per-row, via each Asset row's own
     # "In Monte Carlo?" checkbox (assets.include_in_monte_carlo), rather
@@ -650,6 +660,7 @@ def build_summary() -> dict:
         "linked_asset_total": linked_asset_total,
         "liability_total": liability_total,
         "real_estate_equity_total": re_equity_total,
+        "real_estate_value_total": re_value_total,
         "net_worth": net_worth,
         "retirement_liquid_total": retirement_liquid_total,
         "tax_deferred_total": tax_deferred_total,
