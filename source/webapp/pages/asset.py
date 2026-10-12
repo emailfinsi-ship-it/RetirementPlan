@@ -28,8 +28,23 @@ from source.webapp.render_helpers import (
     _money,
     _shell,
     _TAX_TREATMENT_OPTIONS,
-    _trend_lines_chart_html,
 )
+
+
+def _liquid_and_total_points(
+    snapshots: list[dict],
+) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    """(Net Liquid Asset, Total Asset) per daily snapshot, in date order --
+    the same two figures the rollup table at the top of this page shows
+    (Net Liquid Asset = retirement/liquid total less liabilities; Total
+    Asset adds real estate equity)."""
+    ordered = sorted(snapshots, key=lambda r: r["snapshot_date"])
+    liquid = [(r["snapshot_date"], r["retirement_liquid_total"] - r["liability_total"]) for r in ordered]
+    total = [
+        (r["snapshot_date"], r["retirement_liquid_total"] - r["liability_total"] + r["real_estate_equity_total"])
+        for r in ordered
+    ]
+    return liquid, total
 
 
 def _real_estate_series(snapshots: list[dict]) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
@@ -42,17 +57,6 @@ def _real_estate_series(snapshots: list[dict]) -> tuple[list[tuple[str, float]],
              if r.get("real_estate_value_total") is not None]
     equity = [(r["snapshot_date"], r["real_estate_equity_total"]) for r in ordered]
     return value, equity
-
-
-def _net_worth_points(snapshots: list[dict]) -> list[tuple[str, float]]:
-    """One (YYYY-MM-DD, net worth) point per captured day, for the "Net
-    worth over time" chart below. net_worth_snapshots stores exactly one
-    row per calendar day (a later capture the same day overwrites that
-    day's row -- see source.common.db.net_worth_snapshots), so this is
-    just that history in date order, nothing to reduce. (The chart used to
-    collapse these to one point per month; it now plots every day and
-    spaces them by real elapsed time.)"""
-    return [(row["snapshot_date"], row["net_worth"]) for row in sorted(snapshots, key=lambda r: r["snapshot_date"])]
 
 
 _NET_WORTH_CHART_EMPTY_MESSAGE = (
@@ -120,7 +124,7 @@ def _render_asset_page() -> str:
     asset_rollup_html = _asset_rollup_summary_html(net_liquid_asset, real_estate_total)
 
     snapshots = db.list_net_worth_snapshots()
-    net_worth_points = _net_worth_points(snapshots)
+    liquid_points, total_points = _liquid_and_total_points(snapshots)
     real_estate_value_points, real_estate_equity_points = _real_estate_series(snapshots)
     # Individual assets with at least two days of history can be plotted next
     # to the total (linked rows backfill from their Plaid account's own
@@ -129,36 +133,34 @@ def _render_asset_page() -> str:
     chart_note = (
         "One point per day -- captured automatically once a day (when this program is opened or synced, "
         "and in the background each new day while it's running), nothing to set up. The vertical scale fits "
-        "what's shown, so small changes stay visible."
+        "what's shown, so small changes stay visible. Pick assets above to plot them alongside; \"% change\" "
+        "starts every line at 0 so different-sized assets are comparable. Assets appear once they have two "
+        "days of history."
     )
-    if len(net_worth_points) >= 2 and plottable_assets:
+    real_estate_lines: list[dict] = []
+    if real_estate_rows:
+        real_estate_lines = [
+            {"key": "value", "name": "Real estate value", "points": real_estate_value_points,
+             "title": "Your share of each property's market value, before loans. Recorded daily from the day "
+                      "this was added, so this line starts there."},
+            {"key": "equity", "name": "Real estate equity", "points": real_estate_equity_points, "dash": "6 4",
+             "title": "Value less what's owed on each property (your ownership share)."},
+        ]
+        chart_note += (
+            " Picking a real estate line switches the headline from Net Liquid Asset to Total Asset (Net "
+            "Liquid Asset plus real estate equity). Real estate value is recorded daily from the day it was "
+            "first captured; equity has the longer history."
+        )
+    if len(liquid_points) >= 2:
         net_worth_history_html = _net_worth_explorer_html(
-            "Net worth over time", net_worth_points, plottable_assets,
-            note=chart_note + " Pick assets above to plot them alongside; \"% change\" starts every line at 0 so "
-            "different-sized assets are comparable. Assets appear once they have two days of history.",
+            liquid_points, total_points if real_estate_lines else None, plottable_assets, real_estate_lines,
+            note=chart_note,
         )
     else:
         net_worth_history_html = _line_chart_html(
-            "Net worth over time",
-            net_worth_points,
-            note=chart_note + " Individual assets can be plotted here once they have two days of history.",
-            empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
-        )
-
-    real_estate_vs_net_worth_html = ""
-    if real_estate_rows:
-        real_estate_vs_net_worth_html = _trend_lines_chart_html(
-            "Net worth & real estate over time",
-            [
-                {"name": "Net worth", "points": net_worth_points, "color": "var(--ink, #3a3833)", "width": 2.5},
-                {"name": "Real estate value", "points": real_estate_value_points, "color": "#eb6834"},
-                {"name": "Real estate equity", "points": real_estate_equity_points, "color": "#1baf7a",
-                 "dash": "6 4"},
-            ],
-            y_label="Net worth / real estate",
-            note="Real estate value is your share of each property's market value (before loans); equity is "
-            "that value less what's owed. Value is recorded daily from the day this chart was added, so its "
-            "line starts there -- equity already has the longer history. Everything shares one dollar scale.",
+            "Net liquid asset over time",
+            liquid_points,
+            note=chart_note,
             empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
         )
 
@@ -167,7 +169,6 @@ def _render_asset_page() -> str:
 <p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In Monte Carlo?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
 {asset_rollup_html}
 {net_worth_history_html}
-{real_estate_vs_net_worth_html}
 {asset_summary_html}
 {asset_tables_html}
 {real_estate_line_html}

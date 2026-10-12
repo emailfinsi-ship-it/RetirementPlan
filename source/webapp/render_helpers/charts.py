@@ -202,7 +202,7 @@ def _line_chart_html(
     one axis, read left-to-right, not ranked by magnitude). Currently
     only the Asset tab's net-worth-over-time card uses this (source.
     common.db.net_worth_snapshots, one point per captured day -- see
-    source.webapp.pages.asset._net_worth_points).
+    source.webapp.pages.asset._liquid_and_total_points).
 
     Adapts to whatever data it's given rather than assuming a fixed
     shape: the y-axis is fitted to the data's own range (with headroom)
@@ -342,130 +342,6 @@ def _line_chart_html(
     return f"""
 <div class="card" style="flex:2 1 480px;">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
-{svg}
-{note_html}
-</div>
-"""
-
-
-def _trend_lines_chart_html(
-    title: str, series: list[dict], *, note: str = "", y_label: str = "Amount",
-    empty_message: str = _DEFAULT_LINE_CHART_EMPTY_MESSAGE,
-) -> str:
-    """A few dated trend lines sharing ONE dollar axis, drawn server-side
-    with the same layout rules as _line_chart_html (fitted y-range,
-    date-proportional x, theme-aware axis colors). Used by the Asset tab's
-    "Net worth & real estate over time" card. Each `series` entry is
-    {"name", "points": [("YYYY-MM-DD", value), ...], "color", "width"?,
-    "dash"?}. Series may start on different days (the real-estate value
-    line only begins on the first day it was recorded); a series with a
-    single point draws as one dot and appears in the legend like the
-    rest. Needs at least one series with two or more points, otherwise it
-    renders the collapsed "no data yet" disclosure. A legend above the
-    plot carries identity (color is never the only cue: the lines differ
-    in dash and width too) and shows each series' latest value; every
-    point has a hover tooltip."""
-    drawable = [s for s in series if s.get("points")]
-    all_dates = sorted({d for s in drawable for d, _ in s["points"]})
-    parsed = {d: _parse_iso_date(d) for d in all_dates}
-    if len(all_dates) < 2 or any(v is None for v in parsed.values()):
-        return (
-            f'<details class="card">'
-            f'<summary style="font-size:13px; font-weight:650;">{html.escape(title)} <span class="muted" style="font-weight:500;">(no data yet)</span></summary>'
-            f'<p class="muted" style="margin-bottom:0;">{html.escape(empty_message)}</p></details>'
-        )
-    width, height = 960, 270
-    pad_left, pad_right, pad_top, pad_bottom = 84, 18, 14, 54
-    plot_w = width - pad_left - pad_right
-    plot_h = height - pad_top - pad_bottom
-    plot_bottom = pad_top + plot_h
-    plot_right = width - pad_right
-
-    values = [v for s in drawable for _, v in s["points"]]
-    lo, hi = _nice_axis_range(min(values), max(values))
-    first_day, last_day = parsed[all_dates[0]], parsed[all_dates[-1]]
-    span_days = (last_day - first_day).days
-
-    def x_at(label: str) -> float:
-        return pad_left + ((parsed[label] - first_day).days / span_days) * plot_w
-
-    def y_at(v: float) -> float:
-        return pad_top + (1 - (v - lo) / (hi - lo)) * plot_h
-
-    axis_style = 'style="stroke:var(--ink-muted);" stroke-width="1"'
-    text_style = 'style="fill:var(--ink-muted);"'
-    grid = ""
-    for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
-        v = lo + (hi - lo) * frac
-        y = y_at(v)
-        grid += (
-            f'<line x1="{pad_left}" y1="{y:.1f}" x2="{plot_right}" y2="{y:.1f}" '
-            f'style="stroke:var(--border);" stroke-width="1" stroke-dasharray="3 3"/>'
-            f'<line x1="{pad_left - 5}" y1="{y:.1f}" x2="{pad_left}" y2="{y:.1f}" {axis_style}/>'
-            f'<text x="{pad_left - 9}" y="{y + 3:.1f}" font-size="10" text-anchor="end" '
-            f'{text_style}>{html.escape(_axis_money_label(v, (hi - lo) / 4))}</text>'
-        )
-    axes = (
-        f'<line x1="{pad_left}" y1="{pad_top}" x2="{pad_left}" y2="{plot_bottom}" {axis_style}/>'
-        f'<line x1="{pad_left}" y1="{plot_bottom}" x2="{plot_right}" y2="{plot_bottom}" {axis_style}/>'
-        f'<text transform="translate(14 {pad_top + plot_h / 2:.1f}) rotate(-90)" font-size="10" '
-        f'text-anchor="middle" {text_style}>{html.escape(y_label)}</text>'
-        f'<text x="{pad_left + plot_w / 2:.1f}" y="{height - 6}" font-size="10" text-anchor="middle" '
-        f'{text_style}>Date</text>'
-    )
-    x_ticks = [(pad_left, all_dates[0], "start"), (plot_right, all_dates[-1], "end")]
-    if span_days >= 8:
-        for frac in (1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6):
-            tick = first_day + timedelta(days=round(span_days * frac))
-            tx = pad_left + ((tick - first_day).days / span_days) * plot_w
-            x_ticks.append((tx, f"{tick.strftime('%b')} {tick.day}", "middle"))
-    labels = "".join(
-        f'<line x1="{tx:.1f}" y1="{plot_bottom}" x2="{tx:.1f}" y2="{plot_bottom + 5}" {axis_style}/>'
-        f'<text x="{tx:.1f}" y="{plot_bottom + 18}" font-size="10" text-anchor="{anchor}" '
-        f'{text_style}>{html.escape(text)}</text>'
-        for tx, text, anchor in x_ticks
-    )
-
-    lines = ""
-    legend = ""
-    for s in drawable:
-        pts = sorted(s["points"])
-        color = s.get("color") or _LINE_CHART_COLOR
-        stroke_w = s.get("width", 2)
-        dash = f' stroke-dasharray="{s["dash"]}"' if s.get("dash") else ""
-        if len(pts) >= 2:
-            path = "M " + " L ".join(f"{x_at(d):.1f} {y_at(v):.1f}" for d, v in pts)
-            lines += (
-                f'<path d="{path}" fill="none" stroke="{color}" stroke-width="{stroke_w}"{dash} '
-                f'stroke-linejoin="round" stroke-linecap="round"/>'
-            )
-        show_all_dots = len(pts) <= 45
-        for i, (d, v) in enumerate(pts):
-            visible = show_all_dots or i == len(pts) - 1
-            lines += (
-                f'<circle cx="{x_at(d):.1f}" cy="{y_at(v):.1f}" r="{3 if visible else 5}" '
-                + (f'fill="{color}"' if visible else 'fill="transparent"')
-                + f'><title>{html.escape(s["name"])} -- {html.escape(d)}: {html.escape(_money(v))}</title></circle>'
-            )
-        last_d, last_v = pts[-1]
-        legend += (
-            f'<span style="display:inline-flex; align-items:center; gap:6px; margin-right:16px;">'
-            f'<svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="{color}" '
-            f'stroke-width="{stroke_w}"{dash}/></svg>'
-            f'<span>{html.escape(s["name"])} <strong>{html.escape(_money(last_v))}</strong> '
-            f'<span class="muted">on {html.escape(last_d)}</span></span></span>'
-        )
-
-    svg = (
-        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}" '
-        f'style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">'
-        f'{grid}{axes}{lines}{labels}</svg>'
-    )
-    note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
-    return f"""
-<div class="card trend-lines" style="flex:2 1 480px;">
-<h3 style="margin-top:0; font-size:13px;">{html.escape(title)}</h3>
-<div style="font-size:12px; margin-bottom:6px;">{legend}</div>
 {svg}
 {note_html}
 </div>
@@ -779,6 +655,7 @@ _NW_EXPLORER_JS = """
   var mode = 'value';
   var showNw = true;
   var selected = {};
+  var reSel = {};
   var state = null;
   var holder = document.createElement('div');
   chart.appendChild(holder);
@@ -812,9 +689,24 @@ _NW_EXPLORER_JS = """
   (Array.isArray(saved) ? saved.filter(function (id) { return valid[id]; }) : topIds).forEach(function (id) { selected[id] = true; });
   try { var m = localStorage.getItem('rp-nw-mode'); if (m === 'value' || m === 'pct') mode = m; } catch (e) {}
   try { if (localStorage.getItem('rp-nw-show') === '0') showNw = false; } catch (e) {}
+  var reKeys = {};
+  data.re.forEach(function (r) { reKeys[r.key] = true; });
+  try {
+    var savedRe = JSON.parse(localStorage.getItem('rp-nw-re') || 'null');
+    if (Array.isArray(savedRe)) savedRe.forEach(function (k) { if (reKeys[k]) reSel[k] = true; });
+  } catch (e) {}
+
+  // Picking either real-estate line switches the headline total from Net
+  // Liquid Asset to Total Asset (Net Liquid Asset + real estate equity).
+  function anyRe() { return !!(data.total && Object.keys(reSel).some(function (k) { return reSel[k]; })); }
+  function totalDef() { return anyRe() ? data.total : data.liquid; }
 
   function series() {
-    var out = showNw ? [{ name: 'Net worth', color: 'var(--ink)', width: 3, dash: '', pts: data.nw }] : [];
+    var td = totalDef();
+    var out = showNw ? [{ name: td.name, color: 'var(--ink)', width: 3, dash: '', pts: td.points }] : [];
+    data.re.forEach(function (r) {
+      if (reSel[r.key]) out.push({ name: r.name, color: data.reColor, width: 2.5, dash: r.dash, pts: r.points });
+    });
     data.assets.forEach(function (a, i) {
       if (selected[a.id]) out.push({
         name: a.name, color: COLORS[i % COLORS.length], width: 2, dash: i >= COLORS.length ? '5 3' : '', pts: a.points,
@@ -837,7 +729,7 @@ _NW_EXPLORER_JS = """
 
     if (!list.length) {
       state = null; hideTip();
-      holder.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick Net worth or one or more assets above to plot them.</p>';
+      holder.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick the total line, real estate, or one or more assets above to plot them.</p>';
       return;
     }
     var d0 = Infinity, d1 = -Infinity, lo = Infinity, hi = -Infinity;
@@ -957,7 +849,17 @@ _NW_EXPLORER_JS = """
 
   function sync() {
     var nwChip = root.querySelector('.nw-chip[data-nw]');
-    if (nwChip) nwChip.setAttribute('aria-pressed', showNw ? 'true' : 'false');
+    if (nwChip) {
+      nwChip.setAttribute('aria-pressed', showNw ? 'true' : 'false');
+      nwChip.querySelector('.nw-chip-label').textContent = totalDef().name;
+    }
+    var title = root.querySelector('.nw-title');
+    if (title) title.textContent = totalDef().name;
+    var change = root.querySelector('.nw-change');
+    if (change) { change.textContent = totalDef().change; change.style.color = totalDef().up ? '#1baf7a' : '#c94a4a'; }
+    root.querySelectorAll('.nw-chip[data-re]').forEach(function (b) {
+      b.setAttribute('aria-pressed', reSel[b.getAttribute('data-re')] ? 'true' : 'false');
+    });
     root.querySelectorAll('.nw-chip[data-id]').forEach(function (b) {
       var on = !!selected[b.getAttribute('data-id') * 1];
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -971,6 +873,7 @@ _NW_EXPLORER_JS = """
       localStorage.setItem('rp-nw-assets', JSON.stringify(Object.keys(selected).filter(function (k) { return selected[k]; }).map(Number)));
       localStorage.setItem('rp-nw-mode', mode);
       localStorage.setItem('rp-nw-show', showNw ? '1' : '0');
+      localStorage.setItem('rp-nw-re', JSON.stringify(Object.keys(reSel).filter(function (k) { return reSel[k]; })));
     } catch (e) {}
   }
   root.addEventListener('click', function (ev) {
@@ -978,14 +881,17 @@ _NW_EXPLORER_JS = """
     if (chip) { var id = chip.getAttribute('data-id') * 1; selected[id] = !selected[id]; }
     var nwc = ev.target.closest('.nw-chip[data-nw]');
     if (nwc) showNw = !showNw;
+    var rec = ev.target.closest('.nw-chip[data-re]');
+    if (rec) { var rk = rec.getAttribute('data-re'); reSel[rk] = !reSel[rk]; }
     var m = ev.target.closest('.nw-mode');
     if (m) mode = m.getAttribute('data-mode');
     var act = ev.target.closest('[data-action]');
     if (act) {
       selected = {};
+      if (act.getAttribute('data-action') !== 'all') reSel = {};
       if (act.getAttribute('data-action') === 'all') data.assets.forEach(function (a) { selected[a.id] = true; });
     }
-    if (chip || nwc || m || act) { save(); sync(); draw(); }
+    if (chip || nwc || rec || m || act) { save(); sync(); draw(); }
   });
   sync();
   draw();
@@ -993,31 +899,53 @@ _NW_EXPLORER_JS = """
 """
 
 
-def _net_worth_explorer_html(
-    title: str, nw_points: list[tuple[str, float]], assets: list[dict], *, note: str = "",
-) -> str:
-    """The Asset tab's net-worth-over-time card with a picker for plotting
-    individual assets next to the total: toggle chips (one per asset with at
-    least two days of history, colored in the same fixed palette order as
-    the donut charts), an "All"/"None" shortcut, and a "$ value" / "% change"
-    switch -- % change starts every line at 0 so a $100K account and a
-    $14M net worth can share one axis. The y-axis refits to whatever is
-    currently shown. `assets` is aggregate.asset_balance_history()'s shape
-    (largest first); the picked set and mode persist in localStorage. The
-    chart itself is drawn client-side from the embedded JSON (same layout
-    rules as _line_chart_html)."""
-    first_date, first_value = nw_points[0]
-    last_date, last_value = nw_points[-1]
-    change = last_value - first_value
-    change_pct = (change / abs(first_value) * 100) if first_value else None
-    change_color = "#1baf7a" if change >= 0 else "#c94a4a"
-    change_label = (
+_NW_EXPLORER_RE_COLOR = "#8e5bd9"
+
+
+def _nw_change(points: list[tuple[str, float]]) -> tuple[str, bool]:
+    """("+$X (+Y%) since DATE", is_up) for a dated series' first-to-last move."""
+    first_date, first_value = points[0]
+    change = points[-1][1] - first_value
+    pct = (change / abs(first_value) * 100) if first_value else None
+    label = (
         f"{'+' if change >= 0 else ''}{_money(change)}"
-        + (f" ({'+' if change_pct >= 0 else ''}{change_pct:.1f}%)" if change_pct is not None else "")
+        + (f" ({'+' if pct >= 0 else ''}{pct:.1f}%)" if pct is not None else "")
         + f" since {first_date}"
     )
+    return label, change >= 0
+
+
+def _net_worth_explorer_html(
+    liquid_points: list[tuple[str, float]], total_points: list[tuple[str, float]] | None,
+    assets: list[dict], real_estate: list[dict], *, note: str = "",
+) -> str:
+    """The Asset tab's one over-time chart. The headline line is Net Liquid
+    Asset by default; picking either real-estate line (value / equity)
+    switches it to Total Asset (Net Liquid Asset + real estate equity,
+    `total_points`) -- the same two figures the rollup table above sums.
+    Toggle chips plot individual assets next to it (colored in the same
+    fixed palette order as the donut charts), with "All"/"None" shortcuts
+    and a "$ value" / "% change" switch -- % change starts every line at 0
+    so a $100K account and a $14M total can share one axis. The y-axis
+    refits to whatever is shown. `assets` is aggregate.asset_balance_history()'s
+    shape (largest first); `real_estate` is [{"key": "value"|"equity",
+    "name", "points", "dash"}] (empty when there are no properties). The
+    picked set and mode persist in localStorage. Drawn client-side from the
+    embedded JSON (same layout rules as _line_chart_html)."""
+    def total_def(name: str, points: list[tuple[str, float]]) -> dict:
+        label, up = _nw_change(points)
+        return {"name": name, "points": [[d, v] for d, v in points], "change": label, "up": up}
+
+    liquid = total_def("Net Liquid Asset", liquid_points)
+    total = total_def("Total Asset", total_points) if total_points and real_estate else None
     payload = {
-        "nw": [[d, v] for d, v in nw_points],
+        "liquid": liquid,
+        "total": total,
+        "re": [
+            {"key": r["key"], "name": r["name"], "dash": r.get("dash", ""), "points": [[d, v] for d, v in r["points"]]}
+            for r in real_estate
+        ],
+        "reColor": _NW_EXPLORER_RE_COLOR,
         "assets": [
             {"id": a["id"], "name": a["name"], "category": a["category"], "points": [[d, v] for d, v in a["points"]]}
             for a in assets
@@ -1033,12 +961,22 @@ def _net_worth_explorer_html(
         f'{html.escape(a["name"])}</button>'
         for i, a in enumerate(assets)
     )
+    re_chips = "".join(
+        f'<button type="button" class="nw-chip" data-re="{html.escape(r["key"])}" aria-pressed="false" '
+        f'title="{html.escape(r.get("title", ""))}">'
+        f'<span class="nw-swatch" style="'
+        + (f'background:transparent; border:2px solid {_NW_EXPLORER_RE_COLOR};' if r.get("dash")
+           else f'background:{_NW_EXPLORER_RE_COLOR};')
+        + f'"></span>{html.escape(r["name"])}</button>'
+        for r in real_estate
+    )
     note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
     return f"""
 <div class="card nw-explorer" id="nw-explorer" style="flex:2 1 480px;">
-<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+<h3 style="margin-top:0; font-size:13px;"><span class="nw-title">{html.escape(liquid["name"])}</span> over time <span class="nw-change" style="color:{'#1baf7a' if liquid['up'] else '#c94a4a'}; font-weight:600;">{html.escape(liquid["change"])}</span></h3>
 <div class="nw-controls">
-  <button type="button" class="nw-chip" data-nw="1" aria-pressed="true" title="Show or hide the net worth line"><span class="nw-swatch" style="background:var(--ink);"></span>Net worth</button>
+  <button type="button" class="nw-chip" data-nw="1" aria-pressed="true" title="Show or hide the total line"><span class="nw-swatch" style="background:var(--ink);"></span><span class="nw-chip-label">{html.escape(liquid["name"])}</span></button>
+  {re_chips}
   {chips}
   <span class="nw-tools">
     <button type="button" class="nw-link" data-action="all">All</button>

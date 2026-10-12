@@ -4623,35 +4623,33 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
 
 
 class TestAssetPageNetWorthHistory(DashboardTestCase):
-    """The Asset tab's "Net worth over time" card (see source.webapp.pages.
-    asset._net_worth_points): one point per captured day, laid out by real
-    elapsed time on a y-axis fitted to the data. (It used to collapse
-    each calendar month to a single point.)"""
+    """The Asset tab's over-time chart (see source.webapp.pages.asset.
+    _liquid_and_total_points): Net Liquid Asset, one point per captured
+    day, laid out by real elapsed time on a y-axis fitted to the data."""
 
     def tearDown(self):
+        db.clear_section("real_estate")
         with db.connect() as conn:
             conn.execute("DELETE FROM net_worth_snapshots")
 
-    def _snap(self, net_worth, snapshot_date):
+    def _snap(self, liquid, snapshot_date, *, liabilities=0.0, re_equity=0.0, re_value=None):
         db.record_snapshot(
-            net_worth=net_worth, manual_asset_total=0, linked_asset_total=0,
-            liability_total=0, real_estate_equity_total=0, retirement_liquid_total=0,
-            snapshot_date=snapshot_date,
+            net_worth=liquid - liabilities + re_equity, manual_asset_total=0, linked_asset_total=0,
+            liability_total=liabilities, real_estate_equity_total=re_equity, retirement_liquid_total=liquid,
+            real_estate_value_total=re_value, snapshot_date=snapshot_date,
         )
 
     def test_summary_page_no_longer_has_this_card(self):
         self._snap(100_000.0, "2026-09-01")
         self._snap(110_000.0, "2026-10-01")
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertNotIn("Net worth over time", body)
+        self.assertNotIn('id="nw-explorer"', body)
 
     def test_a_single_day_of_history_shows_the_collapsed_come_back_tomorrow_message(self):
         self._snap(100.0, "2026-09-01")
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn("Net worth over time", body)
+        self.assertIn("Net liquid asset over time", body)
         self.assertIn("Come back tomorrow", body)
-        # Collapsed by default (no `open` attribute) -- nothing to look
-        # at yet besides the note.
         self.assertIn('<details class="card">', body)
         self.assertNotIn("<details open", body)
 
@@ -4660,42 +4658,68 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         self._snap(101_000.0, "2026-09-02")
         self._snap(103_500.0, "2026-09-03")
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn("<svg", body)
-        # Each day keeps its own hover tooltip with that day's value.
-        self.assertIn("2026-09-01: $100,000.00", body)
-        self.assertIn("2026-09-02: $101,000.00", body)
-        self.assertIn("2026-09-03: $103,500.00", body)
+        self.assertIn('id="nw-explorer"', body)
+        self.assertIn('"points": [["2026-09-01", 100000.0], ["2026-09-02", 101000.0], ["2026-09-03", 103500.0]]', body)
         self.assertIn("+$3,500.00", body)
         self.assertIn("since 2026-09-01", body)
-        # Real data -- a plain always-open card, not the collapsed <details>.
-        self.assertNotIn("<details class=", body)
+
+    def test_the_headline_is_net_liquid_asset_net_of_liabilities(self):
+        self._snap(100_000.0, "2026-09-01", liabilities=10_000.0, re_equity=500_000.0)
+        self._snap(120_000.0, "2026-09-02", liabilities=10_000.0, re_equity=500_000.0)
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('"name": "Net Liquid Asset"', body)
+        self.assertIn('["2026-09-01", 90000.0], ["2026-09-02", 110000.0]', body)
 
     def test_a_second_capture_the_same_day_replaces_that_days_point(self):
         self._snap(100_000.0, "2026-09-01")
         self._snap(999_000.0, "2026-09-01")
         self._snap(110_000.0, "2026-09-02")
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertNotIn("2026-09-01: $100,000.00", body)
-        self.assertIn("2026-09-01: $999,000.00", body)
+        self.assertNotIn('["2026-09-01", 100000.0]', body)
+        self.assertIn('["2026-09-01", 999000.0]', body)
         self.assertIn("-$889,000.00", body)
 
+    def test_real_estate_lines_are_chips_and_the_total_switches_to_total_asset(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
+        self._snap(100_000.0, "2026-09-01", re_equity=590_000.0)
+        self._snap(110_000.0, "2026-09-02", re_equity=600_000.0, re_value=900_000.0)
+        self._snap(120_000.0, "2026-09-03", re_equity=605_000.0, re_value=905_000.0)
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('data-re="value"', body)
+        self.assertIn('data-re="equity"', body)
+        # Off by default; the page only ever draws ONE chart for all of this.
+        self.assertEqual(body.count('id="nw-explorer"'), 1)
+        self.assertNotIn("Net worth &amp; real estate over time", body)
+        self.assertIn('"name": "Total Asset"', body)
+        self.assertIn('["2026-09-01", 690000.0], ["2026-09-02", 710000.0], ["2026-09-03", 725000.0]', body)
+        # Value starts the first day it was recorded; equity has the full history.
+        self.assertIn('"key": "value", "name": "Real estate value", "dash": "", "points": [["2026-09-02", 900000.0]', body)
+        self.assertIn('"key": "equity", "name": "Real estate equity", "dash": "6 4", "points": [["2026-09-01", 590000.0]', body)
 
-class TestNetWorthPoints(unittest.TestCase):
-    def test_one_point_per_day_in_date_order(self):
-        from source.webapp.pages.asset import _net_worth_points
+    def test_no_real_estate_chips_without_a_property(self):
+        self._snap(100_000.0, "2026-09-01")
+        self._snap(110_000.0, "2026-09-02")
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn("data-re=", body)
+        self.assertIn('"total": null', body)
+
+
+class TestLiquidAndTotalPoints(unittest.TestCase):
+    def test_liquid_is_net_of_liabilities_and_total_adds_real_estate_equity_in_date_order(self):
+        from source.webapp.pages.asset import _liquid_and_total_points
         rows = [
-            {"snapshot_date": "2026-09-03", "net_worth": 3.0},
-            {"snapshot_date": "2026-09-01", "net_worth": 1.0},
-            {"snapshot_date": "2026-09-02", "net_worth": 2.0},
+            {"snapshot_date": "2026-09-02", "retirement_liquid_total": 200.0, "liability_total": 20.0,
+             "real_estate_equity_total": 50.0},
+            {"snapshot_date": "2026-09-01", "retirement_liquid_total": 100.0, "liability_total": 10.0,
+             "real_estate_equity_total": 40.0},
         ]
-        self.assertEqual(
-            _net_worth_points(rows),
-            [("2026-09-01", 1.0), ("2026-09-02", 2.0), ("2026-09-03", 3.0)],
-        )
+        liquid, total = _liquid_and_total_points(rows)
+        self.assertEqual(liquid, [("2026-09-01", 90.0), ("2026-09-02", 180.0)])
+        self.assertEqual(total, [("2026-09-01", 130.0), ("2026-09-02", 230.0)])
 
     def test_empty_history(self):
-        from source.webapp.pages.asset import _net_worth_points
-        self.assertEqual(_net_worth_points([]), [])
+        from source.webapp.pages.asset import _liquid_and_total_points
+        self.assertEqual(_liquid_and_total_points([]), ([], []))
 
 
 class TestLineChartHtml(unittest.TestCase):
@@ -5679,7 +5703,7 @@ class TestNetWorthExplorer(DashboardTestCase):
         for i, v in enumerate(values, start=1):
             db.record_snapshot(
                 net_worth=v, manual_asset_total=0, linked_asset_total=0, liability_total=0,
-                real_estate_equity_total=0, retirement_liquid_total=0, snapshot_date=f"2026-09-0{i}",
+                real_estate_equity_total=0, retirement_liquid_total=v, snapshot_date=f"2026-09-0{i}",
             )
 
     def test_explorer_replaces_the_static_chart_when_an_asset_has_history(self):
@@ -5690,42 +5714,26 @@ class TestNetWorthExplorer(DashboardTestCase):
         self.assertIn(f'data-id="{asset_id}"', body)
         self.assertIn("Fidelity 401k", body)
         self.assertIn('data-mode="pct"', body)
-        self.assertIn('"nw": [["2026-09-01", 1000000.0]', body)
+        self.assertIn('"points": [["2026-09-01", 1000000.0]', body)
         self.assertIn("+$30,000.00 (+3.0%) since 2026-09-01", body)
 
-    def test_real_estate_chart_plots_net_worth_value_and_equity_when_a_property_exists(self):
-        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
-        for i, (nw, value, equity) in enumerate(
-            [(1_000_000.0, None, 590_000.0), (1_010_000.0, 900_000.0, 600_000.0), (1_020_000.0, 905_000.0, 605_000.0)],
-            start=1,
-        ):
-            db.record_snapshot(
-                net_worth=nw, manual_asset_total=0, linked_asset_total=0, liability_total=0,
-                real_estate_equity_total=equity, retirement_liquid_total=0,
-                real_estate_value_total=value, snapshot_date=f"2026-09-0{i}",
-            )
-        body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn("Net worth &amp; real estate over time", body)
-        self.assertIn("Real estate value", body)
-        self.assertIn("Real estate equity", body)
-        # Value starts on the first day it was recorded; equity has the full history.
-        self.assertIn("Real estate value -- 2026-09-02: $900,000.00", body)
-        self.assertNotIn("Real estate value -- 2026-09-01", body)
-        self.assertIn("Real estate equity -- 2026-09-01: $590,000.00", body)
-
-    def test_real_estate_chart_is_absent_without_a_property(self):
-        self._net_worth([1_000_000.0, 1_010_000.0])
-        body = self._get("/asset.html").read().decode("utf-8")
-        self.assertNotIn("Net worth &amp; real estate over time", body)
-
-    def test_static_chart_is_kept_when_no_asset_has_two_days_of_history(self):
+    def test_explorer_is_shown_even_when_no_asset_has_two_days_of_history(self):
         self._net_worth([1_000_000.0, 1_010_000.0])
         asset_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "New", "balance": 5})
         db.record_asset_balance_snapshot(asset_id=asset_id, balance=5.0, name="New", snapshot_date="2026-09-02")
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertNotIn('id="nw-explorer"', body)
-        self.assertIn("<svg", body)
+        self.assertIn('id="nw-explorer"', body)
+        self.assertIn('data-nw="1"', body)
+        self.assertNotIn(f'class="nw-chip" data-id="{asset_id}"', body)  # one day of history: not plottable yet
         self.assertIn("two days of history", body)
+
+    def test_real_estate_chips_default_off_and_persist_their_choice(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
+        self._net_worth([1_000_000.0, 1_010_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn('class="nw-chip" data-re="value" aria-pressed="false"', body)
+        self.assertIn("rp-nw-re", body)
+        self.assertIn("anyRe()", body)
 
     def test_asset_names_are_escaped_and_cannot_break_out_of_the_embedded_json(self):
         self._net_worth([1.0, 2.0])
