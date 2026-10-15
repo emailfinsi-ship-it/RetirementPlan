@@ -2512,6 +2512,19 @@ class TestGroupedSlicesAndDonutChart(unittest.TestCase):
         self.assertIn("No data yet.", html_out)
         self.assertNotIn('class="bar-chart"', html_out)
 
+    def test_bar_chart_with_many_rows_is_a_scrollable_list_with_a_hint(self):
+        slices = [(f"Cat {i}", 100.0 - i, [f"Cat {i}"]) for i in range(14)]
+        html_out = dashboard._bar_chart_html("Real expenditure by category", slices, dim="expense-category")
+        self.assertIn("14 rows -- scroll the list to see them all.", html_out)
+        self.assertIn('role="region"', html_out)
+        self.assertEqual(html_out.count('class="bar-row pie-seg"'), 14)  # every row, none folded away
+
+    def test_bar_chart_with_few_rows_has_no_scroll_hint(self):
+        slices = [(f"Cat {i}", 100.0 - i, [f"Cat {i}"]) for i in range(10)]
+        html_out = dashboard._bar_chart_html("Real expenditure by category", slices, dim="expense-category")
+        self.assertNotIn("scroll the list", html_out)
+        self.assertNotIn('role="region"', html_out)
+
     def test_bar_chart_renders_a_labeled_row_per_slice_with_value_and_percent(self):
         slices = [("Cash", 750.0, ["Cash"]), ("Semiconductors", 250.0, ["Semiconductors"])]
         html_out = dashboard._bar_chart_html("Positions by industry (market value)", slices, dim="industry")
@@ -5024,11 +5037,14 @@ class TestCategoryRuleEndpoints(DashboardTestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(db.list_category_rules()[0]["kind"], "expense")
 
-    def test_setup_page_shows_kind_selector_and_apply_button(self):
+    def test_setup_page_shows_kind_selector_and_one_apply_all_button(self):
         rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+        db.upsert_category_rule(rule_type="keyword", match_key="google", category="Salary", kind="income")
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertIn('name="kind"', body)
-        self.assertIn(f"applyCategoryRule({rule_id})", body)
+        # One button for every rule -- no per-row Apply any more.
+        self.assertEqual(body.count('onclick="applyAllCategoryRules()"'), 1)
+        self.assertNotIn(f"applyCategoryRule({rule_id})", body)
         self.assertIn("Income", body)
 
 
@@ -5084,6 +5100,33 @@ class TestApplyCategoryRuleEndpoint(DashboardTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["matched"], 0)
         self.assertEqual(db.list_plaid_transactions()[0]["income_kind_override"], "")
+
+    def test_apply_all_applies_every_rule_and_the_higher_precedence_one_wins_a_tie(self):
+        self._seed("t1")
+        self._seed("t2", name="GOOGLE PAYROLL", plaid_category_primary="OTHER", plaid_category_detailed="OTHER_OTHER")
+        db.update_plaid_transaction_category(["t1", "t2"], "salary")  # both hand-edited
+        # Two keyword rules that both match t1: the earlier rule (lower id) is the one a
+        # normal categorization pass would pick, so it must win.
+        db.upsert_category_rule(rule_type="keyword", match_key="apple", category="First", kind="income")
+        db.upsert_category_rule(rule_type="keyword", match_key="payroll", category="Second", kind="expense")
+        db.upsert_category_rule(rule_type="keyword", match_key="google", category="Alphabet", kind="income")
+
+        status, payload = self._post("/api/category-rule/apply-all", {})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["rules"], 3)
+        by_id = {r["transaction_id"]: r for r in db.list_plaid_transactions()}
+        self.assertEqual(by_id["t1"]["category"], "First")
+        self.assertEqual(by_id["t1"]["income_kind_override"], "income")
+        # t2 matches "payroll" (id 2) and "google" (id 3): the lower id wins.
+        self.assertEqual(by_id["t2"]["category"], "Second")
+        self.assertEqual(by_id["t2"]["income_kind_override"], "expense")
+
+    def test_apply_all_with_no_rules_is_a_harmless_no_op(self):
+        status, payload = self._post("/api/category-rule/apply-all", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"ok": True, "rules": 0, "recategorized": 0, "kind_applied": 0})
 
     def test_apply_returns_400_for_an_unknown_rule_id(self):
         status, payload = self._post("/api/category-rule/apply", {"id": 999})

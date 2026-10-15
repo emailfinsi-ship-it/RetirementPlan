@@ -257,7 +257,13 @@ PAGE_CSS = """
   .kind-filter-btn { font-size: 12px; padding: 3px 12px; border: 1px solid var(--border); border-radius: 999px;
     background: var(--surface); color: var(--ink-soft); cursor: pointer; }
   .kind-filter-btn.active { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
-  .bar-chart { display: flex; flex-direction: column; gap: 2px; max-height: 480px; overflow-y: auto; }
+  /* Every bar chart scrolls inside its card past ~10 rows (the partly
+     visible 11th row is the cue that there's more); the track is kept
+     visible by the scrollbar gutter, and _bar_chart_html adds a "scroll
+     for more" caption with the real count. */
+  .bar-chart { display: flex; flex-direction: column; gap: 2px; max-height: 272px; overflow-y: auto; scrollbar-gutter: stable;
+    overscroll-behavior: contain; }
+  .bar-chart-hint { margin: 6px 0 0; font-size: 11px; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }

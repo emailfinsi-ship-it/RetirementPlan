@@ -337,6 +337,34 @@ def apply_category_rule(rule_id: int) -> dict:
         return {"matched": len(matched), "recategorized": recategorized, "kind_applied": kind_applied}
 
 
+def apply_all_category_rules() -> dict:
+    """Force-applies EVERY saved category rule (see apply_category_rule, which
+    this just loops over) -- the Setup page's single "Apply all rules"
+    button, instead of clicking each row's own Apply in turn. Rules are
+    applied lowest-precedence first so that where two rules match the same
+    transaction the one a normal categorization pass would pick wins
+    (plaid_categorize.default_category checks a Plaid subcategory rule, then
+    a Plaid category rule, then keyword rules in id order): keyword rules by
+    id DESCENDING, then category rules, then subcategory rules.
+
+    Returns {"rules": <rules applied>, "recategorized": <total category
+    updates>, "kind_applied": <total income/expense updates>} -- the two
+    counts are summed across rules, so a transaction a second rule changed
+    again counts twice."""
+    from source.common.db.category_rules import list_category_rules
+
+    rules = list_category_rules()
+    order = {"keyword": 0, "primary": 1, "detailed": 2}
+    rules.sort(key=lambda r: (order.get(r["rule_type"], 0), -r["id"] if r["rule_type"] == "keyword" else r["id"]))
+    recategorized = 0
+    kind_applied = 0
+    for rule in rules:
+        result = apply_category_rule(rule["id"])
+        recategorized += result["recategorized"]
+        kind_applied += result["kind_applied"]
+    return {"rules": len(rules), "recategorized": recategorized, "kind_applied": kind_applied}
+
+
 def update_plaid_transaction_excluded(transaction_ids: list[str], excluded: bool) -> int:
     """Bulk "Exclude from total"/"Include in total" -- marks
     excluded_edited_by_user so a later resync never overrides a manual

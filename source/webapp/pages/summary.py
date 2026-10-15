@@ -244,7 +244,7 @@ def _summary_insight_html(s: dict) -> str:
     )
     expense_chart = _bar_chart_html(
         "Expenses by category (annual, nominal)",
-        _grouped_slices(s["expenses"], key="category", value_key="annual_amount", max_slices=8),
+        _grouped_slices(s["expenses"], key="category", value_key="annual_amount", max_slices=None),
         dim="summary-expense-category",
     )
 

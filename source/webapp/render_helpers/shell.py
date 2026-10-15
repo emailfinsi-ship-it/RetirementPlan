@@ -155,9 +155,27 @@ function updateCategoryRule(id, rowEl) {{
     kind: rowEl.querySelector('[name="kind"]').value,
   }}).then(function(d) {{
     alert(d.recategorized + ' existing transaction' + (d.recategorized === 1 ? '' : 's') +
-      ' auto-recategorized (hand-edited ones were left alone -- use this row\\'s own Apply button for those).');
+      ' auto-recategorized (hand-edited ones were left alone -- use the Apply all rules button for those).');
     location.reload();
   }}).catch(function(err) {{ alert(err.message); }});
+}}
+function applyAllCategoryRules() {{
+  // Setup page's single "Apply all rules" button -- force-applies every
+  // SAVED category rule (category AND Kind) to every transaction it
+  // matches, hand-edited ones included; see source.common.db.
+  // transactions.apply_all_category_rules. Edits typed into a row but not
+  // yet saved are not applied (Save first).
+  if (!confirm('Apply every saved rule to all matching transactions now, including ones you already categorized by hand?')) return;
+  postJSON('/api/category-rule/apply-all', {{}})
+    .then(function(d) {{
+      alert(
+        d.rules + ' rule' + (d.rules === 1 ? '' : 's') + ' applied -- ' +
+        d.recategorized + ' category update' + (d.recategorized === 1 ? '' : 's') + ', ' +
+        d.kind_applied + ' income/expense update' + (d.kind_applied === 1 ? '' : 's') + '.'
+      );
+      location.reload();
+    }})
+    .catch(function(err) {{ alert(err.message); }});
 }}
 function applyCategoryRule(id) {{
   // Setup page's per-row "Apply" button -- force-applies this ONE saved

@@ -694,6 +694,13 @@ class Handler(BaseHTTPRequestHandler):
                 # request's own 400 -- see the broad except below.
                 result = db.apply_category_rule(int(payload.get("id")))
                 self._send_json({"ok": True, **result})
+            elif path == "/api/category-rule/apply-all":
+                # Setup page's single "Apply all rules" button -- the
+                # same force-apply as /api/category-rule/apply, for every
+                # saved rule at once (see source.common.db.transactions.
+                # apply_all_category_rules for the precedence order).
+                result = db.apply_all_category_rules()
+                self._send_json({"ok": True, **result})
             elif path == "/api/category-rule/apply-from-transaction":
                 # Real Expenditure page's per-row "Categorize similar"
                 # link -- turns one transaction into a keyword rule from

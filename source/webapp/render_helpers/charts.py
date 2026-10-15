@@ -582,6 +582,10 @@ def _multi_line_chart_html(
 """
 
 
+# Rows a bar chart shows before it scrolls (see .bar-chart's max-height in styles.py).
+_BAR_CHART_VISIBLE_ROWS = 10
+
+
 def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, dim: str) -> str:
     """Horizontal bar ranking, for a magnitude breakdown with too many
     categories to read as a donut (dataviz skill: a pie/donut stops
@@ -622,10 +626,17 @@ def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, d
             f'</div>'
         )
 
+    scrolls = len(slices) > _BAR_CHART_VISIBLE_ROWS
+    hint_html = (
+        f'<p class="muted bar-chart-hint">{len(slices)} rows -- scroll the list to see them all.</p>' if scrolls else ""
+    )
+    # A scrollable region has to be keyboard-reachable too.
+    scroll_attrs = f' tabindex="0" role="region" aria-label="Bar chart rows (scrollable list)"' if scrolls else ""
     return f"""
 <div class="card" style="flex:2 1 480px;">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span class="muted bar-chart-total-label" style="font-weight:400;">-- {html.escape(_money_short(total))} total</span></h3>
-<div class="bar-chart">{"".join(rows)}</div>
+<div class="bar-chart"{scroll_attrs}>{"".join(rows)}</div>
+{hint_html}
 </div>
 """
 

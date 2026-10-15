@@ -113,6 +113,7 @@ from source.common.db.securities import (
     set_security_sector,
 )
 from source.common.db.transactions import (
+    apply_all_category_rules,
     apply_category_rule,
     apply_category_rule_from_transaction,
     clear_plaid_transaction_category_overrides,
@@ -193,6 +194,7 @@ __all__ = [
     "update_plaid_transaction_category",
     "clear_plaid_transaction_category_overrides",
     "recategorize_all_transactions",
+    "apply_all_category_rules",
     "apply_category_rule",
     "apply_category_rule_from_transaction",
     "update_plaid_transaction_excluded",
