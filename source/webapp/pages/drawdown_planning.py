@@ -452,6 +452,12 @@ def _render_drawdown_planning_page() -> str:
     schedule = deterministic_drawdown_schedule(
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=schedule_assumptions,
     )
+    rental_tax_note = (
+        '<p class="muted">Rental income is treated as sheltered by mortgage interest and depreciation until each '
+        "property's <em>Loan ends (year)</em> on the Real Estate tab, and as taxable income after it -- so it only "
+        "pushes your withdrawals into higher brackets from then on.</p>"
+        if assumptions.get("rental_taxable_schedule") else ""
+    )
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
     rmd_note = (
         "" if has_birth_year else
@@ -493,7 +499,7 @@ set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferre
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
-{_year_by_year_table_html(schedule)}
+{rental_tax_note}{_year_by_year_table_html(schedule)}
 <p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).
 Looking to also minimize what an heir owes in tax, or considering a Roth conversion? See the
 <a href="/legacy-planning.html">Legacy Planning</a> tab, which compares several strategies against this one.</p>

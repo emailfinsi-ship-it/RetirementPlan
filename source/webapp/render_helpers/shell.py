@@ -109,6 +109,7 @@ PAGE_SHELL = """<!doctype html>
         <label>Current value<input name="current_value" type="number" step="0.01" required></label>
         <label>Ownership %<input name="ownership_pct" type="number" step="0.01" value="100"></label>
         <label>Loan balance<input name="loan_balance" type="number" step="0.01"></label>
+        <label>Loan ends (year)<input name="loan_end_year" type="number" step="1" placeholder="e.g. 2051"></label>
         <label>Annual income<input name="annual_income" type="number" step="0.01" placeholder="e.g. rental income"></label>
         <label style="grid-column:1/-1;">Notes<input name="notes"></label>
       </fieldset>

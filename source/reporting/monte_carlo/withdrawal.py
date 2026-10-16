@@ -77,7 +77,9 @@ def annual_income_need(income: list, year: int, inflation_rate: float = 0.0) -> 
     return annual_line_item_total(income, year, inflation_rate)
 
 
-def annual_taxable_income(income: list, year: int, inflation_rate: float = 0.0) -> float:
+def annual_taxable_income(
+    income: list, year: int, inflation_rate: float = 0.0, rental_taxable_fraction: float = 1.0,
+) -> float:
     """The part of `year`'s Income-tab total that is ordinary taxable
     income: every row in full (rental, pension, ...) except Social
     Security, of which only SOCIAL_SECURITY_TAXABLE_FRACTION counts.
@@ -87,28 +89,42 @@ def annual_taxable_income(income: list, year: int, inflation_rate: float = 0.0) 
     if it were the household's only income, understating the bracket it
     actually lands in whenever rent or benefits are also coming in. (Tax
     on the income itself is not modeled: the Income tab's figures are
-    treated as already net of it, exactly as they always were.)"""
+    treated as already net of it, exactly as they always were.)
+
+    `rental_taxable_fraction` (0..1, default 1.0 = all of it) scales the
+    rental rows: while a property's loan is still running, its mortgage
+    interest and depreciation shelter the rent, so only the share that
+    is past its loan end year counts -- see assumptions.
+    _resolve_rental_taxable_fraction."""
     total = 0.0
     for row in income:
         amount = _amount_in_year(row, year, inflation_rate)
-        if "social security" in f"{row.get('category') or ''} {row.get('name') or ''}".lower():
+        kind = _income_kind(row)
+        if kind == "social_security":
             amount *= SOCIAL_SECURITY_TAXABLE_FRACTION
+        elif kind == "rental":
+            amount *= rental_taxable_fraction
         total += amount
     return total
 
 
+def _income_kind(row: dict) -> str:
+    """"social_security", "rental" or "other" -- a row counts as Social
+    Security when its category or name says so, as rental when it says
+    "rent", otherwise other."""
+    label = f"{row.get('category') or ''} {row.get('name') or ''}".lower()
+    return "social_security" if "social security" in label else "rental" if "rent" in label else "other"
+
+
 def annual_income_breakdown(income: list, year: int, inflation_rate: float = 0.0) -> dict:
     """`year`'s Income-tab total split into {"rental", "social_security",
-    "other"} (a row counts as Social Security when its category or name
-    says so, as rental when it says "rent", otherwise other) -- for the
-    Drawdown tab's year-by-year table, so a person can see how much of
-    each year's spending these cover before anything is drawn from the
-    portfolio. The three always add up to annual_income_need's total."""
+    "other"} -- for the Drawdown tab's year-by-year table, so a person can
+    see how much of each year's spending these cover before anything is
+    drawn from the portfolio. The three always add up to
+    annual_income_need's total."""
     parts = {"rental": 0.0, "social_security": 0.0, "other": 0.0}
     for row in income:
-        label = f"{row.get('category') or ''} {row.get('name') or ''}".lower()
-        key = "social_security" if "social security" in label else "rental" if "rent" in label else "other"
-        parts[key] += _amount_in_year(row, year, inflation_rate)
+        parts[_income_kind(row)] += _amount_in_year(row, year, inflation_rate)
     return parts
 
 

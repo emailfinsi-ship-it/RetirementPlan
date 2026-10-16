@@ -45,6 +45,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
     _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
+    _resolve_rental_taxable_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
 )
@@ -335,7 +336,9 @@ def _run_conversion_schedule(
             if early_spend_from_age is not None and age is not None and age >= early_spend_from_age
             else None
         )
-        taxable_income = annual_taxable_income(income, year, inflation_rate)
+        taxable_income = annual_taxable_income(
+            income, year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year),
+        )
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,

@@ -70,6 +70,22 @@ class TestBuildSummary(TempConfigTestCase):
         self.assertEqual(s["liability_total"], 20_000)
         self.assertEqual(s["real_estate_equity_total"], 200_000)
 
+    def test_rental_taxable_schedule_follows_the_loan_end_years(self):
+        import json
+        self.assertEqual(build_summary()["assumptions"]["rental_taxable_schedule"], "")
+        db.add_line_item("real_estate", {"name": "A", "current_value": 1, "annual_income": 60_000, "loan_end_year": 2051})
+        db.add_line_item("real_estate", {"name": "B", "current_value": 1, "annual_income": 20_000})
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 1, "annual_income": 0, "loan_end_year": 2040})
+        schedule = json.loads(build_summary()["assumptions"]["rental_taxable_schedule"])
+        self.assertEqual(schedule, [[2051, 60_000.0], [None, 20_000.0]])  # the rent-less Home is ignored
+
+    def test_rental_taxable_schedule_without_any_annual_income_weights_loan_rows_equally(self):
+        import json
+        db.add_line_item("real_estate", {"name": "A", "current_value": 1, "loan_end_year": 2051})
+        db.add_line_item("real_estate", {"name": "B", "current_value": 1, "loan_end_year": 2045})
+        schedule = json.loads(build_summary()["assumptions"]["rental_taxable_schedule"])
+        self.assertEqual(schedule, [[2051, 1.0], [2045, 1.0]])
+
     def test_this_year_expense_need_uses_current_year_assumption(self):
         db.set_assumption("current_year", 2030)
         db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 40_000})

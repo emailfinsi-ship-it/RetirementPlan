@@ -7,6 +7,7 @@ assumption or reading off a percentile behaves identically in both.
 
 from __future__ import annotations
 
+import json
 import math
 
 
@@ -58,6 +59,34 @@ def _resolve_spouse_tax_deferred_share(assumptions: dict) -> float:
     except (TypeError, ValueError):
         return 0.0
 
+
+
+def _resolve_rental_taxable_fraction(assumptions: dict, year: int) -> float:
+    """The share (0..1) of rental income that counts as taxable ordinary
+    income in `year`. NOT a user-entered assumption: source.reporting.
+    aggregate.build_summary derives `rental_taxable_schedule` from the
+    Real Estate tab's "Loan ends" column and injects it (a JSON list of
+    [loan_end_year | null, weight] pairs, one per property -- weight is the
+    property's annual income) into the assumptions dict, the same way
+    `spouse_tax_deferred_share` is. A property's rent is sheltered by
+    mortgage interest and depreciation while its loan runs, so it only
+    counts once `year` is AFTER its loan_end_year; a property with no
+    loan end year is taxable every year. 1.0 (missing, blank, garbage)
+    means "fully taxable every year", the original behavior."""
+    raw = assumptions.get("rental_taxable_schedule")
+    if not raw:
+        return 1.0
+    try:
+        entries = json.loads(raw) if isinstance(raw, str) else raw
+        total = taxable = 0.0
+        for end_year, weight in entries:
+            weight = float(weight)
+            total += weight
+            if end_year is None or year > int(end_year):
+                taxable += weight
+    except (TypeError, ValueError):
+        return 1.0
+    return taxable / total if total > 0 else 1.0
 
 
 def _resolve_retirement_year(assumptions: dict) -> int | None:

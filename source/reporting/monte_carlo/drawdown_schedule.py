@@ -24,6 +24,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
     _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
+    _resolve_rental_taxable_fraction,
     _resolve_retirement_year,
     _resolve_spouse_birth_year,
     _truthy_assumption,
@@ -111,7 +112,9 @@ def deterministic_drawdown_schedule(
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
-            owners=owners, base_ordinary_income=annual_taxable_income(income or [], year, inflation_rate),
+            owners=owners, base_ordinary_income=annual_taxable_income(
+                income or [], year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year),
+            ),
         )
         withdrawn = result["withdrawn"]
         row = {

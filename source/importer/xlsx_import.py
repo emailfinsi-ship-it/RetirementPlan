@@ -300,13 +300,23 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
     }
     new_asset_ids: dict[tuple[str, str], int] = {}
 
+    # The workbook has no Loan-ends column, so a year typed in on the Real
+    # Estate tab would be lost with the wiped rows -- carry it over by name.
+    previous_loan_end_years = {
+        row["name"]: row["loan_end_year"]
+        for row in db.list_line_items("real_estate")
+        if row.get("source") == "imported" and row.get("loan_end_year")
+    }
+
     db.clear_section("real_estate", source="imported")
     db.clear_section("assets", source="imported")
     db.clear_section("expenses", source="imported")
     db.clear_section("income", source="imported")
 
     for row in real_estate_rows:
-        db.add_line_item("real_estate", {**row, "source": "imported"})
+        db.add_line_item("real_estate", {
+            **row, "source": "imported", "loan_end_year": previous_loan_end_years.get(row.get("name")),
+        })
 
     asset_count = 0
     for category, rows in (("401k", k401_rows), ("Liquid", liquid_rows)):

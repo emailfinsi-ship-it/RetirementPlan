@@ -327,6 +327,26 @@ def capture_daily_snapshots_if_new_day(last_captured_date: str | None, today: st
     return today
 
 
+def _rental_taxable_schedule(real_estate: list[dict]) -> str:
+    """JSON [[loan_end_year | null, weight], ...] for the Real Estate rows
+    that bring in rent (weight = the row's annual income). When no row has
+    a loan end year -- or no row has any income and none has a loan end
+    year -- returns "" (no shelter modeled). If properties have loan end
+    years but none of them has an Annual Income typed in, each row with a
+    loan end year counts equally."""
+    import json
+
+    if not any(r.get("loan_end_year") for r in real_estate):
+        return ""
+    entries = [
+        [r.get("loan_end_year"), float(r.get("annual_income") or 0.0)]
+        for r in real_estate if (r.get("annual_income") or 0) > 0
+    ]
+    if not entries:
+        entries = [[r["loan_end_year"], 1.0] for r in real_estate if r.get("loan_end_year")]
+    return json.dumps(entries)
+
+
 def build_summary() -> dict:
     assets = db.list_line_items("assets")
     real_estate = db.list_line_items("real_estate")
@@ -615,6 +635,12 @@ def build_summary() -> dict:
     # and Legacy pages, whose pools ALSO include unlinked Plaid accounts,
     # layer drawdown_spouse_tax_deferred_share over it instead.
     assumptions["spouse_tax_deferred_share"] = _spouse_share(tax_deferred_by_owner)
+    # Likewise derived (not a user setting): when each property's loan ends,
+    # weighted by its rental income, so the tax engine only counts rent as
+    # taxable once the loan is paid off -- see monte_carlo.assumptions.
+    # _resolve_rental_taxable_fraction. Absent when no property has a loan
+    # end year (rent is then taxable every year, the original behavior).
+    assumptions["rental_taxable_schedule"] = _rental_taxable_schedule(real_estate)
 
     this_year = int(assumptions.get("current_year") or date.today().year)
     from source.reporting.monte_carlo import annual_expense_need, annual_income_need

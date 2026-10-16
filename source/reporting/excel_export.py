@@ -468,7 +468,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
     assumption_rows = [
         (_ASSUMPTION_LABELS.get(k, k), _assumption_cell(k, v))
         for k, v in sorted(summary["assumptions"].items())
-        if k != "spouse_tax_deferred_share"  # derived, not a user setting
+        if k not in ("spouse_tax_deferred_share", "rental_taxable_schedule")  # derived, not user settings
     ]
     ainfo = xs.write_table(ws, headers=["Assumption", "Value"], rows=assumption_rows, start_row=row)
     row = ainfo.next_row + 1

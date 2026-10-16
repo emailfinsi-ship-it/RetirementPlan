@@ -47,13 +47,17 @@ def _render_real_estate_page() -> str:
         income_cell = _editable_number_cell(
             "real_estate", r["id"], "annual_income", r["annual_income"], width="80px", min_attr="0",
         )
+        loan_end_cell = _editable_number_cell(
+            "real_estate", r["id"], "loan_end_year", r.get("loan_end_year"), width="70px", step="1",
+            min_attr="1900", max_attr="2200", blank_if_none=True,
+        )
         mc_cell = _editable_checkbox_cell("real_estate", r["id"], "include_in_monte_carlo", r.get("include_in_monte_carlo"))
         return (
             f'<tr><td class="check-col"><input type="checkbox" class="row-check" '
             f'data-section="real_estate" data-id="{r["id"]}"></td>'
             f'<td>{name_cell}</td><td class="num">{purchase_cell}</td>'
             f'<td class="num">{value_cell}</td><td class="num">{ownership_cell}</td>'
-            f'<td class="num">{loan_display}</td>'
+            f'<td class="num">{loan_display}</td><td class="num">{loan_end_cell}</td>'
             f'<td class="link-col">{_link_select_html(r, linkable, section="real_estate")}</td>'
             f'<td class="num">{_money(equity)}</td><td class="num">{income_cell}</td>'
             f'<td>{mc_cell}</td></tr>'
@@ -61,7 +65,7 @@ def _render_real_estate_page() -> str:
 
     rendered = [row_html(r) for r in rows]
     rows_html = "".join(r for r, _, _, _, _ in rendered) or (
-        '<tr><td colspan="10" class="muted">No properties yet.</td></tr>'
+        '<tr><td colspan="11" class="muted">No properties yet.</td></tr>'
     )
     total_equity = sum(e for _, e, _, _, _ in rendered)
     total_income = sum(r["annual_income"] or 0 for r in rows)
@@ -78,15 +82,16 @@ def _render_real_estate_page() -> str:
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th class="check-col"><input type="checkbox" class="select-all-check"></th><th>Property</th><th class="num">Purchase Price</th><th class="num">Current Value</th>
-<th class="num">Ownership %</th><th class="num">Loan Balance</th><th class="link-col">Linked account</th><th class="num">Equity</th>
+<th class="num">Ownership %</th><th class="num">Loan Balance</th><th class="num">Loan ends (year)</th><th class="link-col">Linked account</th><th class="num">Equity</th>
 <th class="num">Annual Income</th><th>In Monte Carlo?</th></tr></thead>
 <tbody>{rows_html}</tbody>
 <tfoot><tr><td colspan="2">Totals</td><td class="num">{_money(total_purchase)}</td><td class="num">{_money(total_value)}</td><td></td>
-<td class="num">{_money(total_loan)}</td><td></td><td class="num">{_money(total_equity)}</td>
+<td class="num">{_money(total_loan)}</td><td></td><td></td><td class="num">{_money(total_equity)}</td>
 <td class="num">{_money(total_income)}</td><td></td></tr></tfoot>
 </table>
 </div>
 <p class="status-line">Included in Monte Carlo simulations: <strong>{_money(mc_equity_total)}</strong> of equity above.</p>
+<p class="muted">Loan ends (year): the year each property's loan is paid off. The tax estimates on the Drawdown, Legacy and Monte Carlo tabs treat Rental income as sheltered by mortgage interest and depreciation until then and as fully taxable after it (weighted by each property's Annual Income when several properties have different years). Leave it blank and rent is taxable every year.</p>
 <p class="muted">Annual income (e.g. rental income) isn't automatically netted against the Monte Carlo withdrawal need -- if you want that, add it to "Annual income offset" on the Monte Carlo tab yourself.</p>
 <div class="add-shortcut-row">
   <button type="button" class="primary" onclick="openAddModal('real_estate')">+ Add property</button>

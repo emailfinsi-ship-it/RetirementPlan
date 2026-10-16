@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS real_estate (
     notes TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'manual',
     linked_account_id TEXT,                       -- plaid_accounts.account_id this row's loan_balance tracks live, or NULL
+    loan_end_year INTEGER,                        -- year this property's loan is paid off, or NULL. Its rental income
+                                                    -- is treated as taxable only AFTER this year (interest and
+                                                    -- depreciation shelter it until then) -- see source.reporting.
+                                                    -- monte_carlo.assumptions._resolve_rental_taxable_fraction.
     include_in_monte_carlo INTEGER NOT NULL DEFAULT 0, -- 1 = this property's equity is added as a 4th,
                                                     -- untaxed, last-drawn pool in the Monte Carlo /
                                                     -- historical stress test simulations (see

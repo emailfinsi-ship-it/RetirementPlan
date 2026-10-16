@@ -20,6 +20,7 @@ from source.reporting.monte_carlo.assumptions import (
     _percentile,
     _resolve_birth_year,
     _resolve_gains_fraction,
+    _resolve_rental_taxable_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
 )
@@ -113,7 +114,10 @@ def _run_random_simulation(
         ]
         # Taxable income under each year's withdrawal (rent, pension, taxable
         # Social Security) -- the same for every path, so computed once.
-        base_incomes = [annual_taxable_income(income, year, inflation_rate) for year in years]
+        base_incomes = [
+            annual_taxable_income(income, year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year))
+            for year in years
+        ]
         paths = []
         path_total_taxes = []
         path_first_year_taxes = []

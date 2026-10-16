@@ -49,6 +49,8 @@ def _migrate_schema(conn) -> None:
         conn.execute("ALTER TABLE assets ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
     if "include_in_monte_carlo" not in existing_re:
         conn.execute("ALTER TABLE real_estate ADD COLUMN include_in_monte_carlo INTEGER NOT NULL DEFAULT 0")
+    if "loan_end_year" not in existing_re:
+        conn.execute("ALTER TABLE real_estate ADD COLUMN loan_end_year INTEGER")
     if "include_in_monte_carlo" not in existing:
         # New column -- backfill it from whatever retirement_liquid_categories
         # assumption this database had configured (that assumption drove

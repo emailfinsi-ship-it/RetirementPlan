@@ -17,6 +17,7 @@ from datetime import date
 from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
     _resolve_gains_fraction,
+    _resolve_rental_taxable_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
 )
@@ -124,7 +125,10 @@ def run_historical_stress_test(
     yearly_income = [annual_income_need(income, year, inflation_rate) for year in years]
     # Ordinary taxable income under each year's withdrawal -- see
     # withdrawal.annual_taxable_income (pools mode only).
-    yearly_taxable_income = [annual_taxable_income(income, year, inflation_rate) for year in years]
+    yearly_taxable_income = [
+        annual_taxable_income(income, year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year))
+        for year in years
+    ]
     # And the Expense-tab side on its own too -- the un-netted "Total
     # Expense" a caller can show right next to Total Income (both are the
     # two raw, un-netted tab totals) so Total Expense - Total Income

@@ -201,6 +201,17 @@ class TestImportFromXlsx(TempConfigTestCase):
         self.assertEqual([(h["snapshot_date"], h["balance"]) for h in history], [("2026-01-05", 240_000)])
         self.assertEqual(db.list_asset_balance_snapshots(old["Fidelity 401k"]), [])
 
+    def test_reimport_keeps_a_loan_end_year_typed_on_the_real_estate_tab(self):
+        xlsx_import.import_from_xlsx(self.path)
+        row = next(r for r in db.list_line_items("real_estate") if r["name"] == "Moorpark")
+        db.update_line_item("real_estate", row["id"], {"loan_end_year": "2051"})
+
+        xlsx_import.import_from_xlsx(self.path)
+
+        rows = {r["name"]: r for r in db.list_line_items("real_estate")}
+        self.assertEqual(rows["Moorpark"]["loan_end_year"], 2051)
+        self.assertIsNone(rows["Muscat Dr"]["loan_end_year"])
+
     def test_imports_real_estate_rows_and_skips_total(self):
         xlsx_import.import_from_xlsx(self.path)
         rows = db.list_line_items("real_estate")

@@ -428,6 +428,53 @@ class TestAnnualTaxableIncome(unittest.TestCase):
         self.assertEqual(annual_income_need(income, 2030), 30_000)
 
 
+class TestRentalTaxableFraction(unittest.TestCase):
+    def test_blank_or_garbage_schedule_means_fully_taxable(self):
+        from source.reporting.monte_carlo.assumptions import _resolve_rental_taxable_fraction as f
+        self.assertEqual(f({}, 2030), 1.0)
+        self.assertEqual(f({"rental_taxable_schedule": ""}, 2030), 1.0)
+        self.assertEqual(f({"rental_taxable_schedule": "not json"}, 2030), 1.0)
+
+    def test_rent_is_taxable_only_after_the_loan_end_year(self):
+        from source.reporting.monte_carlo.assumptions import _resolve_rental_taxable_fraction as f
+        a = {"rental_taxable_schedule": "[[2051, 60000.0]]"}
+        self.assertEqual(f(a, 2051), 0.0)
+        self.assertEqual(f(a, 2052), 1.0)
+
+    def test_several_properties_are_weighted_by_their_income(self):
+        from source.reporting.monte_carlo.assumptions import _resolve_rental_taxable_fraction as f
+        a = {"rental_taxable_schedule": "[[2040, 30000], [2051, 10000], [null, 10000]]"}
+        self.assertAlmostEqual(f(a, 2035), 10_000 / 50_000)   # only the no-loan property
+        self.assertAlmostEqual(f(a, 2041), 40_000 / 50_000)
+        self.assertAlmostEqual(f(a, 2052), 1.0)
+
+    def test_annual_taxable_income_scales_only_rental_rows(self):
+        from source.reporting.monte_carlo import annual_taxable_income
+        income = [
+            {"category": "Rental", "annual_amount": 40_000},
+            {"category": "Social Security", "annual_amount": 30_000},
+            {"category": "Pension", "annual_amount": 10_000},
+        ]
+        self.assertAlmostEqual(annual_taxable_income(income, 2030, 0.0, 0.0), 30_000 * 0.85 + 10_000)
+        self.assertAlmostEqual(annual_taxable_income(income, 2030, 0.0, 0.5), 20_000 + 30_000 * 0.85 + 10_000)
+
+    def test_drawdown_schedule_taxes_less_while_the_loan_runs(self):
+        pools = {"tax_deferred": 3_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        income = [{"name": "Rental income", "category": "Rental", "annual_amount": 80_000}]
+        expenses = [{"name": "Living", "annual_amount": 200_000}]
+        base = {"expected_return": "0.0", "plan_horizon_years": "2", "current_year": "2050",
+                "annual_income_offset": "0", "apply_drawdown_tax": "1", "inflation_rate": "0"}
+        taxed = deterministic_drawdown_schedule(pools=dict(pools), expenses=expenses, income=income, assumptions=base)
+        sheltered = deterministic_drawdown_schedule(
+            pools=dict(pools), expenses=expenses, income=income,
+            assumptions={**base, "rental_taxable_schedule": "[[2051, 80000]]"},
+        )
+        self.assertLess(sheltered["rows"][0]["tax"], taxed["rows"][0]["tax"])   # 2050: rent sheltered
+        self.assertLess(sheltered["rows"][1]["tax"], taxed["rows"][1]["tax"])  # 2051: still sheltered
+        # Same year-by-year need either way -- only the tax changes.
+        self.assertEqual(sheltered["rows"][0]["need"], taxed["rows"][0]["need"])
+
+
 class TestAnnualIncomeBreakdown(unittest.TestCase):
     def test_splits_rental_social_security_and_other(self):
         from source.reporting.monte_carlo import annual_income_breakdown, annual_income_need

@@ -1660,6 +1660,26 @@ class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("In Monte Carlo?", body)
 
+    def test_loan_end_year_column_is_editable_and_blank_clears_it(self):
+        body = self._get("/real-estate.html").read().decode("utf-8")
+        self.assertIn("Loan ends (year)", body)
+        self.assertIn(f"updateField('real_estate', {self.item_id}, 'loan_end_year'", body)
+        status, _ = self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"loan_end_year": "2051"},
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(db.list_line_items("real_estate")[0]["loan_end_year"], 2051)
+        self._post("/api/line-item/update", {
+            "section": "real_estate", "id": self.item_id, "fields": {"loan_end_year": ""},
+        })
+        self.assertIsNone(db.list_line_items("real_estate")[0]["loan_end_year"])
+
+    def test_drawdown_page_explains_the_rental_tax_shelter_once_a_loan_end_year_is_set(self):
+        db.update_line_item("real_estate", self.item_id, {"loan_end_year": "2051", "annual_income": "30000"})
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        self.assertIn("Loan ends (year)", body)
+        self.assertIn("sheltered by mortgage interest and depreciation", body)
+
     def test_unchecked_by_default(self):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
