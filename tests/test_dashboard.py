@@ -5088,7 +5088,7 @@ class TestApplyCategoryRuleEndpoint(DashboardTestCase):
         self.assertEqual(payload, {"ok": True, "matched": 1, "recategorized": 1, "kind_applied": 1})
         row = db.list_plaid_transactions()[0]
         self.assertEqual(row["category"], "Salary")
-        self.assertEqual(row["category_edited_by_user"], 0)
+        self.assertEqual(row["category_edited_by_user"], 1)  # Plaid categorized it; keyword can't govern it
         self.assertEqual(row["income_kind_override"], "income")
 
     def test_apply_does_not_touch_a_non_matching_transaction(self):
@@ -5227,6 +5227,22 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "type": "investment", "subtype": "401k", "mask": "1234",
             "balances": {"current": balance, "available": None, "iso_currency_code": "USD"},
         })
+
+    def test_year_table_shows_rental_and_social_security_income_columns(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "A", "balance": 900_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Living", "annual_amount": 120_000})
+        db.add_line_item("income", {"name": "Rental income", "category": "Rental", "annual_amount": 41_000})
+        db.add_line_item("income", {"name": "Social Security", "category": "Social Security", "annual_amount": 33_000})
+        try:
+            body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        finally:
+            db.clear_section("expenses")
+            db.clear_section("income")
+        self.assertIn('<th class="num">Rental income</th>', body)
+        self.assertIn('<th class="num">Social Security</th>', body)
+        self.assertNotIn('<th class="num">Other income</th>', body)
+        self.assertIn("41,000.00", body)
+        self.assertIn("33,000.00", body)
 
     def test_nav_includes_drawdown_planning_tab(self):
         resp = self._get("/summary.html")
@@ -5442,7 +5458,16 @@ class TestLegacyPlanningPage(DashboardTestCase):
         db.clear_section("real_estate")
         db.set_assumptions({
             "retirement_year": "", "current_year": "", "heir_type": "", "heir_base_income": "", "heir_spread_years": "",
+            "early_tax_deferred_age": "", "birth_year": "",
         })
+
+    def test_baseline_is_labelled_your_current_plan_when_an_early_draw_age_is_set(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.set_assumptions({"birth_year": "1966", "early_tax_deferred_age": "60"})
+        body = self._get("/legacy-planning.html").read().decode("utf-8")
+        self.assertIn("Your current plan: spend Tax-deferred first from age 60, no conversions", body)
+        self.assertIn("vs. your current plan", body)
+        self.assertIn("applies to the baseline and to every conversion row", body)
 
     def test_nav_includes_legacy_planning_tab(self):
         resp = self._get("/summary.html")

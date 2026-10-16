@@ -43,6 +43,7 @@ from datetime import date
 from source.reporting import rmd
 from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
+    _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_retirement_year,
     _truthy_assumption,
@@ -56,7 +57,7 @@ from source.reporting.monte_carlo.tax import (
     _marginal_rate,
     _pool_year_tax,
 )
-from source.reporting.monte_carlo.withdrawal import annual_income_need, annual_net_withdrawal_need
+from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need, annual_taxable_income
 
 
 # (key, label, target federal bracket rate to fill up to each year --
@@ -112,13 +113,13 @@ def _stacked_tax_on_amount(base_income: float, additional: float, year: int, inf
     """Fed+CA tax owed on just the `additional` ordinary-income slice
     given `base_income` of other ordinary income already fills the
     brackets below it -- both treated as pure ordinary income (no
-    capital-gains portion), reusing _pool_year_tax's own fed+CA
-    combination via a before/after difference."""
+    capital-gains portion), via _pool_year_tax's own base_ordinary_income
+    stacking."""
     if additional <= 0:
         return 0.0
-    return (
-        _pool_year_tax(ordinary_income=base_income + additional, gains_income=0.0, year=year, inflation_rate=inflation_rate)
-        - _pool_year_tax(ordinary_income=base_income, gains_income=0.0, year=year, inflation_rate=inflation_rate)
+    return _pool_year_tax(
+        ordinary_income=additional, gains_income=0.0, year=year, inflation_rate=inflation_rate,
+        base_ordinary_income=max(0.0, base_income),
     )
 
 
@@ -328,30 +329,26 @@ def _run_conversion_schedule(
             path_pools[name] *= (1 + expected_return)
 
         age = (year - birth_year) if birth_year is not None else None
-        tax_deferred_before_withdrawal = path_pools["tax_deferred"]
         need = annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
         spend_order = (
             _TAX_DEFERRED_FIRST_ORDER
             if early_spend_from_age is not None and age is not None and age >= early_spend_from_age
             else None
         )
+        taxable_income = annual_taxable_income(income, year, inflation_rate)
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
-            owners=owners,
+            owners=owners, base_ordinary_income=taxable_income,
         )
         if result["shortfall"] > 1e-6:
             depletes = True
         total_lifetime_tax += result["tax"]
         # Ordinary income already recognized this year before any
-        # conversion -- Income-tab total, the RMD, and whatever
-        # additional Tax-deferred dollars the spending withdrawal
-        # itself pulled out (the total Tax-deferred reduction, minus
-        # the RMD, since both come out of the same pool and
-        # _apply_year_withdrawal doesn't expose that split on its own).
-        tax_deferred_reduction = tax_deferred_before_withdrawal - path_pools["tax_deferred"]
-        extra_tax_deferred_withdrawn = max(0.0, tax_deferred_reduction - result["rmd"])
-        other_ordinary_income = annual_income_need(income, year, inflation_rate) + result["rmd"] + extra_tax_deferred_withdrawn
+        # conversion -- the taxable part of the Income-tab total, the RMD,
+        # and whatever additional Tax-deferred dollars the spending
+        # withdrawal itself pulled out.
+        other_ordinary_income = taxable_income + result["rmd"] + result["withdrawn"].get("tax_deferred", 0.0)
 
         conversion = 0.0
         conversion_tax = 0.0
@@ -436,13 +433,27 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
     heir_spread_years = _resolve_heir_spread_years(assumptions, heir_type)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
 
+    # The plan's own "Start drawing Tax-deferred at age" setting (the Drawdown
+    # Planning tab already follows it) applies to the baseline AND to every
+    # conversion row -- otherwise "no conversions" would not be the plan
+    # you're actually running, and every comparison would be against a
+    # strawman. A fixed-age early-draw alternative is only listed when it
+    # differs from that setting (it would just repeat the baseline).
+    plan_early_age = _resolve_early_tax_deferred_age(assumptions)
     strategy_configs = [
-        {"key": key, "label": label, "target_rate": target_rate, "early_spend_from_age": None}
+        {"key": key, "label": label, "target_rate": target_rate, "early_spend_from_age": plan_early_age}
         for key, label, target_rate in ROTH_CONVERSION_STRATEGIES
     ] + [
         {"key": key, "label": label, "target_rate": None, "early_spend_from_age": early_spend_from_age}
         for key, label, early_spend_from_age in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES
+        if early_spend_from_age != plan_early_age
     ]
+    if plan_early_age is not None:
+        for config in strategy_configs:
+            if config["key"] == "no_conversions":
+                config["label"] = (
+                    f"Your current plan: spend Tax-deferred first from age {plan_early_age}, no conversions"
+                )
 
     results = []
     for config in strategy_configs:
@@ -493,6 +504,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         "heir_marginal_rate": _combined_marginal_rate(heir_base_income, _current_year(assumptions), inflation_rate),
         "heir_spread_years": heir_spread_years,
         "baseline_key": "no_conversions",
+        "plan_early_tax_deferred_age": plan_early_age,
         "death_year": results[0]["rows"][-1]["year"] if results and results[0]["rows"] else _current_year(assumptions),
         "strategies": results,
     }

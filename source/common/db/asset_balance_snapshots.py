@@ -55,3 +55,19 @@ def list_asset_balance_snapshots(asset_id: int | None = None) -> list[dict]:
                 "SELECT * FROM asset_balance_snapshots WHERE asset_id = ? ORDER BY snapshot_date", (asset_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+def remap_asset_balance_snapshots(id_map: dict[int, int]) -> None:
+    """Re-points snapshot history from old asset ids to new ones
+    ({old_id: new_id}) -- used when a workbook re-import deletes and
+    re-adds the imported Asset rows (new ids), so a row's history follows
+    it. A day that already has a snapshot under the new id keeps that one;
+    the old id's leftovers are dropped."""
+    pairs = [(new, old) for old, new in id_map.items() if old != new]
+    if not pairs:
+        return
+    with connect() as conn:
+        conn.executemany(
+            "UPDATE OR IGNORE asset_balance_snapshots SET asset_id = ? WHERE asset_id = ?", pairs,
+        )
+        conn.executemany("DELETE FROM asset_balance_snapshots WHERE asset_id = ?", [(old,) for _, old in pairs])

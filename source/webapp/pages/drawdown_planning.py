@@ -379,10 +379,18 @@ def _year_by_year_table_html(schedule: dict) -> str:
     spouse_header = (
         '<th>Wife age</th><th class="num">RMD: Me</th><th class="num">RMD: Wife</th>' if has_spouse else ""
     )
+    # "Other income" (a pension, say) only gets a column when some visible
+    # year actually has any -- most plans just have rent and Social Security.
+    show_other_income = any(abs(r.get("income_other", 0.0)) > 0.005 for r in visible_rows)
+    other_header = '<th class="num">Other income</th>' if show_other_income else ""
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
         + _spouse_cells(r)
+        + f'<td class="num">{_money(r.get("expenses", 0.0))}</td>'
+        f'<td class="num">{_money(r.get("income_rental", 0.0))}</td>'
+        f'<td class="num">{_money(r.get("income_social_security", 0.0))}</td>'
+        + (f'<td class="num">{_money(r.get("income_other", 0.0))}</td>' if show_other_income else "")
         + f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
@@ -396,7 +404,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
 {hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
+<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th><th class="num">Rental income</th><th class="num">Social Security</th>{other_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
 {_withdrawn_ending_header_html()}
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>

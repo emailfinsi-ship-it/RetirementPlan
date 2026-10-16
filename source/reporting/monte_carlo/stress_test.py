@@ -25,6 +25,7 @@ from source.reporting.monte_carlo.withdrawal import (
     annual_expense_need,
     annual_income_need,
     annual_net_withdrawal_need,
+    annual_taxable_income,
     yearly_withdrawal_schedule,
 )
 
@@ -121,6 +122,9 @@ def run_historical_stress_test(
     # Yearly Drawdown (need = expenses - income - offset), rather than
     # only the already-netted figure.
     yearly_income = [annual_income_need(income, year, inflation_rate) for year in years]
+    # Ordinary taxable income under each year's withdrawal -- see
+    # withdrawal.annual_taxable_income (pools mode only).
+    yearly_taxable_income = [annual_taxable_income(income, year, inflation_rate) for year in years]
     # And the Expense-tab side on its own too -- the un-netted "Total
     # Expense" a caller can show right next to Total Income (both are the
     # two raw, un-netted tab totals) so Total Expense - Total Income
@@ -205,6 +209,7 @@ def run_historical_stress_test(
                 year_result = _apply_year_withdrawal(
                     scen_pools, need=yearly_needs[offset], age=age, birth_year=birth_year, gains_fraction=gains_fraction,
                     year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, owners=owners,
+                    base_ordinary_income=yearly_taxable_income[offset],
                 )
                 scen_tax.append(year_result["tax"])
                 scen_rmd.append(year_result["rmd"])

@@ -165,7 +165,7 @@ def _split_extra_tax_deferred(
 def _apply_year_withdrawal(
     pools: dict, *, need: float, age: int | None, birth_year: int | None, gains_fraction: float,
     year: int, inflation_rate: float, apply_drawdown_tax: bool, order: tuple | None = None,
-    owners: dict | None = None,
+    owners: dict | None = None, base_ordinary_income: float = 0.0,
 ) -> dict:
     """Withdraws one simulated year's need (+ its own tax, if
     apply_drawdown_tax) from `pools` IN PLACE (mutates
@@ -184,6 +184,11 @@ def _apply_year_withdrawal(
     exists so a strategy like "spend Tax-deferred first starting at a
     chosen age" (see legacy_planning.py) can reuse this exact engine
     rather than re-implementing it.
+
+    `base_ordinary_income` (withdrawal.annual_taxable_income for this year,
+    0.0 by default) is other taxable income the household has this year;
+    the withdrawal's tax is the extra tax it adds on top of that (see
+    tax._pool_year_tax).
 
     Returns {"rmd": ..., "tax": ..., "shortfall": ..., "withdrawn": ...}
     -- shortfall > 0 means every pool combined couldn't cover this
@@ -248,7 +253,10 @@ def _apply_year_withdrawal(
         for _ in range(12):
             ordinary = rmd_amount + extra_withdrawn["tax_deferred"]
             gains = extra_withdrawn["taxable"] * gains_fraction
-            tax = _pool_year_tax(ordinary_income=ordinary, gains_income=gains, year=year, inflation_rate=inflation_rate)
+            tax = _pool_year_tax(
+                ordinary_income=ordinary, gains_income=gains, year=year, inflation_rate=inflation_rate,
+                base_ordinary_income=base_ordinary_income,
+            )
             extra_total = need_after_rmd + tax
             extra_withdrawn = _simulate_fill(available, withdrawal_order, extra_total)
 

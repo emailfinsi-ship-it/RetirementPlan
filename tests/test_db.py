@@ -795,8 +795,29 @@ class TestApplyCategoryRule(TempConfigTestCase):
         row = db.list_plaid_transactions()[0]
         self.assertEqual(result, {"matched": 1, "recategorized": 1, "kind_applied": 1})
         self.assertEqual(row["category"], "Salary")
-        self.assertEqual(row["category_edited_by_user"], 0)  # rule-governed again
+        # Plaid already categorized this row (INCOME_SALARY), and a keyword
+        # rule never overrides that on a normal pass -- so the row stays
+        # pinned, otherwise the next startup pass would silently undo Apply.
+        self.assertEqual(row["category_edited_by_user"], 1)
         self.assertEqual(row["income_kind_override"], "income")
+        db.recategorize_all_transactions()
+        self.assertEqual(db.list_plaid_transactions()[0]["category"], "Salary")
+
+    def test_keyword_rule_hands_the_row_back_to_the_rule_when_plaid_gave_no_category(self):
+        db.upsert_plaid_transaction(
+            item_key="wells_fargo_checking",
+            transaction=_fake_transaction_row("txn-1", name="APPLE INC. PAYROLL 123", primary=None, detailed=None),
+        )
+        db.update_plaid_transaction_category(["txn-1"], "salary")
+        rule_id = db.upsert_category_rule(rule_type="keyword", match_key="apple", category="Salary", kind="income")
+
+        db.apply_category_rule(rule_id)
+
+        row = db.list_plaid_transactions()[0]
+        self.assertEqual(row["category"], "Salary")
+        self.assertEqual(row["category_edited_by_user"], 0)  # a normal pass lands on the rule's category
+        db.recategorize_all_transactions()
+        self.assertEqual(db.list_plaid_transactions()[0]["category"], "Salary")
 
     def test_does_not_touch_a_non_matching_transaction(self):
         db.upsert_plaid_transaction(

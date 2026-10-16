@@ -369,6 +369,108 @@ class TestPoolYearTax(unittest.TestCase):
         self.assertLess(tax_2036, tax_2026)
 
 
+class TestPoolYearTaxWithBaseIncome(unittest.TestCase):
+    def test_base_income_makes_the_same_withdrawal_cost_more_tax(self):
+        alone = _pool_year_tax(ordinary_income=100_000, gains_income=0, year=2026, inflation_rate=0.0)
+        stacked = _pool_year_tax(
+            ordinary_income=100_000, gains_income=0, year=2026, inflation_rate=0.0, base_ordinary_income=150_000,
+        )
+        self.assertGreater(stacked, alone)
+
+    def test_stacked_tax_is_the_incremental_tax_on_top_of_the_base(self):
+        base, extra = 150_000, 100_000
+        expected = (
+            _pool_year_tax(ordinary_income=base + extra, gains_income=0, year=2026, inflation_rate=0.0)
+            - _pool_year_tax(ordinary_income=base, gains_income=0, year=2026, inflation_rate=0.0)
+        )
+        got = _pool_year_tax(
+            ordinary_income=extra, gains_income=0, year=2026, inflation_rate=0.0, base_ordinary_income=base,
+        )
+        self.assertAlmostEqual(got, expected)
+
+    def test_zero_base_is_exactly_the_original_behavior(self):
+        self.assertEqual(
+            _pool_year_tax(ordinary_income=80_000, gains_income=20_000, year=2030, inflation_rate=0.03),
+            _pool_year_tax(ordinary_income=80_000, gains_income=20_000, year=2030, inflation_rate=0.03, base_ordinary_income=0.0),
+        )
+
+    def test_gains_stack_above_base_income_in_the_federal_ltcg_brackets(self):
+        # Base income already fills the 0% LTCG bracket, so the gains pay 15%.
+        no_base = _pool_year_tax(ordinary_income=0, gains_income=50_000, year=2026, inflation_rate=0.0)
+        with_base = _pool_year_tax(
+            ordinary_income=0, gains_income=50_000, year=2026, inflation_rate=0.0, base_ordinary_income=200_000,
+        )
+        self.assertGreater(with_base, no_base)
+
+
+class TestAnnualTaxableIncome(unittest.TestCase):
+    def test_rental_counts_in_full_and_social_security_at_85_percent(self):
+        from source.reporting.monte_carlo import annual_taxable_income
+        income = [
+            {"category": "Rental", "annual_amount": 40_000, "start_year": None, "end_year": None},
+            {"category": "Social Security", "annual_amount": 30_000, "start_year": None, "end_year": None},
+        ]
+        self.assertAlmostEqual(annual_taxable_income(income, 2030), 40_000 + 30_000 * 0.85)
+
+    def test_honors_each_rows_year_range_and_inflation(self):
+        from source.reporting.monte_carlo import annual_taxable_income
+        income = [
+            {"category": "Rental", "annual_amount": 10_000, "start_year": 2030, "end_year": 2031,
+             "base_year": 2026, "inflates": 1},
+        ]
+        self.assertEqual(annual_taxable_income(income, 2029, 0.03), 0.0)
+        self.assertAlmostEqual(annual_taxable_income(income, 2030, 0.03), 10_000 * 1.03 ** 4)
+        self.assertEqual(annual_taxable_income(income, 2032, 0.03), 0.0)
+
+    def test_total_income_need_is_unchanged_by_the_taxability_split(self):
+        from source.reporting.monte_carlo import annual_income_need
+        income = [{"category": "Social Security", "annual_amount": 30_000, "start_year": None, "end_year": None}]
+        self.assertEqual(annual_income_need(income, 2030), 30_000)
+
+
+class TestAnnualIncomeBreakdown(unittest.TestCase):
+    def test_splits_rental_social_security_and_other(self):
+        from source.reporting.monte_carlo import annual_income_breakdown, annual_income_need
+        income = [
+            {"name": "Rental income", "category": "Rental", "annual_amount": 40_000},
+            {"name": "Social Security", "category": "", "annual_amount": 30_000, "start_year": 2030},
+            {"name": "Pension", "category": "Pension", "annual_amount": 5_000},
+        ]
+        before = annual_income_breakdown(income, 2029)
+        self.assertEqual(before, {"rental": 40_000, "social_security": 0.0, "other": 5_000})
+        after = annual_income_breakdown(income, 2030)
+        self.assertEqual(after, {"rental": 40_000, "social_security": 30_000, "other": 5_000})
+        self.assertEqual(sum(after.values()), annual_income_need(income, 2030))
+
+
+class TestBaseIncomeInTheEngine(unittest.TestCase):
+    def _pools(self):
+        return {"tax_deferred": 2_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+
+    def test_the_same_withdrawal_owes_more_tax_when_rent_is_also_coming_in(self):
+        kwargs = dict(
+            need=100_000, age=60, birth_year=1966, gains_fraction=0.5, year=2030, inflation_rate=0.0,
+            apply_drawdown_tax=True,
+        )
+        alone = _apply_year_withdrawal(self._pools(), **kwargs)
+        with_rent = _apply_year_withdrawal(self._pools(), base_ordinary_income=150_000, **kwargs)
+        self.assertGreater(with_rent["tax"], alone["tax"])
+
+    def test_drawdown_schedule_taxes_withdrawals_on_top_of_income(self):
+        pools = {"tax_deferred": 3_000_000, "roth": 0, "taxable": 0, "real_estate": 0}
+        expenses = [{"name": "Living", "category": "Fixed", "annual_amount": 200_000, "start_year": None, "end_year": None}]
+        assumptions = {"expected_return": "0.0", "plan_horizon_years": "1", "current_year": "2030",
+                       "annual_income_offset": "0", "apply_drawdown_tax": "1", "birth_year": "1970"}
+        no_income = deterministic_drawdown_schedule(pools=pools, expenses=expenses, assumptions=assumptions)
+        rent = [{"category": "Rental", "annual_amount": 120_000, "start_year": None, "end_year": None}]
+        with_income = deterministic_drawdown_schedule(pools=pools, expenses=expenses, income=rent, assumptions=assumptions)
+        # With rent the withdrawal is smaller (need 80K vs 200K) yet taxed in higher brackets: the
+        # per-dollar tax rate on the withdrawal rises.
+        rate_alone = no_income["rows"][0]["tax"] / no_income["rows"][0]["need"]
+        rate_stacked = with_income["rows"][0]["tax"] / with_income["rows"][0]["need"]
+        self.assertGreater(rate_stacked, rate_alone)
+
+
 class TestSimulateFill(unittest.TestCase):
     def test_fills_in_order_capped_per_pool(self):
         available = {"taxable": 10_000, "tax_deferred": 5_000, "roth": 100_000}
@@ -1562,7 +1664,8 @@ class TestDeterministicDrawdownSchedule(unittest.TestCase):
         self.assertEqual(len(result["rows"]), 3)
         for row in result["rows"]:
             for key in (
-                "year", "age", "need", "rmd", "tax", "shortfall",
+                "year", "age", "need", "expenses", "income_rental", "income_social_security", "income_other",
+                "rmd", "tax", "shortfall",
                 "drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate",
                 "taxable", "tax_deferred", "roth", "real_estate", "total",
             ):
@@ -2034,6 +2137,37 @@ class TestCompareRothConversionStrategies(unittest.TestCase):
         keys = {s["key"] for s in result["strategies"]}
         expected_keys = {key for key, _, _ in ROTH_CONVERSION_STRATEGIES} | {key for key, _, _ in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES}
         self.assertEqual(keys, expected_keys)
+
+    def test_baseline_follows_the_plans_own_early_tax_deferred_draw_age(self):
+        pools = {"tax_deferred": 800_000, "roth": 0, "taxable": 800_000, "real_estate": 0}
+        expenses = [{"name": "Living", "annual_amount": 60_000, "start_year": None, "end_year": None}]
+        plain = compare_roth_conversion_strategies(
+            pools=pools, expenses=expenses, assumptions=self._assumptions(birth_year="1966", plan_horizon_years="6"),
+        )
+        early = compare_roth_conversion_strategies(
+            pools=pools, expenses=expenses,
+            assumptions=self._assumptions(birth_year="1966", plan_horizon_years="6", early_tax_deferred_age="60"),
+        )
+        plain_base = next(s for s in plain["strategies"] if s["key"] == "no_conversions")
+        early_base = next(s for s in early["strategies"] if s["key"] == "no_conversions")
+        self.assertIsNone(plain["plan_early_tax_deferred_age"])
+        self.assertEqual(early["plan_early_tax_deferred_age"], 60)
+        self.assertIn("age 60", early_base["label"])
+        self.assertNotIn("age", plain_base["label"])
+        # The baseline is now the Tax-deferred-first plan, not the Taxable-first one.
+        self.assertGreater(early_base["rows"][-1]["taxable"], plain_base["rows"][-1]["taxable"])
+        self.assertNotEqual(early_base["total_lifetime_tax"], plain_base["total_lifetime_tax"])
+
+    def test_the_fixed_age_early_draw_alternative_is_dropped_when_it_just_repeats_the_baseline(self):
+        pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
+        same = compare_roth_conversion_strategies(
+            pools=pools, expenses=[], assumptions=self._assumptions(birth_year="1966", early_tax_deferred_age="60"),
+        )
+        different = compare_roth_conversion_strategies(
+            pools=pools, expenses=[], assumptions=self._assumptions(birth_year="1966", early_tax_deferred_age="65"),
+        )
+        self.assertNotIn("tax_deferred_from_60", {s["key"] for s in same["strategies"]})
+        self.assertIn("tax_deferred_from_60", {s["key"] for s in different["strategies"]})
 
     def test_baseline_has_zero_legacy_gain_against_itself(self):
         pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}

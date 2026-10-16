@@ -13,6 +13,8 @@ requires withdrawing more, which is itself taxable).
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 
 _TAX_BRACKET_BASE_YEAR = 2026
 
@@ -161,7 +163,10 @@ def estimate_annual_drawdown_tax(net_need: float, year: int, inflation_rate: flo
 # withdrawal-order/tax fit together; this is just the tax-calculation
 # piece of that engine, kept here next to estimate_annual_drawdown_tax
 # since both share the same bracket tables and fixed-point gross-up idea.
-def _pool_year_tax(*, ordinary_income: float, gains_income: float, year: int, inflation_rate: float) -> float:
+def _pool_year_tax(
+    *, ordinary_income: float, gains_income: float, year: int, inflation_rate: float,
+    base_ordinary_income: float = 0.0,
+) -> float:
     """Federal + California tax on one simulated year's withdrawal,
     split by kind rather than estimate_annual_drawdown_tax's "treat the
     whole thing as ordinary income" shortcut: `ordinary_income` (a
@@ -175,7 +180,43 @@ def _pool_year_tax(*, ordinary_income: float, gains_income: float, year: int, in
     the LTCG brackets from the bottom without itself being taxed at
     LTCG rates). Both brackets/deductions are grown from
     _TAX_BRACKET_BASE_YEAR to `year` by `inflation_rate`, same
-    convention as estimate_annual_drawdown_tax above."""
+    convention as estimate_annual_drawdown_tax above.
+
+    `base_ordinary_income` is other ordinary income the household already
+    has this year (rent, pension, taxable Social Security -- see
+    withdrawal.annual_taxable_income) that fills the brackets from the
+    bottom before the withdrawal does. The returned figure is the
+    INCREMENTAL tax the withdrawal adds on top of it -- tax(base +
+    withdrawal) minus tax(base alone) -- so a plan with six figures of
+    rent no longer pays the 10%/12% brackets on its withdrawals; the tax
+    on the base income itself is not included (see annual_taxable_income).
+    Defaults to 0.0, which is exactly the original single-income
+    behavior."""
+    if ordinary_income <= 0 and gains_income <= 0:
+        return 0.0
+    if base_ordinary_income > 0:
+        with_withdrawal = _total_year_tax(
+            base_ordinary_income + ordinary_income, gains_income, year, inflation_rate,
+        )
+        # The base-only figure depends only on (base, year, inflation) --
+        # the same every simulated path -- so it's memoized.
+        base_only = _total_year_tax(base_ordinary_income, 0.0, year, inflation_rate)
+        return max(0.0, with_withdrawal - base_only)
+    return _total_year_tax(ordinary_income, gains_income, year, inflation_rate)
+
+
+@lru_cache(maxsize=8192)
+def _base_only_year_tax(base_ordinary_income: float, year: int, inflation_rate: float) -> float:
+    return _compute_year_tax(base_ordinary_income, 0.0, year, inflation_rate)
+
+
+def _total_year_tax(ordinary_income: float, gains_income: float, year: int, inflation_rate: float) -> float:
+    if gains_income == 0.0:
+        return _base_only_year_tax(ordinary_income, year, inflation_rate)
+    return _compute_year_tax(ordinary_income, gains_income, year, inflation_rate)
+
+
+def _compute_year_tax(ordinary_income: float, gains_income: float, year: int, inflation_rate: float) -> float:
     growth = (1.0 + inflation_rate) ** (year - _TAX_BRACKET_BASE_YEAR)
     fed_deduction = FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * growth
     ca_deduction = CA_STANDARD_DEDUCTION_MFJ_2026 * growth

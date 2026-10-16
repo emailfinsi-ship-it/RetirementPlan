@@ -858,13 +858,17 @@ _DAILY_SNAPSHOT_CHECK_SECONDS = 15 * 60
 
 def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECONDS, max_ticks: int | None = None) -> None:
     """Wakes every `interval_seconds` and records a new day's snapshot the
-    first time the local date has changed since the last one (see
-    aggregate.capture_daily_snapshots_if_new_day). The date it starts
-    from is "today" -- run() has just captured today at startup. A failed
+    first time the local date differs from the last one it captured (see
+    aggregate.capture_daily_snapshots_if_new_day) -- it starts with none,
+    so its first tick records today (idempotent after run()'s own startup
+    capture, and a safety net if that one failed). A failed
     capture is logged and retried on the next tick rather than stopping
     the loop. `max_ticks` exists only so a test can run the loop a fixed
     number of times instead of forever."""
-    last_captured = date.today().isoformat()
+    # None, not today: capture_daily_snapshots_if_new_day treats "no previous
+    # date" as "capture now", so the first tick still records a day that
+    # rolled over (or a run() capture that failed) instead of waiting a day.
+    last_captured = None
     ticks = 0
     while max_ticks is None or ticks < max_ticks:
         time.sleep(interval_seconds)

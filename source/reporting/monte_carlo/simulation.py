@@ -25,7 +25,11 @@ from source.reporting.monte_carlo.assumptions import (
 )
 from source.reporting.monte_carlo.pools import _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.stress_test import _SP500_ANNUAL_RETURNS
-from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need, yearly_withdrawal_schedule
+from source.reporting.monte_carlo.withdrawal import (
+    annual_net_withdrawal_need,
+    annual_taxable_income,
+    yearly_withdrawal_schedule,
+)
 
 
 def _run_random_simulation(
@@ -107,6 +111,9 @@ def _run_random_simulation(
             annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)
             for year in years
         ]
+        # Taxable income under each year's withdrawal (rent, pension, taxable
+        # Social Security) -- the same for every path, so computed once.
+        base_incomes = [annual_taxable_income(income, year, inflation_rate) for year in years]
         paths = []
         path_total_taxes = []
         path_first_year_taxes = []
@@ -130,6 +137,7 @@ def _run_random_simulation(
                 year_result = _apply_year_withdrawal(
                     path_pools, need=needs[i], age=age, birth_year=birth_year, gains_fraction=gains_fraction,
                     year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, owners=owners,
+                    base_ordinary_income=base_incomes[i],
                 )
                 path_tax_total += year_result["tax"]
                 if i == 0:

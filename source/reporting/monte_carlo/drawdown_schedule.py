@@ -29,7 +29,12 @@ from source.reporting.monte_carlo.assumptions import (
     _truthy_assumption,
 )
 from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal, new_owner_state
-from source.reporting.monte_carlo.withdrawal import annual_net_withdrawal_need
+from source.reporting.monte_carlo.withdrawal import (
+    annual_expense_need,
+    annual_income_breakdown,
+    annual_net_withdrawal_need,
+    annual_taxable_income,
+)
 
 
 def deterministic_drawdown_schedule(
@@ -45,7 +50,7 @@ def deterministic_drawdown_schedule(
 
     Returns {"years": [...], "rows": [...], "expected_return": float,
     "retirement_year": int | None, "early_tax_deferred_age": int | None}
-    -- each row is {"year", "age", "need", "rmd", "tax", "shortfall",
+    -- each row is {"year", "age", "need", "expenses", "income_rental", "income_social_security", "income_other", "rmd", "tax", "shortfall",
     "taxable", "tax_deferred", "roth", "real_estate", "total"}, the pool
     balances AFTER that year's growth and withdrawal (so `rows[-1]` is
     the projection's ending balance by pool).
@@ -97,6 +102,7 @@ def deterministic_drawdown_schedule(
             path_pools[name] *= (1 + expected_return)
         need = annual_net_withdrawal_need(expenses, income or [], year, inflation_rate, income_offset, retirement_year)
         age = (year - birth_year) if birth_year is not None else None
+        income_parts = annual_income_breakdown(income or [], year, inflation_rate)
         spend_order = (
             _TAX_DEFERRED_FIRST_ORDER
             if early_tax_deferred_age is not None and age is not None and age >= early_tax_deferred_age
@@ -105,13 +111,19 @@ def deterministic_drawdown_schedule(
         result = _apply_year_withdrawal(
             path_pools, need=need, age=age, birth_year=birth_year, gains_fraction=gains_fraction,
             year=year, inflation_rate=inflation_rate, apply_drawdown_tax=apply_drawdown_tax, order=spend_order,
-            owners=owners,
+            owners=owners, base_ordinary_income=annual_taxable_income(income or [], year, inflation_rate),
         )
         withdrawn = result["withdrawn"]
         row = {
             "year": year,
             "age": age,
             "need": need,
+            # Gross spending and the Income-tab rows that offset it, so the
+            # table can show how need = expenses - income - offset.
+            "expenses": annual_expense_need(expenses, year, inflation_rate),
+            "income_rental": income_parts["rental"],
+            "income_social_security": income_parts["social_security"],
+            "income_other": income_parts["other"],
             "rmd": result["rmd"],
             "tax": result["tax"],
             "shortfall": result["shortfall"],

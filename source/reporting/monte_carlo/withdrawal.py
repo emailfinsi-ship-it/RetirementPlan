@@ -26,6 +26,25 @@ def effective_line_item_amount(row: dict, year: int, inflation_rate: float) -> f
     return amount
 
 
+# Share of Social Security benefits that is federally taxable at the income
+# levels this plan models (IRS caps it at 85%; reaching it requires combined
+# income of roughly $44K for a joint return, which any retiree with a
+# six-figure withdrawal need is past).
+SOCIAL_SECURITY_TAXABLE_FRACTION = 0.85
+
+
+def _amount_in_year(row: dict, year: int, inflation_rate: float) -> float:
+    """A row's dollar amount in `year` -- 0.0 outside its start_year/
+    end_year range, otherwise effective_line_item_amount."""
+    start = row.get("start_year")
+    end = row.get("end_year")
+    if start is not None and year < start:
+        return 0.0
+    if end is not None and year > end:
+        return 0.0
+    return effective_line_item_amount(row, year, inflation_rate)
+
+
 def annual_line_item_total(rows: list, year: int, inflation_rate: float = 0.0) -> float:
     """The building block behind annual_expense_need/annual_income_need,
     exposed directly for a caller (the Expense tab's own table totals)
@@ -34,16 +53,7 @@ def annual_line_item_total(rows: list, year: int, inflation_rate: float = 0.0) -
     Fixed/Variable expense row and a Rental/Social Security income row
     use the exact same rule, just netted in opposite directions by
     run_simulation/run_historical_stress_test."""
-    total = 0.0
-    for row in rows:
-        start = row.get("start_year")
-        end = row.get("end_year")
-        if start is not None and year < start:
-            continue
-        if end is not None and year > end:
-            continue
-        total += effective_line_item_amount(row, year, inflation_rate)
-    return total
+    return sum(_amount_in_year(row, year, inflation_rate) for row in rows)
 
 
 def annual_expense_need(expenses: list, year: int, inflation_rate: float = 0.0) -> float:
@@ -65,6 +75,41 @@ def annual_income_need(income: list, year: int, inflation_rate: float = 0.0) -> 
     see run_simulation / run_historical_stress_test, which subtract this
     from annual_expense_need's result for the same year."""
     return annual_line_item_total(income, year, inflation_rate)
+
+
+def annual_taxable_income(income: list, year: int, inflation_rate: float = 0.0) -> float:
+    """The part of `year`'s Income-tab total that is ordinary taxable
+    income: every row in full (rental, pension, ...) except Social
+    Security, of which only SOCIAL_SECURITY_TAXABLE_FRACTION counts.
+    The three-pool engine stacks a year's withdrawals on top of this
+    figure when it works out their tax (pools._apply_year_withdrawal's
+    base_ordinary_income) -- without it every withdrawal would be taxed as
+    if it were the household's only income, understating the bracket it
+    actually lands in whenever rent or benefits are also coming in. (Tax
+    on the income itself is not modeled: the Income tab's figures are
+    treated as already net of it, exactly as they always were.)"""
+    total = 0.0
+    for row in income:
+        amount = _amount_in_year(row, year, inflation_rate)
+        if "social security" in f"{row.get('category') or ''} {row.get('name') or ''}".lower():
+            amount *= SOCIAL_SECURITY_TAXABLE_FRACTION
+        total += amount
+    return total
+
+
+def annual_income_breakdown(income: list, year: int, inflation_rate: float = 0.0) -> dict:
+    """`year`'s Income-tab total split into {"rental", "social_security",
+    "other"} (a row counts as Social Security when its category or name
+    says so, as rental when it says "rent", otherwise other) -- for the
+    Drawdown tab's year-by-year table, so a person can see how much of
+    each year's spending these cover before anything is drawn from the
+    portfolio. The three always add up to annual_income_need's total."""
+    parts = {"rental": 0.0, "social_security": 0.0, "other": 0.0}
+    for row in income:
+        label = f"{row.get('category') or ''} {row.get('name') or ''}".lower()
+        key = "social_security" if "social security" in label else "rental" if "rent" in label else "other"
+        parts[key] += _amount_in_year(row, year, inflation_rate)
+    return parts
 
 
 def annual_net_withdrawal_need(

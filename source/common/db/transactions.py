@@ -244,6 +244,62 @@ def apply_category_rule_from_transaction(transaction_id: str) -> dict:
     return {"keyword": keyword, "category": row["category"], "recategorized": changed}
 
 
+def _apply_rule_in_conn(conn, rule, overrides: dict) -> dict:
+    """Does the work of apply_category_rule for one already-loaded
+    category_rules row on an already-open connection (so
+    apply_all_category_rules can run every rule in ONE transaction -- all
+    or nothing -- rather than one per rule)."""
+    rule_type = rule["rule_type"]
+    match_key = rule["match_key"]
+    match_mode = rule["match_mode"]
+    category = rule["category"]
+    kind = rule["kind"] or ""
+    if kind not in INCOME_KIND_OPTIONS:
+        kind = ""
+    rows = conn.execute(
+        "SELECT transaction_id, name, merchant_name, category, category_edited_by_user, income_kind_override, "
+        "plaid_category_primary, plaid_category_detailed FROM plaid_transactions"
+    ).fetchall()
+    if rule_type == "keyword":
+        matched = [
+            row for row in rows
+            if _keyword_rule_matches(row["merchant_name"] or row["name"] or "", match_key, match_mode)
+        ]
+    else:
+        column = "plaid_category_primary" if rule_type == "primary" else "plaid_category_detailed"
+        matched = [row for row in rows if (row[column] or "").strip().upper() == match_key]
+    now = _now()
+    recategorized = 0
+    kind_applied = 0
+    for row in matched:
+        # Once a rule has been explicitly applied the row is rule-governed
+        # again (category_edited_by_user = 0) -- but only if a normal
+        # categorization pass would actually land on this category. A
+        # keyword rule never overrides a category Plaid already gave the
+        # row, so in that case the row stays pinned (= 1); otherwise the
+        # next startup / rule save (recategorize_all_transactions) would
+        # silently undo what "Apply" just did.
+        governed = default_category(
+            row["plaid_category_primary"], row["plaid_category_detailed"],
+            row["merchant_name"] or row["name"], overrides=overrides,
+        ) == category
+        pinned_flag = 0 if governed else 1
+        if row["category"] != category or row["category_edited_by_user"] != pinned_flag:
+            conn.execute(
+                "UPDATE plaid_transactions SET category = ?, category_edited_by_user = ?, updated_at = ? "
+                "WHERE transaction_id = ?",
+                (category, pinned_flag, now, row["transaction_id"]),
+            )
+            recategorized += 1
+        if row["income_kind_override"] != kind:
+            conn.execute(
+                "UPDATE plaid_transactions SET income_kind_override = ?, updated_at = ? WHERE transaction_id = ?",
+                (kind, now, row["transaction_id"]),
+            )
+            kind_applied += 1
+    return {"matched": len(matched), "recategorized": recategorized, "kind_applied": kind_applied}
+
+
 def apply_category_rule(rule_id: int) -> dict:
     """Force-applies ONE saved category_rules row to every transaction it
     matches, INCLUDING ones a person already hand-edited (category_
@@ -268,21 +324,23 @@ def apply_category_rule(rule_id: int) -> dict:
     case-insensitive.
 
     For every matched transaction: sets category to this rule's own
-    category and resets category_edited_by_user back to 0 (once a rule
-    has been explicitly applied to a row, that row is rule-governed
-    again -- a future sync or recategorize_all_transactions pass keeps
-    it in sync with the rule from here on, same as any other rule-
-    matched row). ALSO sets income_kind_override (plaid_categorize.
-    is_real_income's own explicit override) to this rule's own `kind`
-    ('', 'income', or 'expense') on every matched row, independent of
-    whether its category text actually changed -- this is what makes a
-    manually-retyped category that IS income but doesn't contain the
-    word "income" (the exact case income_kind_override exists for)
-    actually count once its rule says so, without a separate per-
-    transaction "Mark as income" click for every matching row. A rule
-    saved with kind="" clears income_kind_override back to "" (auto-
-    detect) on every row it matches -- flipping a rule's Kind back to
-    Auto and clicking Apply again undoes a previous income/expense
+    category. category_edited_by_user goes back to 0 (rule-governed -- a
+    future sync or recategorize_all_transactions pass keeps it in sync
+    with the rule) when a normal categorization pass would land on that
+    same category; when it wouldn't (a keyword rule on a row Plaid
+    already categorized -- default_category only consults keywords when
+    Plaid gave nothing), the row stays pinned at 1 so the next pass
+    can't quietly revert the Apply. ALSO sets income_kind_override
+    (plaid_categorize.is_real_income's own explicit override) to this
+    rule's own `kind` ('', 'income', or 'expense') on every matched row,
+    independent of whether its category text actually changed -- this is
+    what makes a manually-retyped category that IS income but doesn't
+    contain the word "income" (the exact case income_kind_override
+    exists for) actually count once its rule says so, without a separate
+    per-transaction "Mark as income" click for every matching row. A
+    rule saved with kind="" clears income_kind_override back to ""
+    (auto-detect) on every row it matches -- flipping a rule's Kind back
+    to Auto and clicking Apply again undoes a previous income/expense
     designation the same way.
 
     Returns {"matched": <rows this rule's own match criteria matched>,
@@ -294,75 +352,39 @@ def apply_category_rule(rule_id: int) -> dict:
         rule = conn.execute("SELECT * FROM category_rules WHERE id = ?", (rule_id,)).fetchone()
         if not rule:
             raise ValueError(f"No category rule found with id {rule_id}.")
-        rule_type = rule["rule_type"]
-        match_key = rule["match_key"]
-        match_mode = rule["match_mode"]
-        category = rule["category"]
-        kind = rule["kind"] or ""
-        if kind not in INCOME_KIND_OPTIONS:
-            kind = ""
-        if rule_type == "keyword":
-            rows = conn.execute(
-                "SELECT transaction_id, name, merchant_name, category, category_edited_by_user, "
-                "income_kind_override FROM plaid_transactions"
-            ).fetchall()
-            matched = [
-                row for row in rows
-                if _keyword_rule_matches(row["merchant_name"] or row["name"] or "", match_key, match_mode)
-            ]
-        else:
-            column = "plaid_category_primary" if rule_type == "primary" else "plaid_category_detailed"
-            rows = conn.execute(
-                f"SELECT transaction_id, category, category_edited_by_user, income_kind_override, "
-                f"{column} AS match_col FROM plaid_transactions"
-            ).fetchall()
-            matched = [row for row in rows if (row["match_col"] or "").strip().upper() == match_key]
-        now = _now()
-        recategorized = 0
-        kind_applied = 0
-        for row in matched:
-            if row["category"] != category or row["category_edited_by_user"]:
-                conn.execute(
-                    "UPDATE plaid_transactions SET category = ?, category_edited_by_user = 0, updated_at = ? "
-                    "WHERE transaction_id = ?",
-                    (category, now, row["transaction_id"]),
-                )
-                recategorized += 1
-            if row["income_kind_override"] != kind:
-                conn.execute(
-                    "UPDATE plaid_transactions SET income_kind_override = ?, updated_at = ? WHERE transaction_id = ?",
-                    (kind, now, row["transaction_id"]),
-                )
-                kind_applied += 1
-        return {"matched": len(matched), "recategorized": recategorized, "kind_applied": kind_applied}
+        return _apply_rule_in_conn(conn, rule, load_active_overrides())
 
 
 def apply_all_category_rules() -> dict:
-    """Force-applies EVERY saved category rule (see apply_category_rule, which
-    this just loops over) -- the Setup page's single "Apply all rules"
-    button, instead of clicking each row's own Apply in turn. Rules are
-    applied lowest-precedence first so that where two rules match the same
-    transaction the one a normal categorization pass would pick wins
-    (plaid_categorize.default_category checks a Plaid subcategory rule, then
-    a Plaid category rule, then keyword rules in id order): keyword rules by
-    id DESCENDING, then category rules, then subcategory rules.
+    """Force-applies EVERY saved category rule (see apply_category_rule) --
+    the Setup page's single "Apply all rules" button, instead of clicking
+    each row's own Apply in turn. Runs on one connection, so it's all or
+    nothing. Rules are applied lowest-precedence first so that where two
+    rules match the same transaction the one a normal categorization pass
+    would pick wins (plaid_categorize.default_category checks a Plaid
+    subcategory rule, then a Plaid category rule, then keyword rules in id
+    order): keyword rules by id DESCENDING, then category rules, then
+    subcategory rules.
 
     Returns {"rules": <rules applied>, "recategorized": <total category
     updates>, "kind_applied": <total income/expense updates>} -- the two
     counts are summed across rules, so a transaction a second rule changed
     again counts twice."""
-    from source.common.db.category_rules import list_category_rules
-
-    rules = list_category_rules()
-    order = {"keyword": 0, "primary": 1, "detailed": 2}
-    rules.sort(key=lambda r: (order.get(r["rule_type"], 0), -r["id"] if r["rule_type"] == "keyword" else r["id"]))
-    recategorized = 0
-    kind_applied = 0
-    for rule in rules:
-        result = apply_category_rule(rule["id"])
-        recategorized += result["recategorized"]
-        kind_applied += result["kind_applied"]
-    return {"rules": len(rules), "recategorized": recategorized, "kind_applied": kind_applied}
+    with connect() as conn:
+        rules = conn.execute("SELECT * FROM category_rules").fetchall()
+        order = {"keyword": 0, "primary": 1, "detailed": 2}
+        rules = sorted(
+            rules,
+            key=lambda r: (order.get(r["rule_type"], 0), -r["id"] if r["rule_type"] == "keyword" else r["id"]),
+        )
+        overrides = load_active_overrides()
+        recategorized = 0
+        kind_applied = 0
+        for rule in rules:
+            result = _apply_rule_in_conn(conn, rule, overrides)
+            recategorized += result["recategorized"]
+            kind_applied += result["kind_applied"]
+        return {"rules": len(rules), "recategorized": recategorized, "kind_applied": kind_applied}
 
 
 def update_plaid_transaction_excluded(transaction_ids: list[str], excluded: bool) -> int:

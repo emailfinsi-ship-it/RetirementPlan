@@ -261,6 +261,15 @@ class TestExcelExport(TempConfigTestCase):
         self.assertTrue(result["sp500_bootstrap"].get("pools"))
 
 
+class TestAssumptionCell(unittest.TestCase):
+    def test_non_finite_text_is_passed_through_instead_of_raising(self):
+        for text in ("nan", "inf", "-inf"):
+            self.assertEqual(excel_export._assumption_cell("expected_return", text), text)
+
+    def test_ordinary_numbers_still_format(self):
+        self.assertEqual(excel_export._assumption_cell("plan_horizon_years", "40").value, 40)
+
+
 class TestExcelExportPresentation(TempConfigTestCase):
     """The export is meant to be opened and skimmed (or handed to someone),
     so it's styled consistently and carries native Excel charts."""

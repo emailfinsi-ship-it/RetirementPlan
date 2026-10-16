@@ -67,6 +67,8 @@ from source.reporting.monte_carlo.withdrawal import (
     annual_income_need,
     annual_line_item_total,
     annual_net_withdrawal_need,
+    annual_income_breakdown,
+    annual_taxable_income,
     effective_line_item_amount,
     yearly_withdrawal_schedule,
 )
@@ -132,6 +134,8 @@ from source.reporting.monte_carlo.legacy_planning import (
 __all__ = [
     "annual_expense_need",
     "annual_income_need",
+    "annual_income_breakdown",
+    "annual_taxable_income",
     "annual_line_item_total",
     "annual_net_withdrawal_need",
     "effective_line_item_amount",

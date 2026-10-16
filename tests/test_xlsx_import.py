@@ -185,6 +185,22 @@ class TestImportFromXlsx(TempConfigTestCase):
         self.path = config.DATA_DIR / "plan.xlsx"
         self.path.write_bytes(_build_fixture_workbook())
 
+    def test_reimport_carries_each_assets_balance_history_to_its_new_id(self):
+        xlsx_import.import_from_xlsx(self.path)
+        old = {r["name"]: r["id"] for r in db.list_line_items("assets") if r["kind"] == "asset"}
+        db.record_asset_balance_snapshot(
+            asset_id=old["Fidelity 401k"], balance=240_000, name="Fidelity 401k", category="401k",
+            snapshot_date="2026-01-05",
+        )
+
+        xlsx_import.import_from_xlsx(self.path)
+
+        new = {r["name"]: r["id"] for r in db.list_line_items("assets") if r["kind"] == "asset"}
+        self.assertNotEqual(new["Fidelity 401k"], old["Fidelity 401k"])
+        history = db.list_asset_balance_snapshots(new["Fidelity 401k"])
+        self.assertEqual([(h["snapshot_date"], h["balance"]) for h in history], [("2026-01-05", 240_000)])
+        self.assertEqual(db.list_asset_balance_snapshots(old["Fidelity 401k"]), [])
+
     def test_imports_real_estate_rows_and_skips_total(self):
         xlsx_import.import_from_xlsx(self.path)
         rows = db.list_line_items("real_estate")

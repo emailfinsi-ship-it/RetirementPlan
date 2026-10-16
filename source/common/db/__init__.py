@@ -42,7 +42,11 @@ from source.common.db.category_rules import (
     upsert_category_rule,
 )
 from source.common.db.net_worth_snapshots import list_net_worth_snapshots, record_snapshot
-from source.common.db.asset_balance_snapshots import list_asset_balance_snapshots, record_asset_balance_snapshot
+from source.common.db.asset_balance_snapshots import (
+    list_asset_balance_snapshots,
+    record_asset_balance_snapshot,
+    remap_asset_balance_snapshots,
+)
 from source.common.db.account_balance_snapshots import (
     list_account_balance_snapshots,
     record_account_balance_snapshot,
@@ -167,6 +171,7 @@ __all__ = [
     "list_account_balance_snapshots",
     "list_asset_balance_snapshots",
     "record_asset_balance_snapshot",
+    "remap_asset_balance_snapshots",
     "upsert_plaid_item",
     "get_plaid_item",
     "list_plaid_items",

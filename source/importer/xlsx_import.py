@@ -290,6 +290,16 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
 
     extra_mc_assumptions = _read_extra_mc_assumptions(wb)
 
+    # Re-importing wipes and re-adds the imported Asset rows, which hands
+    # them brand-new ids -- remember each old id by (name, category) so the
+    # rows' daily balance history (asset_balance_snapshots) can follow them
+    # instead of being orphaned.
+    previous_asset_ids = {
+        (row.get("name") or "", row.get("category") or ""): row["id"]
+        for row in db.list_line_items("assets") if row.get("source") == "imported"
+    }
+    new_asset_ids: dict[tuple[str, str], int] = {}
+
     db.clear_section("real_estate", source="imported")
     db.clear_section("assets", source="imported")
     db.clear_section("expenses", source="imported")
@@ -301,14 +311,18 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
     asset_count = 0
     for category, rows in (("401k", k401_rows), ("Liquid", liquid_rows)):
         for row in rows:
-            db.add_line_item("assets", {
+            new_id = db.add_line_item("assets", {
                 "kind": "asset",
                 "category": category,
                 "name": row["name"],
                 "balance": row["balance"],
                 "source": "imported",
             })
+            new_asset_ids[(row["name"], category)] = new_id
             asset_count += 1
+    db.remap_asset_balance_snapshots({
+        previous_asset_ids[key]: new_id for key, new_id in new_asset_ids.items() if key in previous_asset_ids
+    })
     for row in loan_rows:
         db.add_line_item("assets", {
             "kind": "liability",

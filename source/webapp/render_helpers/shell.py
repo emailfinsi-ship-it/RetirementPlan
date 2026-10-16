@@ -177,30 +177,6 @@ function applyAllCategoryRules() {{
     }})
     .catch(function(err) {{ alert(err.message); }});
 }}
-function applyCategoryRule(id) {{
-  // Setup page's per-row "Apply" button -- force-applies this ONE saved
-  // rule (its category AND its Kind) to every transaction it matches,
-  // including ones already categorized by hand -- unlike Save (above)
-  // and the add-rule form, which only ever auto-recategorize
-  // transactions that AREN'T hand-edited. This is the fix for a rule
-  // added well after some matching transactions were already manually
-  // retyped (e.g. "salary"): those rows otherwise never pick up a rule
-  // change on their own. See source.common.db.transactions.apply_
-  // category_rule for exactly what "matches" means per rule_type and
-  // why Kind is applied independently of whether the category text
-  // itself changes.
-  if (!confirm('Apply this rule to every matching transaction now, including ones you already categorized by hand?')) return;
-  postJSON('/api/category-rule/apply', {{id: id}})
-    .then(function(d) {{
-      alert(
-        d.matched + ' matching transaction' + (d.matched === 1 ? '' : 's') + ' -- ' +
-        d.recategorized + ' category update' + (d.recategorized === 1 ? '' : 's') + ', ' +
-        d.kind_applied + ' income/expense update' + (d.kind_applied === 1 ? '' : 's') + '.'
-      );
-      location.reload();
-    }})
-    .catch(function(err) {{ alert(err.message); }});
-}}
 function toggleCategoryRuleMatchMode(selectEl) {{
   // A Match mode only means anything for a "keyword" rule (a
   // "primary"/"detailed" rule is always an exact match on Plaid's own

@@ -11,6 +11,7 @@ effect on the running program)."""
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from pathlib import Path
@@ -106,6 +107,8 @@ def _assumption_cell(key: str, value):
     try:
         number = float(value)
     except (TypeError, ValueError):
+        return value
+    if not math.isfinite(number):  # "nan"/"inf" parse as floats but int(number) below would raise
         return value
     if key in _PCT_ASSUMPTIONS:
         return xs.Fmt(number, xs.PCT1)

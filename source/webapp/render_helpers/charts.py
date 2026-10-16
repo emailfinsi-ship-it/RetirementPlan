@@ -795,9 +795,11 @@ _NW_EXPLORER_JS = """
         (s.dash ? ' stroke-dasharray="' + s.dash + '"' : '') + ' stroke-linejoin="round" stroke-linecap="round"/>';
       var all = s.pts.length <= 45;
       s.pts.forEach(function (p, i) {
-        var visible = all || i === s.pts.length - 1;
-        svg += '<circle cx="' + xAt(p.d).toFixed(1) + '" cy="' + yAt(p.y).toFixed(1) + '" r="' + (visible ? 3 : 5) + '" ' +
-          (visible ? 'style="fill:' + s.color + ';"' : 'fill="transparent"') + '/>';
+        // Hover is driven by the pointer's x (state.days), so points that
+        // aren't drawn need no element at all.
+        if (!(all || i === s.pts.length - 1)) return;
+        svg += '<circle cx="' + xAt(p.d).toFixed(1) + '" cy="' + yAt(p.y).toFixed(1) + '" r="3" ' +
+          'style="fill:' + s.color + ';"/>';
       });
     });
     svg += '<line class="nw-guide" x1="0" y1="' + PT + '" x2="0" y2="' + PBOT + '" visibility="hidden" ' +

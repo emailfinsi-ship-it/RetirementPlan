@@ -115,7 +115,7 @@ def _this_years_plan_html(result: dict, retirement_year: int | None) -> str:
     baseline_key = result["baseline_key"]
     strategy_clause = (
         "" if top["key"] == baseline_key
-        else f" -- the recommended strategy is “{html.escape(top['label'])}”, not today's default order"
+        else f" -- the recommended strategy is “{html.escape(top['label'])}”, not {_baseline_phrase(result)}"
     )
     return f"""
 <div class="card" style="border: 2px solid #2a78d6;">
@@ -124,6 +124,14 @@ def _this_years_plan_html(result: dict, retirement_year: int | None) -> str:
 <p style="font-size:15px; margin-bottom:0;">{conversion_text}</p>
 </div>
 """
+
+
+def _baseline_phrase(result: dict) -> str:
+    """What to call the baseline row: "today's default" normally, "your
+    current plan" once the plan's own early Tax-deferred draw age is set
+    (the baseline then follows that setting -- see
+    compare_roth_conversion_strategies)."""
+    return "your current plan" if result.get("plan_early_tax_deferred_age") is not None else "today's default"
 
 
 def _strategy_bar_html(value: float, max_value: float) -> str:
@@ -142,6 +150,17 @@ def _strategy_bar_html(value: float, max_value: float) -> str:
 </div>"""
 
 
+def _early_age_note_html(result: dict) -> str:
+    age = result.get("plan_early_tax_deferred_age")
+    if age is None:
+        return ""
+    return (
+        f'<p class="muted">Your plan starts spending Tax-deferred first at age {age} (Drawdown Planning tab), so that '
+        "applies to the baseline and to every conversion row below -- each is compared with the plan you're "
+        "actually running, not with a Taxable-first plan you aren't.</p>"
+    )
+
+
 def _comparison_table_html(result: dict) -> str:
     strategies = result["strategies"]
     baseline_key = result["baseline_key"]
@@ -151,7 +170,7 @@ def _comparison_table_html(result: dict) -> str:
     rows_html = "".join(
         f'<tr><td>{html.escape(s["label"])}'
         + (' <span class="status-ok">Recommended</span>' if s["key"] == recommended_key else "")
-        + (' <span class="muted">(today\'s default)</span>' if s["key"] == baseline_key else "")
+        + (f' <span class="muted">({_baseline_phrase(result)})</span>' if s["key"] == baseline_key else "")
         + (' <span class="status-warn">Depleted</span>' if s["depletes"] else "")
         + '</td>'
         f'<td class="num">{_money(s["total_converted"])}</td>'
@@ -171,7 +190,7 @@ def _comparison_table_html(result: dict) -> str:
 <table class="sortable">
 <thead><tr><th>Strategy</th><th class="num">Total converted</th><th class="num">Your lifetime tax</th>
 <th class="num">Ending Tax-deferred</th><th class="num">Ending Roth</th><th class="num">Ending Taxable + Real estate</th>
-<th class="num">Estimated heir tax</th><th class="num">Net after-tax legacy</th><th class="num">vs. today's default</th>
+<th class="num">Estimated heir tax</th><th class="num">Net after-tax legacy</th><th class="num">vs. {_baseline_phrase(result)}</th>
 <th>Net after-tax legacy</th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
@@ -268,6 +287,7 @@ much of the point of converting. "Net after-tax legacy" is Taxable + Roth + Real
 Tax-deferred survives net of the Estimated heir tax column. A depleted strategy (ran out of money during your own
 lifetime) is flagged rather than hidden -- a smaller legacy from a strategy that never ran out beats a larger one on
 paper that only looks that way because the money ran out.</p>
+{_early_age_note_html(result)}
 {_comparison_table_html(result)}
 {_recommended_year_by_year_html(result, retirement_year)}
 <p class="muted">This compares strategies against each other for legacy purposes. For your day-to-day plan under
