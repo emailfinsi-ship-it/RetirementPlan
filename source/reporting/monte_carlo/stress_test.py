@@ -2,7 +2,8 @@
 history, as a second view alongside simulation.py's random Monte Carlo
 run: instead of `iterations` random draws, each named historical crash
 sequence (Great Depression, dot-com, the 2007-08 financial crisis,
-1970s stagflation, plus a flat no-crash baseline) is replayed exactly
+1970s stagflation, plus two flat-return reference lines: the plan's own
+Expected return, and the S&P 500's long-run historical average) is replayed exactly
 once, starting at the plan's first year, against the same starting
 balance and the same per-year withdrawal need -- so every scenario
 faces an identical withdrawal schedule and only the return sequence
@@ -63,18 +64,42 @@ HISTORICAL_STRESS_SCENARIOS: tuple[tuple[str, int | None], ...] = (
     ("Dot-com Crash (2000)", 2000),
     ("Global Financial Crisis (2007)", 2007),
     ("Stagflation (1973)", 1973),
-    ("No-crash baseline (10%/yr)", None),
 )
 
 
+def sp500_average_return() -> float:
+    """The S&P 500's compound (geometric) average annual total return over
+    every year on record in _SP500_ANNUAL_RETURNS."""
+    growth = 1.0
+    for r in _SP500_ANNUAL_RETURNS.values():
+        growth *= 1.0 + r
+    return growth ** (1.0 / len(_SP500_ANNUAL_RETURNS)) - 1.0
 
-def _historical_return(start_year: int | None, offset: int) -> float:
+
+def stress_scenarios(assumptions: dict) -> list[tuple[str, int | None, float | None]]:
+    """Every scenario the stress test runs, as (label, start_year,
+    flat_rate): the four named crashes (a start_year to replay, no flat
+    rate), then two flat-return reference lines -- the plan's own Expected
+    return assumption, and the S&P 500's historical average -- so the
+    crashes can be read against both "what the plan assumes" and "what the
+    market has actually averaged"."""
+    expected = float(assumptions.get("expected_return") or 0.06)
+    sp500 = sp500_average_return()
+    return [(label, start_year, None) for label, start_year in HISTORICAL_STRESS_SCENARIOS] + [
+        (f"Expected return ({expected * 100:.1f}%/yr)", None, expected),
+        (f"S&P 500 historical average ({sp500 * 100:.1f}%/yr)", None, sp500),
+    ]
+
+
+def _historical_return(start_year: int | None, offset: int, flat_rate: float | None = None) -> float:
     """The return a scenario applies `offset` years after its own start
-    (offset 0 = the scenario's first year) -- the no-crash baseline
-    (start_year=None) is just a flat _LONG_RUN_AVERAGE_RETURN every
-    year; a named crash looks up the real historical year it's
-    replaying (start_year + offset) and falls back to that same flat
-    average once it runs past recorded history."""
+    (offset 0 = the scenario's first year) -- a flat-rate scenario
+    (`flat_rate` given) is that same rate every year; a named crash looks
+    up the real historical year it's replaying (start_year + offset) and
+    falls back to _LONG_RUN_AVERAGE_RETURN once it runs past recorded
+    history."""
+    if flat_rate is not None:
+        return flat_rate
     if start_year is None:
         return _LONG_RUN_AVERAGE_RETURN
     return _SP500_ANNUAL_RETURNS.get(start_year + offset, _LONG_RUN_AVERAGE_RETURN)
@@ -155,13 +180,13 @@ def run_historical_stress_test(
         yearly_total_withdrawal = schedule["totals"]
 
         scenarios = []
-        for label, start_year in HISTORICAL_STRESS_SCENARIOS:
+        for label, start_year, flat_rate in stress_scenarios(assumptions):
             balance = max(starting_balance, 0.0)
             depleted = False
             depleted_year = None
             path = []
             for offset, year in enumerate(years):
-                r = _historical_return(start_year, offset)
+                r = _historical_return(start_year, offset, flat_rate)
                 balance = balance * (1 + r)
                 balance -= yearly_total_withdrawal[offset]
                 if balance < 0:
@@ -191,7 +216,7 @@ def run_historical_stress_test(
         gains_fraction = _resolve_gains_fraction(assumptions)
 
         scenarios = []
-        for label, start_year in HISTORICAL_STRESS_SCENARIOS:
+        for label, start_year, flat_rate in stress_scenarios(assumptions):
             scen_pools = {
                 "tax_deferred": pools.get("tax_deferred", 0.0),
                 "roth": pools.get("roth", 0.0),
@@ -206,7 +231,7 @@ def run_historical_stress_test(
             scen_total_withdrawal = []
             scen_rmd = []
             for offset, year in enumerate(years):
-                r = _historical_return(start_year, offset)
+                r = _historical_return(start_year, offset, flat_rate)
                 for name in scen_pools:
                     scen_pools[name] *= (1 + r)
                 age = (year - birth_year) if birth_year is not None else None

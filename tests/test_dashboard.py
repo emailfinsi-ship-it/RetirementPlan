@@ -1858,7 +1858,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
     def test_nav_includes_linked_positions_tab(self):
         resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/linked-accounts.html" class="active">Linked</a>', body)
+        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
         self.assertIn('href="/linked-positions.html" class="active">Positions</a>', body)
 
     def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
@@ -3043,7 +3043,9 @@ class TestHistoricalStressTestTable(DashboardTestCase):
         self.assertIn("Dot-com Crash (2000)", section)
         self.assertIn("Global Financial Crisis (2007)", section)
         self.assertIn("Stagflation (1973)", section)
-        self.assertIn("No-crash baseline (10%/yr)", section)
+        self.assertNotIn("No-crash baseline", section)
+        self.assertIn("Expected return (6.0%/yr)", section)
+        self.assertIn("S&amp;P 500 historical average (", section)
 
     def test_detail_table_has_a_yearly_drawdown_column_shared_across_scenarios(self):
         db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
@@ -3841,7 +3843,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Linked accounts", body)
-        self.assertIn('href="/linked-accounts.html" class="active">Linked</a>', body)
+        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
         resp = self._get("/linked-accounts.html")

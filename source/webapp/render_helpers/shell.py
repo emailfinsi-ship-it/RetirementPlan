@@ -20,7 +20,7 @@ from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THE
 NAV_ITEMS = (
     ("summary.html", "Summary"),
     ("asset.html", "Asset"),
-    ("linked-accounts.html", "Linked"),
+    ("linked-accounts.html", "Linked Accounts"),
     ("expense.html", "Income/Expense"),
     ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Monte Carlo Simulation"),

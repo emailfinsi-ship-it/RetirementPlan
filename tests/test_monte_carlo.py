@@ -1204,16 +1204,17 @@ class TestRunHistoricalStressTest(unittest.TestCase):
     Stress Test" table on the Monte Carlo tab, carried over from the
     original workbook's own tab of the same name."""
 
-    def test_returns_one_scenario_per_entry_in_historical_stress_scenarios(self):
+    def test_returns_the_crashes_then_expected_return_then_sp500_average(self):
         result = run_historical_stress_test(
             starting_balance=1_000_000, expenses=[],
             assumptions={"plan_horizon_years": 5, "current_year": 2028},
         )
-        self.assertEqual(len(result["scenarios"]), len(HISTORICAL_STRESS_SCENARIOS))
-        self.assertEqual(
-            [sc["label"] for sc in result["scenarios"]],
-            [label for label, _ in HISTORICAL_STRESS_SCENARIOS],
-        )
+        labels = [sc["label"] for sc in result["scenarios"]]
+        self.assertEqual(labels[:len(HISTORICAL_STRESS_SCENARIOS)], [label for label, _ in HISTORICAL_STRESS_SCENARIOS])
+        self.assertEqual(len(labels), len(HISTORICAL_STRESS_SCENARIOS) + 2)
+        self.assertTrue(labels[-2].startswith("Expected return ("))
+        self.assertTrue(labels[-1].startswith("S&P 500 historical average ("))
+        self.assertFalse(any(label.startswith("No-crash") for label in labels))
 
     def test_yearly_needs_matches_annual_net_withdrawal_need_per_year(self):
         expenses = [{"name": "Baseline", "annual_amount": 50_000, "inflates": True, "base_year": 2028, "start_year": None, "end_year": None}]
@@ -1291,13 +1292,36 @@ class TestRunHistoricalStressTest(unittest.TestCase):
         returns = [round(p["return"], 4) for p in gd["path"]]
         self.assertEqual(returns, [-0.0842, -0.249, -0.4334, -0.0819, 0.5399])
 
-    def test_no_crash_baseline_is_a_flat_ten_percent_every_year(self):
+    def test_expected_return_scenario_is_the_plans_assumption_every_year(self):
         result = run_historical_stress_test(
             starting_balance=1_000_000, expenses=[],
-            assumptions={"plan_horizon_years": 8, "current_year": 2028},
+            assumptions={"plan_horizon_years": 8, "current_year": 2028, "expected_return": 0.07},
         )
-        baseline = next(sc for sc in result["scenarios"] if sc["label"].startswith("No-crash"))
-        self.assertTrue(all(p["return"] == 0.10 for p in baseline["path"]))
+        sc = next(sc for sc in result["scenarios"] if sc["label"].startswith("Expected return"))
+        self.assertEqual(sc["label"], "Expected return (7.0%/yr)")
+        self.assertTrue(all(p["return"] == 0.07 for p in sc["path"]))
+
+    def test_expected_return_scenario_defaults_to_six_percent(self):
+        result = run_historical_stress_test(
+            starting_balance=1_000_000, expenses=[], assumptions={"plan_horizon_years": 3, "current_year": 2028},
+        )
+        sc = next(sc for sc in result["scenarios"] if sc["label"].startswith("Expected return"))
+        self.assertTrue(all(p["return"] == 0.06 for p in sc["path"]))
+
+    def test_sp500_average_scenario_is_the_compound_average_of_recorded_years(self):
+        from source.reporting.monte_carlo import _SP500_ANNUAL_RETURNS, sp500_average_return
+        avg = sp500_average_return()
+        growth = 1.0
+        for r in _SP500_ANNUAL_RETURNS.values():
+            growth *= 1 + r
+        self.assertAlmostEqual((1 + avg) ** len(_SP500_ANNUAL_RETURNS), growth, places=6)
+        self.assertGreater(avg, 0.07)
+        self.assertLess(avg, 0.13)
+        result = run_historical_stress_test(
+            starting_balance=1_000_000, expenses=[], assumptions={"plan_horizon_years": 4, "current_year": 2028},
+        )
+        sc = next(sc for sc in result["scenarios"] if sc["label"].startswith("S&P 500 historical average"))
+        self.assertTrue(all(p["return"] == avg for p in sc["path"]))
 
     def test_a_scenario_year_past_recorded_history_falls_back_to_the_long_run_average(self):
         # Dot-com (2000 start) only has real data through 2026 -- a
@@ -1340,15 +1364,16 @@ class TestRunHistoricalStressTest(unittest.TestCase):
             self.assertEqual(sc["depleted_year"], 2028)
             self.assertEqual(sc["ending_balance"], 0.0)
 
-    def test_no_expenses_and_no_crash_baseline_never_depletes(self):
+    def test_no_expenses_and_the_flat_reference_lines_never_deplete(self):
         result = run_historical_stress_test(
             starting_balance=1_000_000, expenses=[],
             assumptions={"plan_horizon_years": 10, "current_year": 2028},
         )
-        baseline = next(sc for sc in result["scenarios"] if sc["label"].startswith("No-crash"))
-        self.assertFalse(baseline["depleted"])
-        self.assertIsNone(baseline["depleted_year"])
-        self.assertGreater(baseline["ending_balance"], 1_000_000)
+        for prefix in ("Expected return", "S&P 500 historical average"):
+            baseline = next(sc for sc in result["scenarios"] if sc["label"].startswith(prefix))
+            self.assertFalse(baseline["depleted"])
+            self.assertIsNone(baseline["depleted_year"])
+            self.assertGreater(baseline["ending_balance"], 1_000_000)
 
     def test_every_scenario_faces_the_identical_withdrawal_schedule(self):
         # The whole point of holding withdrawals fixed per year (not
