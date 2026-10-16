@@ -274,11 +274,11 @@ def _apply_rule_in_conn(conn, rule, overrides: dict) -> dict:
     for row in matched:
         # Once a rule has been explicitly applied the row is rule-governed
         # again (category_edited_by_user = 0) -- but only if a normal
-        # categorization pass would actually land on this category. A
-        # keyword rule never overrides a category Plaid already gave the
-        # row, so in that case the row stays pinned (= 1); otherwise the
-        # next startup / rule save (recategorize_all_transactions) would
-        # silently undo what "Apply" just did.
+        # categorization pass would actually land on this category. When
+        # another rule outranks this one for the row, it stays pinned
+        # (= 1); otherwise the next startup / rule save
+        # (recategorize_all_transactions) would silently undo what
+        # "Apply" just did.
         governed = default_category(
             row["plaid_category_primary"], row["plaid_category_detailed"],
             row["merchant_name"] or row["name"], overrides=overrides,
@@ -327,9 +327,8 @@ def apply_category_rule(rule_id: int) -> dict:
     category. category_edited_by_user goes back to 0 (rule-governed -- a
     future sync or recategorize_all_transactions pass keeps it in sync
     with the rule) when a normal categorization pass would land on that
-    same category; when it wouldn't (a keyword rule on a row Plaid
-    already categorized -- default_category only consults keywords when
-    Plaid gave nothing), the row stays pinned at 1 so the next pass
+    same category; when it wouldn't (another rule outranks this one for
+    the row), the row stays pinned at 1 so the next pass
     can't quietly revert the Apply. ALSO sets income_kind_override
     (plaid_categorize.is_real_income's own explicit override) to this
     rule's own `kind` ('', 'income', or 'expense') on every matched row,

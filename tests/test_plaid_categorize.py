@@ -172,9 +172,19 @@ class TestDefaultCategory(unittest.TestCase):
         overrides = {"primary": {}, "detailed": {}, "keywords": [("starbucks", "Work Perks", "contains")]}
         self.assertEqual(default_category(None, None, "Starbucks Coffee #4521", overrides=overrides), "Work Perks")
 
-    def test_keyword_override_is_never_consulted_when_plaid_already_classified_it(self):
+    def test_keyword_override_beats_plaids_own_category(self):
         overrides = {"primary": {}, "detailed": {}, "keywords": [("shuttle", "Custom Travel", "contains")]}
-        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Travel")
+        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Custom Travel")
+
+    def test_keyword_override_beats_a_plaid_category_rule_too(self):
+        overrides = {"primary": {"TRAVEL": "Trips"}, "detailed": {}, "keywords": [("shuttle", "Airport Rides", "contains")]}
+        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "University Shuttle Co", overrides=overrides), "Airport Rides")
+        # No keyword match -> the Plaid-category rule still applies.
+        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "Delta", overrides=overrides), "Trips")
+
+    def test_unmatched_keyword_leaves_plaids_category_alone(self):
+        overrides = {"primary": {}, "detailed": {}, "keywords": [("peloton", "Fitness", "contains")]}
+        self.assertEqual(default_category("TRAVEL", "TRAVEL_FLIGHTS", "Delta", overrides=overrides), "Travel")
 
     def test_custom_keyword_rule_with_starts_with_match_mode(self):
         overrides = {"primary": {}, "detailed": {}, "keywords": [("zelle", "Transfer", "starts_with")]}

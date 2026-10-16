@@ -385,9 +385,10 @@ def default_category(
     buckets (see _BROAD_CATEGORY_BY_PRIMARY/_BROAD_CATEGORY_DETAILED_
     OVERRIDES above) rather than a distinct string per fine-grained
     Plaid subcategory. `name` (the transaction's own name/merchant_name)
-    is only consulted when Plaid gave no personal_finance_category at
-    all -- a best-effort keyword guess instead of an immediate
-    "Uncategorized" -- and is optional so every existing caller that
+    is matched against a person's own keyword rules first, and against
+    the built-in keyword guesses only when Plaid gave no
+    personal_finance_category at all (instead of an immediate
+    "Uncategorized") -- and is optional so every existing caller that
     doesn't have it handy keeps working unchanged. Just the STARTING
     value shown in the Category column/datalist -- like every other
     category field in this app, it's free text with no fixed enum, so a
@@ -411,6 +412,17 @@ def default_category(
 
     primary_key = (primary or "").strip().upper()
     detailed_key = (detailed or "").strip().upper()
+    # A person's own merchant/name keyword rule is the most specific thing
+    # they can say about a transaction ("Peloton" is Fitness, whatever
+    # Plaid filed it under), so it is checked before every Plaid-category
+    # rule and before the built-in tables. The built-in name keywords stay
+    # a last-resort fallback for transactions Plaid never classified.
+    if override_keywords:
+        text = (name or "").strip()
+        if text:
+            for match_key, category, match_mode in override_keywords:
+                if _keyword_rule_matches(text, match_key, match_mode):
+                    return category
     if detailed_key in override_detailed:
         return override_detailed[detailed_key]
     if primary_key in override_primary:

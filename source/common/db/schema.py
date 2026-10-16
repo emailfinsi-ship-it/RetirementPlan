@@ -320,10 +320,9 @@ CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(dat
 --                 order as the built-in tables.
 --   'keyword'  -- match_key is checked against the transaction's
 --                 merchant/transaction name according to match_mode
---                 below, checked before every built-in keyword rule, in
---                 ascending id order (oldest-added first), first match
---                 wins -- only ever consulted when Plaid gave no
---                 primary/detailed at all, same as the built-in list.
+--                 below, checked before everything else (Plaid-category
+--                 rules and the built-in tables included), in ascending
+--                 id order (oldest-added first), first match wins.
 -- match_mode only means anything for rule_type='keyword' (a 'primary'/
 -- 'detailed' rule is always an exact match on Plaid's own value, case-
 -- insensitive) -- one of:

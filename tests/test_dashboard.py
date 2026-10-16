@@ -238,6 +238,12 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         body = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertNotIn('<div class="subnav">', body)
 
+    def test_income_tab_explains_how_rental_income_is_taxed(self):
+        body = self._get("/expense.html").read().decode("utf-8")
+        self.assertIn("Rental income:", body)
+        self.assertIn("after property costs", body)
+        self.assertIn("Loan ends", body)
+
     def test_setup_page_has_the_excel_export_button(self):
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertIn("Generate Excel export", body)
@@ -5139,7 +5145,7 @@ class TestApplyCategoryRuleEndpoint(DashboardTestCase):
         self.assertEqual(payload, {"ok": True, "matched": 1, "recategorized": 1, "kind_applied": 1})
         row = db.list_plaid_transactions()[0]
         self.assertEqual(row["category"], "Salary")
-        self.assertEqual(row["category_edited_by_user"], 1)  # Plaid categorized it; keyword can't govern it
+        self.assertEqual(row["category_edited_by_user"], 0)  # the keyword rule now governs it again
         self.assertEqual(row["income_kind_override"], "income")
 
     def test_apply_does_not_touch_a_non_matching_transaction(self):

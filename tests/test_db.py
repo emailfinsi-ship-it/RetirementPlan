@@ -795,10 +795,9 @@ class TestApplyCategoryRule(TempConfigTestCase):
         row = db.list_plaid_transactions()[0]
         self.assertEqual(result, {"matched": 1, "recategorized": 1, "kind_applied": 1})
         self.assertEqual(row["category"], "Salary")
-        # Plaid already categorized this row (INCOME_SALARY), and a keyword
-        # rule never overrides that on a normal pass -- so the row stays
-        # pinned, otherwise the next startup pass would silently undo Apply.
-        self.assertEqual(row["category_edited_by_user"], 1)
+        # A keyword rule now outranks Plaid's own category on a normal pass,
+        # so the row is rule-governed again after Apply.
+        self.assertEqual(row["category_edited_by_user"], 0)
         self.assertEqual(row["income_kind_override"], "income")
         db.recategorize_all_transactions()
         self.assertEqual(db.list_plaid_transactions()[0]["category"], "Salary")
