@@ -133,7 +133,7 @@ def _line_item_section_html(
         name_cell = _editable_text_cell(section, e["id"], "name", e["name"], width="120px")
         category_cell = _editable_category_cell(section, e["id"], e["category"], current_year=this_year)
         amount_cell = (
-            _editable_number_cell(section, e["id"], "annual_amount", e["annual_amount"], width="95px")
+            _editable_number_cell(section, e["id"], "annual_amount", e["annual_amount"], width="95px", money=True)
             + _inflation_note_html(e, this_year, inflation_rate)
         )
         start_cell = _editable_number_cell(

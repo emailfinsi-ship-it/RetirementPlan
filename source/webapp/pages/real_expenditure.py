@@ -208,7 +208,7 @@ def _render_real_expenditure_page() -> str:
             # confusing for what's obviously a deposit/paycheck) --
             # display-only: the signed amount is still what every total/
             # chart on this page and Budget vs Actual actually sums.
-            amount_html = f'<span class="status-ok">+{html.escape(_money(-t["amount"]))}</span>'
+            amount_html = f'<span class="status-ok">+{html.escape(_money(-t["amount"], cents=True))}</span>'
             # Only flagged when the category itself doesn't already say
             # "Income" (and there's no override badge already saying so)
             # -- otherwise this would just repeat information already on
@@ -222,7 +222,7 @@ def _render_real_expenditure_page() -> str:
                 'Plaid couldn\'t classify this one, and it\'s inbound money.">counted as income</span>'
             )
         else:
-            amount_html = html.escape(_money(t["amount"]))
+            amount_html = html.escape(_money(t["amount"], cents=True))
             income_badge = ""
         # "Categorize similar" -- one-click shortcut for source.common.
         # db.transactions.apply_category_rule_from_transaction: takes

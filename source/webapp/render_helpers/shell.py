@@ -298,6 +298,27 @@ function updateField(section, id, field, value) {{
     .then(function() {{ location.reload(); }})
     .catch(function(err) {{ alert(err.message); }});
 }}
+function updateMoneyField(section, id, field, inputEl) {{
+  // Money cells show thousands commas ("1,290,000"); strip them (and a $)
+  // before saving, and refuse anything that is not a number.
+  var cleaned = String(inputEl.value).replace(/[$,\\s]/g, '');
+  if (cleaned === '' || isNaN(Number(cleaned))) {{
+    alert('Please enter a number, for example 1,290,000');
+    location.reload();
+    return;
+  }}
+  updateField(section, id, field, cleaned);
+}}
+function formatMoneyInputs() {{
+  document.querySelectorAll('input[data-money]').forEach(function(el) {{
+    el.addEventListener('focus', function() {{ el.value = el.value.replace(/,/g, ''); el.select(); }});
+    el.addEventListener('blur', function() {{
+      var n = Number(String(el.value).replace(/[$,\\s]/g, ''));
+      if (el.value !== '' && !isNaN(n)) el.value = n.toLocaleString('en-US', {{maximumFractionDigits: 2}});
+    }});
+  }});
+}}
+document.addEventListener('DOMContentLoaded', formatMoneyInputs);
 function setAccountOwner(accountId, owner) {{
   // Drawdown Planning's "Resources by source" Owner column, for a live
   // linked account that ISN'T tied to an Asset-tab row (an Asset row's

@@ -244,7 +244,7 @@ def _category_table_html(
         # by hand would just get silently overwritten next page load, so
         # only an unlinked row's Balance becomes an editable input.
         balance_display = (
-            balance_cell if is_linked else _editable_number_cell("assets", a["id"], "balance", a["balance"])
+            balance_cell if is_linked else _editable_number_cell("assets", a["id"], "balance", a["balance"], money=True)
         )
         tax_treatment_td = (
             f'<td>{_editable_select_cell("assets", a["id"], "tax_treatment", effective_tax_treatment(a, live_by_account_id), _TAX_TREATMENT_OPTIONS, width="110px")}</td>'

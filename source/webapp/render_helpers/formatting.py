@@ -23,12 +23,29 @@ _TAX_TREATMENT_OPTIONS = (
 )
 
 
-def _money(value) -> str:
+def _money(value, *, cents: bool = False) -> str:
+    """Dollars with thousands commas, rounded to whole dollars ("$465,966")
+    for easy reading; cents=True keeps two decimals (individual
+    transactions, where $4.50 must not read as $5)."""
     try:
         value = float(value)
     except (TypeError, ValueError):
         return "--"
-    return f"-${-value:,.2f}" if value < 0 else f"${value:,.2f}"
+    places = 2 if cents else 0
+    rounded = round(value, places)
+    if rounded == 0:
+        rounded = 0.0   # never "-$0"
+    body = f"{abs(rounded):,.{places}f}"
+    return f"-${body}" if rounded < 0 else f"${body}"
+
+
+def _format_money_input_value(value) -> str:
+    """A stored dollar amount for an editable money cell: thousands commas,
+    cents only when the stored value has them ("1,290,000", "1,234.56")."""
+    number = float(value or 0)
+    if round(number, 2) == round(number):
+        return f"{round(number):,.0f}".replace("-0", "0") if round(number) == 0 else f"{round(number):,.0f}"
+    return f"{number:,.2f}"
 
 
 def _pct(assumptions: dict, key: str, default="") -> str:

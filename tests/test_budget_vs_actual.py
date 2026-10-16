@@ -29,7 +29,7 @@ class TestVarianceCell(unittest.TestCase):
     def test_over_budget_is_bad_for_spend(self):
         html = _variance_cell(120, 100)
         self.assertIn("status-warn", html)
-        self.assertIn("+$20.00", html)
+        self.assertIn("+$20", html)
 
     def test_over_plan_is_good_for_income(self):
         self.assertIn("status-ok", _variance_cell(120, 100, higher_is_better=True))
@@ -108,9 +108,9 @@ class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
         db.add_line_item("income", {"name": "Pension", "category": "Pension", "annual_amount": 24_000})
         body = _render_budget_vs_actual_page()
         self.assertIn("2026 expense budget", body)
-        self.assertIn("$12,000.00", body)
+        self.assertIn("$12,000", body)
         self.assertIn("2026 income plan", body)
-        self.assertIn("$24,000.00", body)
+        self.assertIn("$24,000", body)
 
     def test_actual_spend_and_projection_reflect_synced_transactions(self):
         self._patched_today(real_date(2026, 7, 1))  # day 182 of a 365-day year
@@ -127,7 +127,7 @@ class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
             "category": "Shopping", "excluded_from_expense": False,
         })
         body = _render_budget_vs_actual_page()
-        self.assertIn("$18,200.00", body)  # actual spend so far
+        self.assertIn("$18,200", body)  # actual spend so far
 
     def test_actual_income_includes_inbound_money_plaid_could_not_classify(self):
         # Same bug as test_actual_expense_and_income_by_month's own
@@ -148,14 +148,14 @@ class TestRenderBudgetVsActualPage(PlaidVaultTestCase):
             "category": "Housing & Utilities", "excluded_from_expense": False,
         })
         body = _render_budget_vs_actual_page()
-        self.assertIn("$10,150.00", body)  # actual income so far
+        self.assertIn("$10,150", body)  # actual income so far
 
     def test_monthly_table_shows_each_months_flat_budget_and_actual(self):
         self._patched_today(real_date(2026, 9, 15))
         db.add_line_item("expenses", {"name": "Groceries", "category": "Fixed", "annual_amount": 12_000})
         body = _render_budget_vs_actual_page()
         # Flat monthly budget = 12000 / 12 = 1000.
-        self.assertIn("$1,000.00", body)
+        self.assertIn("$1,000", body)
         self.assertIn("2026-09", body)
 
     def test_page_explains_it_is_a_totals_level_comparison(self):

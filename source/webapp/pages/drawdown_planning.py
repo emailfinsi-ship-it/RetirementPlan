@@ -160,7 +160,7 @@ def _account_splits_card_html(
             f'data-section="account_tax_splits" data-id="{s["id"]}"></td>'
             f'<td>{_editable_text_cell("account_tax_splits", s["id"], "name", s["name"], width="160px")}</td>'
             f'<td>{_editable_select_cell("account_tax_splits", s["id"], "tax_treatment", s["tax_treatment"], _TAX_TREATMENT_OPTIONS)}</td>'
-            f'<td class="num">{_editable_number_cell("account_tax_splits", s["id"], "amount", s["amount"])}</td></tr>'
+            f'<td class="num">{_editable_number_cell("account_tax_splits", s["id"], "amount", s["amount"], money=True)}</td></tr>'
             for s in splits
         )
         groups_html += f"""

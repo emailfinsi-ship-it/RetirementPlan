@@ -33,7 +33,7 @@ def _render_real_estate_page() -> str:
         # Loan Balance becomes an editable input.
         loan_display = (
             loan_cell if is_linked
-            else _editable_number_cell("real_estate", r["id"], "loan_balance", r["loan_balance"], width="115px")
+            else _editable_number_cell("real_estate", r["id"], "loan_balance", r["loan_balance"], width="115px", money=True)
         )
         name_cell = _editable_text_cell("real_estate", r["id"], "name", r["name"], width="110px")
         updated = r.get("value_updated_at")
@@ -50,14 +50,14 @@ def _render_real_estate_page() -> str:
         # millions), which the 90px default was too narrow to
         # comfortably show once _format_number_input_value stopped
         # abbreviating those values to scientific notation.
-        purchase_cell = _editable_number_cell("real_estate", r["id"], "purchase_price", r["purchase_price"], width="115px")
-        value_cell = _editable_number_cell("real_estate", r["id"], "current_value", r["current_value"], width="115px")
+        purchase_cell = _editable_number_cell("real_estate", r["id"], "purchase_price", r["purchase_price"], width="115px", money=True)
+        value_cell = _editable_number_cell("real_estate", r["id"], "current_value", r["current_value"], width="115px", money=True)
         ownership_cell = _editable_number_cell(
             "real_estate", r["id"], "ownership_pct", r["ownership_pct"],
             width="56px", min_attr="0", max_attr="100",
         ) + "%"
         income_cell = _editable_number_cell(
-            "real_estate", r["id"], "annual_income", r["annual_income"], width="80px", min_attr="0",
+            "real_estate", r["id"], "annual_income", r["annual_income"], width="90px", money=True,
         )
         loan_end_cell = _editable_number_cell(
             "real_estate", r["id"], "loan_end_year", r.get("loan_end_year"), width="70px", step="1",

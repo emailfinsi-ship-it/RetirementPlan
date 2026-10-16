@@ -2255,7 +2255,7 @@ class TestCompareRothConversionStrategies(unittest.TestCase):
 
     def test_a_tied_net_legacy_breaks_in_favor_of_lower_lifetime_tax(self):
         # A fully-depleted plan (huge expense vs. a small pool) drives
-        # every strategy's net_after_tax_legacy to the same $0.00 --
+        # every strategy's net_after_tax_legacy to the same $0 --
         # among that tie, the strategy that cost the least in lifetime
         # tax to get there (here, "no_conversions", since every
         # conversion strategy pays extra conversion tax for no legacy

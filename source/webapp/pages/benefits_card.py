@@ -54,8 +54,8 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
         tier = benefits.medicare_tier(magi, married=bool(anu["birth_year"]))
         tier_text = (
             f'<p class="status-line">At {_money(magi)} of income, you are in {benefits.MEDICARE_TABLE_YEAR} IRMAA tier '
-            f'{tier["tier"] + 1} of 6: Part B {_money(tier["part_b_monthly"])}/mo plus a Part D surcharge of '
-            f'{_money(tier["part_d_surcharge"])}/mo per person ({_money(tier["annual"])}/yr each).</p>'
+            f'{tier["tier"] + 1} of 6: Part B {_money(tier["part_b_monthly"], cents=True)}/mo plus a Part D surcharge of '
+            f'{_money(tier["part_d_surcharge"], cents=True)}/mo per person ({_money(tier["annual"])}/yr each).</p>'
         )
     planned = benefits.planned_rows(assumptions)
     status = ""
@@ -87,7 +87,7 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
 "Save &amp; apply" writes the result onto the tables below as ordinary rows (Social Security under Income, Medicare
 under Expenses), so Monte Carlo, Drawdown and Legacy all pick it up. Benefits are in today's dollars and grow with
 the Inflation assumption. The comparison ignores taxes, spousal and survivor benefits, and discounting. Medicare
-premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY)}/mo)
+premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY, cents=True)}/mo)
 and one income estimate; the real IRMAA rule looks at your income from two years earlier and can change each year. Add your
 Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
 {missing_text}

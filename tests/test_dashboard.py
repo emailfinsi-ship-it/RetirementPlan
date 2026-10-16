@@ -615,7 +615,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
         self.assertIn("Vanguard Brokerage", body)
-        self.assertIn("42,000.00", body)
+        self.assertIn("42,000", body)
 
     def test_asset_page_groups_line_items_into_a_table_per_category(self):
         db.add_line_item("assets", {"kind": "asset", "category": "Retirement Account", "name": "401k", "balance": 100_000})
@@ -628,8 +628,8 @@ class TestLineItemEndpoints(DashboardTestCase):
         self.assertIn("Loan", body)
         # Each category's subtotal appears once (its own <tfoot>), separate
         # from the other category's numbers -- not one flat combined table.
-        self.assertIn("100,000.00", body)
-        self.assertIn("5,000.00", body)
+        self.assertIn("100,000", body)
+        self.assertIn("5,000", body)
         self.assertIn("Total assets", body)
         self.assertIn("Total liabilities", body)
 
@@ -646,7 +646,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
         self.assertIn("Real estate equity", body)
-        self.assertIn("300,000.00", body)  # equity = 500,000 - 200,000
+        self.assertIn("300,000", body)  # equity = 500,000 - 200,000
         self.assertIn("1 property", body)
         self.assertIn('href="/real-estate.html"', body)
         self.assertNotIn("Real Estate Asset", body)  # the old per-property table's own heading is gone
@@ -662,7 +662,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
         self.assertIn("2 properties", body)
-        self.assertIn("500,000.00", body)  # combined equity = 300,000 + 200,000
+        self.assertIn("500,000", body)  # combined equity = 300,000 + 200,000
 
     def test_asset_page_real_estate_line_handles_zero_properties(self):
         resp = self._get("/asset.html")
@@ -733,7 +733,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         self.assertNotIn(loan_heading, body)
         # ...and its balance is now grouped under a "Credit Card" category table instead.
         self.assertIn(credit_card_heading, body)
-        self.assertIn("3,000.00", body)
+        self.assertIn("3,000", body)
 
     def test_updating_an_asset_name_via_the_generic_update_endpoint(self):
         item_id = db.add_line_item("assets", {"kind": "asset", "name": "Old Name", "balance": 1_000})
@@ -765,7 +765,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         try:
             resp = self._get("/linked-accounts.html")
             body = resp.read().decode("utf-8")
-            self.assertIn("30,000.00", body)
+            self.assertIn("30,000", body)
         finally:
             db.delete_plaid_item("fidelity")
 
@@ -775,7 +775,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertIn('<table class="sortable">', body)
-        self.assertIn("50,000.00", body)  # total of the two rows
+        self.assertIn("50,000", body)  # total of the two rows
 
 
 class TestExpensePageIncomeAndInflation(DashboardTestCase):
@@ -816,8 +816,8 @@ class TestExpensePageIncomeAndInflation(DashboardTestCase):
         })
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        # 197,800 * 1.03^2 = 209,846.02
-        self.assertIn("2028 value: $209,846.02", body)
+        # 197,800 * 1.03^2 = 209,846
+        self.assertIn("2028 value: $209,846", body)
 
     def test_tiles_show_expense_income_and_net_need(self):
         db.set_assumption("current_year", 2028)
@@ -826,9 +826,9 @@ class TestExpensePageIncomeAndInflation(DashboardTestCase):
         db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<div class="label">2028 expense need</div><div class="value">$300,000.00</div>', body)
-        self.assertIn('<div class="label">2028 income</div><div class="value">$103,000.00</div>', body)
-        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$197,000.00</div>', body)
+        self.assertIn('<div class="label">2028 expense need</div><div class="value">$300,000</div>', body)
+        self.assertIn('<div class="label">2028 income</div><div class="value">$103,000</div>', body)
+        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$197,000</div>', body)
 
     def test_table_total_excludes_a_row_whose_year_range_does_not_cover_this_year(self):
         # Regression: the table's "Total (this year value)" footer must
@@ -841,10 +841,10 @@ class TestExpensePageIncomeAndInflation(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         # The nominal total still includes both rows (103,000 + 42,000).
-        self.assertIn("Total (nominal)</td><td class=\"num\">$145,000.00</td>", body)
+        self.assertIn("Total (nominal)</td><td class=\"num\">$145,000</td>", body)
         # But the "this year" total must not -- Social Security hasn't
         # started yet, so only Rental counts toward 2028.
-        self.assertIn("Total (2028 value)</td><td class=\"num\">$103,000.00</td>", body)
+        self.assertIn("Total (2028 value)</td><td class=\"num\">$103,000</td>", body)
 
     def test_income_row_has_a_row_checkbox_for_bulk_delete(self):
         db.add_line_item("income", {"name": "Rental", "annual_amount": 103_000})
@@ -942,8 +942,8 @@ class TestIncomePageIncludeInMonteCarloCheckbox(DashboardTestCase):
         body = resp.read().decode("utf-8")
         # The unchecked row is dropped from the net-need math -- income
         # shows $0, so net need equals the full expense need.
-        self.assertIn('<div class="label">2028 income</div><div class="value">$0.00</div>', body)
-        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$150,000.00</div>', body)
+        self.assertIn('<div class="label">2028 income</div><div class="value">$0</div>', body)
+        self.assertIn('<div class="label">2028 net withdrawal need</div><div class="value">$150,000</div>', body)
 
     def test_base_year_and_inflates_cells_carry_data_field_for_the_variable_auto_inflate_js(self):
         db.add_line_item("expenses", {"name": "Groceries", "category": "Fixed", "annual_amount": 12_000})
@@ -1000,12 +1000,12 @@ class TestIncomePageIncludeInMonteCarloCheckbox(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertIn(f"updateField('expenses', {item_id}, 'name', this.value)", body)
-        self.assertIn(f"updateField('expenses', {item_id}, 'annual_amount', this.value)", body)
+        self.assertIn(f"updateMoneyField('expenses', {item_id}, 'annual_amount', this)", body)
         self.assertIn(f"updateField('expenses', {item_id}, 'start_year', this.value)", body)
         self.assertIn(f"updateField('expenses', {item_id}, 'end_year', this.value)", body)
         self.assertIn(f"updateField('expenses', {item_id}, 'notes', this.value)", body)
         self.assertIn('value="Groceries"', body)
-        self.assertIn('value="12000"', body)
+        self.assertIn('value="12,000"', body)
         self.assertIn('value="2027"', body)
         self.assertIn('value="2040"', body)
         self.assertIn('value="weekly shop"', body)
@@ -1079,16 +1079,16 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
         body = resp.read().decode("utf-8")
         # Fixed = 30,000 + 6,000 = 36,000; Variable = 14,000 -- both as
         # slice legend values, not the raw per-row amounts.
-        self.assertIn("$36,000.00", body)
-        self.assertIn("$14,000.00", body)
+        self.assertIn("$36,000", body)
+        self.assertIn("$14,000", body)
 
     def test_income_chart_is_independent_of_the_expense_chart(self):
         db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
         db.add_line_item("income", {"name": "Rental income", "category": "Rental", "annual_amount": 18_000})
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("$30,000.00", body)
-        self.assertIn("$18,000.00", body)
+        self.assertIn("$30,000", body)
+        self.assertIn("$18,000", body)
         # Only the Expenses chart should be "No data yet." once Income
         # actually has a row.
         self.assertEqual(body.count("No data yet."), 0)
@@ -1098,7 +1098,7 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertIn("Unknown", body)
-        self.assertIn("$5,000.00", body)
+        self.assertIn("$5,000", body)
 
     def test_charts_appear_before_the_line_item_tables(self):
         db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
@@ -1134,10 +1134,10 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         # tfoot after that point.
         start = body.index(">Summary</div>")
         summary = body[start : body.index("Net Liquid Asset</td><td class=\"num\">", start) + 60]
-        self.assertIn("<td>401k</td><td class=\"num\">$100,000.00</td>", summary)
-        self.assertIn("<td>Liquid</td><td class=\"num\">$50,000.00</td>", summary)
-        self.assertIn("<td>Insurance</td><td class=\"num\">$20,000.00</td>", summary)
-        self.assertIn("<td>Liabilities</td><td class=\"num\">-$5,000.00</td>", summary)
+        self.assertIn("<td>401k</td><td class=\"num\">$100,000</td>", summary)
+        self.assertIn("<td>Liquid</td><td class=\"num\">$50,000</td>", summary)
+        self.assertIn("<td>Insurance</td><td class=\"num\">$20,000</td>", summary)
+        self.assertIn("<td>Liabilities</td><td class=\"num\">-$5,000</td>", summary)
 
     def test_net_liquid_asset_sums_only_rows_checked_in_monte_carlo_minus_liabilities(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
@@ -1148,14 +1148,14 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         body = resp.read().decode("utf-8")
         # 100,000 + 50,000 - 5,000 = 145,000 -- Insurance's 20,000 is
         # unchecked, so the total must not equal 165,000.
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$145,000.00</td>", body)
-        self.assertNotIn("$165,000.00", body)
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$145,000</td>", body)
+        self.assertNotIn("$165,000", body)
 
     def test_an_unchecked_row_is_excluded_from_net_liquid_asset(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0.00</td>", body)
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0</td>", body)
 
     def test_rollup_table_totals_net_liquid_asset_and_real_estate_equity(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
@@ -1163,9 +1163,9 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         db.add_line_item("real_estate", {"name": "Home", "current_value": 500_000, "loan_balance": 300_000, "ownership_pct": 100})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$200,000.00</td>", body)
+        self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$200,000</td>", body)
         # Net Liquid Asset (150,000) + RE equity (200,000) = 350,000.
-        self.assertIn("Total Asset</td><td class=\"num\">$350,000.00</td>", body)
+        self.assertIn("Total Asset</td><td class=\"num\">$350,000</td>", body)
 
     def test_rollup_table_uses_the_live_loan_balance_for_effective_equity(self):
         db.upsert_plaid_item(
@@ -1186,15 +1186,15 @@ class TestAssetPageSummaryTables(DashboardTestCase):
             resp = self._get("/asset.html")
             body = resp.read().decode("utf-8")
             # 900,000 - 480,000 (live) = 420,000, not the stale loan_balance=1.
-            self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$420,000.00</td>", body)
+            self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$420,000</td>", body)
         finally:
             db.delete_plaid_item("wells_fargo")
 
     def test_empty_state_shows_zero_net_liquid_asset_and_total_asset(self):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0.00</td>", body)
-        self.assertIn("Total Asset</td><td class=\"num\">$0.00</td>", body)
+        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0</td>", body)
+        self.assertIn("Total Asset</td><td class=\"num\">$0</td>", body)
 
     def test_summary_table_subtotals_match_each_category_detail_tables_own_subtotal(self):
         # The top table and the per-category detail table below it are
@@ -1203,8 +1203,8 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 77_777})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("<td>401k</td><td class=\"num\">$77,777.00</td>", body)  # top Summary table's row
-        self.assertIn("Subtotal</td><td class=\"num\">$77,777.00</td>", body)  # 401k detail table's own tfoot
+        self.assertIn("<td>401k</td><td class=\"num\">$77,777</td>", body)  # top Summary table's row
+        self.assertIn("Subtotal</td><td class=\"num\">$77,777</td>", body)  # 401k detail table's own tfoot
 
     def test_rollup_table_renders_above_the_category_summary_table(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
@@ -1364,8 +1364,8 @@ class TestLinkAccountEndpoint(DashboardTestCase):
         db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("62,000.00", body)  # the live Plaid balance
-        self.assertNotIn("$100.00", body)  # not the stale typed-in balance
+        self.assertIn("62,000", body)  # the live Plaid balance
+        self.assertNotIn("$100", body)  # not the stale typed-in balance
         self.assertIn("Fidelity -- APPLE 401(K) PLAN", body)
 
     def test_linked_accounts_page_shows_which_line_item_its_folded_into(self):
@@ -1527,7 +1527,7 @@ class TestClassifyLinkedAccountEndpoint(DashboardTestCase):
         })
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("7,227.59", body)
+        self.assertIn("7,228", body)
         self.assertIn("Individual Brokerage", body)
 
     def test_linked_accounts_page_shows_classify_form_for_unlinked_rows(self):
@@ -1681,7 +1681,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
     def test_real_estate_page_shows_annual_income_and_total(self):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("24,000.00", body)
+        self.assertIn("24,000", body)
         self.assertIn("Annual Income", body)
 
     def test_link_account_endpoint_works_for_real_estate_section(self):
@@ -1696,8 +1696,8 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("480,000.00", body)  # the live balance
-        self.assertIn("420,000.00", body)  # equity: 900,000 - 480,000
+        self.assertIn("480,000", body)  # the live balance
+        self.assertIn("420,000", body)  # equity: 900,000 - 480,000
         self.assertIn("Wells Fargo -- MORTGAGE ...7982", body)
 
     def test_asset_page_real_estate_line_reflects_live_loan_balance_once_linked(self):
@@ -1712,7 +1712,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("420,000.00", body)
+        self.assertIn("420,000", body)
 
     def test_linked_accounts_page_shows_the_real_estate_link(self):
         db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
@@ -1731,7 +1731,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
         self.assertIn("'annual_income'", body)
-        self.assertIn('value="24000"', body)
+        self.assertIn('value="24,000"', body)
 
     def test_updating_annual_income_via_the_generic_update_endpoint(self):
         status, payload = self._post("/api/line-item/update", {
@@ -1747,7 +1747,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         })
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("your share: $240,000.00", body)  # 480,000 * 50%
+        self.assertIn("your share: $240,000", body)  # 480,000 * 50%
 
     def test_loan_balance_has_no_your_share_note_at_full_ownership(self):
         db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
@@ -1765,7 +1765,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
         # (900,000 - 300,000) * 50% = 300,000
-        self.assertIn("300,000.00", body)
+        self.assertIn("300,000", body)
 
     def test_name_purchase_price_and_current_value_are_editable_inputs(self):
         resp = self._get("/real-estate.html")
@@ -1774,7 +1774,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         self.assertIn("'name'", body)
         self.assertIn("'purchase_price'", body)
         self.assertIn("'current_value'", body)
-        self.assertIn('value="900000"', body)  # current_value, unformatted for the input
+        self.assertIn('value="900,000"', body)  # current_value, unformatted for the input
 
     def test_updating_name_via_the_generic_update_endpoint(self):
         status, payload = self._post("/api/line-item/update", {
@@ -1894,7 +1894,7 @@ class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
         self.assertIn("Included in Monte Carlo simulations", body)
-        self.assertIn("300,000.00", body)  # only the Cabin, not the Rental
+        self.assertIn("300,000", body)  # only the Cabin, not the Rental
 
 
 class TestNumberInputFormattingForLargeValues(DashboardTestCase):
@@ -1946,15 +1946,15 @@ class TestNumberInputFormattingForLargeValues(DashboardTestCase):
     def test_seven_digit_purchase_price_and_current_value_render_in_full(self):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('value="1290000"', body)
-        self.assertIn('value="3336607.99"', body)
+        self.assertIn('value="1,290,000"', body)
+        self.assertIn('value="3,336,607.99"', body)
         self.assertNotIn("e+0", body)
         self.assertNotIn("e-0", body)
 
     def test_seven_digit_loan_balance_renders_in_full_when_not_linked(self):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('value="1100000"', body)
+        self.assertIn('value="1,100,000"', body)
 
     def test_purchase_price_current_value_and_loan_balance_columns_are_widened(self):
         resp = self._get("/real-estate.html")
@@ -1965,7 +1965,7 @@ class TestNumberInputFormattingForLargeValues(DashboardTestCase):
         # Regression check for the precision-loss half of the old bug --
         # not just cosmetic: the old :g-formatted "3.33661e+06" that
         # showed in the box would have actually saved back as a rounded
-        # $3,336,610.00 if the row was ever re-submitted unchanged.
+        # $3,336,610 if the row was ever re-submitted unchanged.
         status, payload = self._post("/api/line-item/update", {
             "section": "real_estate", "id": self.item_id,
             "fields": {"current_value": "3336607.99"},
@@ -2019,7 +2019,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
         resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
         self.assertIn('<table class="sortable" id="linked-positions-table">', body)
-        self.assertIn("1,500.00", body)  # appears both in the row and the total
+        self.assertIn("1,500", body)  # appears both in the row and the total
 
     def test_linked_positions_page_shows_type_institution_donuts_and_an_industry_bar_chart(self):
         # Type and institution stay donuts (few categories, read fine as
@@ -2117,7 +2117,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
             # on this one bar still filters both of them.
             self.assertIn('data-values="[&quot;Technology&quot;]"', sector_section)
             # $1,500 (AAPL) + $500 (NVDA) = $2,000, all under one "Technology" bar.
-            self.assertIn("Technology: $2,000.00 (100%)", sector_section)
+            self.assertIn("Technology: $2,000 (100%)", sector_section)
             self.assertEqual(body.count('data-sector="Technology"'), 2)
         finally:
             db.clear_security_industries(["sec-aapl", "sec-nvda"])
@@ -2306,12 +2306,12 @@ class TestLinkedPositionsVestedValue(DashboardTestCase):
             "vested_quantity": 400, "vested_value": 60_000,
         })
         body = self._get("/linked-positions.html").read().decode("utf-8")
-        self.assertIn("$60,000.00", body)  # the vested figure shown as the Market Value
+        self.assertIn("$60,000", body)  # the vested figure shown as the Market Value
         self.assertIn("(vested)", body)
-        self.assertIn("full grant (incl. unvested) is $150,000.00", body)
+        self.assertIn("full grant (incl. unvested) is $150,000", body)
         # The unfiltered full grant total must not appear as the row's
         # own displayed value/table total (it's only in the tooltip).
-        self.assertNotIn('>$150,000.00<', body)
+        self.assertNotIn('>$150,000<', body)
 
     def test_market_value_total_and_charts_use_the_vested_figure_too(self):
         db.upsert_plaid_holding(item_key="etrade", holding={
@@ -2321,7 +2321,7 @@ class TestLinkedPositionsVestedValue(DashboardTestCase):
             "vested_quantity": 400, "vested_value": 60_000,
         })
         body = self._get("/linked-positions.html").read().decode("utf-8")
-        self.assertIn('id="linked-positions-total">$60,000.00</td>', body)
+        self.assertIn('id="linked-positions-total">$60,000</td>', body)
         self.assertIn('data-market-value="60000.0"', body)
 
     def test_an_ordinary_holding_with_no_vested_split_shows_no_marker(self):
@@ -2331,7 +2331,7 @@ class TestLinkedPositionsVestedValue(DashboardTestCase):
             "institution_price": 150, "institution_value": 150_000,
         })
         body = self._get("/linked-positions.html").read().decode("utf-8")
-        self.assertIn("$150,000.00", body)
+        self.assertIn("$150,000", body)
         self.assertNotIn("(vested)", body)
 
 
@@ -2861,14 +2861,14 @@ class TestMonteCarloStartingBalance(DashboardTestCase):
         # retirement_liquid_total, which would show 150,000 here), and
         # not the 360,000 net worth (which would also add Insurance and
         # RE equity).
-        self.assertIn("$140,000.00", body)
-        self.assertNotIn("$150,000.00", body)
-        self.assertNotIn("$360,000.00", body)
+        self.assertIn("$140,000", body)
+        self.assertNotIn("$150,000", body)
+        self.assertNotIn("$360,000", body)
 
     def test_summary_page_what_if_card_shows_the_same_starting_balance(self):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("$140,000.00", body)
+        self.assertIn("$140,000", body)
 
     def test_monte_carlo_and_summary_pages_agree_on_starting_balance(self):
         # The two tabs must never drift apart -- both read build_summary()'s
@@ -2876,8 +2876,8 @@ class TestMonteCarloStartingBalance(DashboardTestCase):
         # on the other too.
         mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
         summary_body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("$140,000.00", mc_body)
-        self.assertIn("$140,000.00", summary_body)
+        self.assertIn("$140,000", mc_body)
+        self.assertIn("$140,000", summary_body)
 
 
 class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
@@ -2908,19 +2908,19 @@ class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
         body = resp.read().decode("utf-8")
         # Net Liquid Asset (150,000) + opted-in equity (500,000 - 200,000
         # = 300,000) = 450,000 -- not just the 150,000 Net Liquid Asset.
-        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000.00</div>', body)
-        self.assertIn('<div class="label">Real estate (opted in)</div><div class="value">$300,000.00</div>', body)
+        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000</div>', body)
+        self.assertIn('<div class="label">Real estate (opted in)</div><div class="value">$300,000</div>', body)
 
     def test_monte_carlo_page_intro_paragraph_states_the_correct_total(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Plus $300,000.00 of real estate equity opted in", body)
-        self.assertIn("$450,000.00 simulated in total", body)
+        self.assertIn("Plus $300,000 of real estate equity opted in", body)
+        self.assertIn("$450,000 simulated in total", body)
 
     def test_summary_what_if_card_starting_balance_tile_includes_opted_in_real_estate(self):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000.00</div>', body)
+        self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000</div>', body)
 
 
 class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
@@ -3016,15 +3016,15 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         body = self._get("/summary.html").read().decode("utf-8")
         # Shows 2027 (next year), not 2026 (this year) -- and does not
         # also show a stale "2026 expense need" tile.
-        self.assertIn('<div class="label">2027 expense need</div><div class="value">$300,000.00</div>', body)
+        self.assertIn('<div class="label">2027 expense need</div><div class="value">$300,000</div>', body)
         self.assertNotIn("2026 expense need", body)
 
     def test_net_liquid_asset_and_total_asset_tiles_are_present(self):
         self._seed()
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$145,000.00</div>', body)
+        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$145,000</div>', body)
         # Net Liquid Asset (145,000) + RE equity (200,000) = 345,000.
-        self.assertIn('<div class="label">Total Asset</div><div class="value">$345,000.00</div>', body)
+        self.assertIn('<div class="label">Total Asset</div><div class="value">$345,000</div>', body)
 
     def test_expected_rate_of_return_tile_shows_the_assumption_as_a_percent(self):
         resp = self._get("/summary.html")
@@ -3042,19 +3042,19 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         self.assertNotIn("Assets by category", summary_body)
         self.assertIn('href="/asset.html"', summary_body)
         for expected in (
-            "<td>401k</td><td class=\"num\">$100,000.00</td>",
-            "<td>Liquid</td><td class=\"num\">$50,000.00</td>",
-            "<td>Insurance</td><td class=\"num\">$20,000.00</td>",
-            "Net Liquid Asset</td><td class=\"num\">$145,000.00</td>",
-            "Total Asset</td><td class=\"num\">$345,000.00</td>",
+            "<td>401k</td><td class=\"num\">$100,000</td>",
+            "<td>Liquid</td><td class=\"num\">$50,000</td>",
+            "<td>Insurance</td><td class=\"num\">$20,000</td>",
+            "Net Liquid Asset</td><td class=\"num\">$145,000</td>",
+            "Total Asset</td><td class=\"num\">$345,000</td>",
         ):
             self.assertIn(expected, asset_body)
 
     def test_empty_state_shows_zero_totals_not_an_error(self):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$0.00</div>', body)
-        self.assertIn('<div class="label">Total Asset</div><div class="value">$0.00</div>', body)
+        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$0</div>', body)
+        self.assertIn('<div class="label">Total Asset</div><div class="value">$0</div>', body)
 
     def test_rollup_table_renders_above_the_category_summary_table(self):
         self._seed()
@@ -3080,9 +3080,9 @@ class TestGaussianSimulationTiles(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("Success rate", body)
         self.assertIn("Iterations", body)
-        self.assertRegex(body, r"10th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
-        self.assertRegex(body, r"Median ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
-        self.assertRegex(body, r"90th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertRegex(body, r"10th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"Median ending balance</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"90th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
 
     def test_tile_values_match_a_freshly_run_gaussian_simulation(self):
         from source.reporting.aggregate import build_summary
@@ -3151,8 +3151,8 @@ class TestSp500HistoricalBootstrapSection(DashboardTestCase):
         # from this one-off run -- just confirm the section reports
         # sane, present values in the expected dollar format rather than
         # erroring or being blank.
-        self.assertRegex(body, r"S&amp;P 500 10th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
-        self.assertRegex(body, r"S&amp;P 500 90th percentile ending balance</div><div class=\"value\">\$[\d,]+\.\d\d</div>")
+        self.assertRegex(body, r"S&amp;P 500 10th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"S&amp;P 500 90th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
         self.assertIsNotNone(result)  # sanity: the function itself doesn't error on real plan data
 
 
@@ -3429,7 +3429,7 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
         # above, always has one).
         self.assertIn('<input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;">', body)
         section = self._stress_test_section(body)
-        # Tax column reads $0.00, immediately followed by Total
+        # Tax column reads $0, immediately followed by Total
         # Withdrawal equal to Yearly Drawdown (needs[0]) -- confirms the
         # table (not just the raw result dict above) reflects tax being off.
         self.assertIn(
@@ -3599,7 +3599,7 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
         # Year-by-year detail table columns are Year, Total Expense,
         # Total Income, Yearly Drawdown. 2026/2027 (before retirement)
         # withdraw nothing by design, so those rows are hidden entirely
-        # rather than shown with a $0.00 Yearly Drawdown; 2028 is the
+        # rather than shown with a $0 Yearly Drawdown; 2028 is the
         # first (and here, only) visible row, showing the real $60,000
         # Yearly Drawdown.
         money0, money60k = dashboard._money(0), dashboard._money(60_000)
@@ -4001,7 +4001,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertIn("Liabilities by institution", body)
         self.assertIn("Liabilities by account type", body)
         self.assertIn('<table id="linked-accounts-table" class="sortable">', body)
-        self.assertIn("1,500.00", body)  # row + total
+        self.assertIn("1,500", body)  # row + total
 
     def test_assets_and_liabilities_are_charted_separately_not_as_gross_magnitude(self):
         # Regression test for a user-reported mismatch: a single combined
@@ -4023,13 +4023,13 @@ class TestLinkedAccountsPage(DashboardTestCase):
         liabilities_section = body.split("Liabilities by institution")[1].split("Click a slice of any chart")[0]
         # The Assets chart(s) still show only the $1,500 brokerage
         # balance -- the mortgage's $500,000 debt never inflates them.
-        self.assertIn("Fidelity: $1,500.00 (100%)", assets_section)
-        self.assertNotIn("$500,000.00", assets_section)
+        self.assertIn("Fidelity: $1,500 (100%)", assets_section)
+        self.assertNotIn("$500,000", assets_section)
         # The Liabilities chart(s) show the mortgage's own magnitude.
-        self.assertIn("Fidelity: $500,000.00 (100%)", liabilities_section)
-        self.assertNotIn("$1,500.00", liabilities_section)
+        self.assertIn("Fidelity: $500,000 (100%)", liabilities_section)
+        self.assertNotIn("$1,500", liabilities_section)
         # Net worth line: $1,500 assets minus $500,000 liabilities.
-        self.assertIn("net worth across every linked account is -$498,500.00", body)
+        self.assertIn("net worth across every linked account is -$498,500", body)
 
     def test_table_has_an_item_key_column_showing_the_real_institution(self):
         resp = self._get("/linked-accounts.html")
@@ -4173,8 +4173,8 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         self.assertIn("Fidelity -- Fidelity IRA", section)
         self.assertIn(">Total<", section)
         # Headline change figure reads off the Total (the emphasized
-        # series): 4,000 on 09-01 -> 4,200 on 09-15, a +$200.00 change.
-        self.assertIn("+$200.00", section)
+        # series): 4,000 on 09-01 -> 4,200 on 09-15, a +$200 change.
+        self.assertIn("+$200", section)
 
     def test_only_investment_type_accounts_get_a_history_series(self):
         db.upsert_plaid_account(item_key="fidelity", account={
@@ -4344,9 +4344,9 @@ class TestRealExpenditurePage(DashboardTestCase):
         _seed_transaction("txn-3", amount=25.0, date="2026-08-01")
         body = self._get("/real-expenditure.html").read().decode("utf-8")
         self.assertIn("<td>2026-09</td>", body)
-        self.assertIn("100.00", body)  # September total: 40 + 60
+        self.assertIn("$100", body)  # September total: 40 + 60
         self.assertIn("<td>2026</td>", body)
-        self.assertIn("125.00", body)  # annual total: 40 + 60 + 25
+        self.assertIn("$125", body)  # annual total: 40 + 60 + 25
 
     def test_excluded_transactions_are_shown_but_not_counted_in_the_total(self):
         _seed_transaction_item()
@@ -4484,9 +4484,9 @@ class TestRealExpenditurePage(DashboardTestCase):
         _seed_transaction("txn-payroll", amount=-2000.0, name="Employer Payroll", primary="INCOME", detailed="INCOME_WAGES")
         body = self._get("/real-expenditure.html").read().decode("utf-8")
         self.assertIn("Total real income", body)
-        self.assertIn("$2,000.00", body)
+        self.assertIn("$2,000", body)
         # Displayed as a plain positive figure, not a raw negative Plaid amount.
-        self.assertIn("+$2,000.00", body)
+        self.assertIn("+$2,000", body)
 
     def test_inbound_money_plaid_could_not_classify_counts_as_income_not_expense(self):
         # The exact bug this exists to fix: Plaid gives no real primary
@@ -4500,12 +4500,12 @@ class TestRealExpenditurePage(DashboardTestCase):
             primary="OTHER", detailed="OTHER_OTHER",
         )
         body = self._get("/real-expenditure.html").read().decode("utf-8")
-        self.assertIn("$10,150.00", body)  # shows up in the income tile
-        self.assertIn("+$10,150.00", body)  # displayed positive in the row
+        self.assertIn("$10,150", body)  # shows up in the income tile
+        self.assertIn("+$10,150", body)  # displayed positive in the row
         self.assertIn("counted as income", body)  # flagged since its category isn't literally "Income"
         # And NOT counted in real expenditure -- the total tile should
-        # read $0.00 since this is the only transaction.
-        self.assertIn("$0.00", body)
+        # read $0 since this is the only transaction.
+        self.assertIn("$0", body)
 
     def test_refund_within_a_real_expense_category_is_not_treated_as_income(self):
         _seed_transaction_item()
@@ -4517,7 +4517,7 @@ class TestRealExpenditurePage(DashboardTestCase):
         self.assertNotIn("counted as income", body)
         # A refund still shows with Plaid's raw negative sign (nets
         # against that category's spend), not the "+" income display.
-        self.assertIn("-$49.99", body)
+        self.assertIn("-$50", body)
 
     def test_income_category_row_has_no_redundant_counted_as_income_badge(self):
         _seed_transaction_item()
@@ -4554,11 +4554,11 @@ class TestRealExpenditurePage(DashboardTestCase):
         db.update_plaid_transaction_category(["txn-mortgage-principal"], "mortgage")
         body = self._get("/real-expenditure.html").read().decode("utf-8")
         self.assertNotIn("counted as income", body)
-        self.assertIn("-$142.23", body)  # shown with Plaid's raw sign, like any other counted expense
+        self.assertIn("-$142", body)  # shown with Plaid's raw sign, like any other counted expense
         # Nothing counts as income for this single transaction.
         self.assertIn(
             '<h3 style="margin-top:0; font-size:13px;">Total real income</h3>\n'
-            '<p style="font-size:22px; font-weight:600; margin:4px 0;">$0.00</p>',
+            '<p style="font-size:22px; font-weight:600; margin:4px 0;">$0</p>',
             body,
         )
 
@@ -4590,7 +4590,7 @@ class TestRealExpenditurePage(DashboardTestCase):
         db.update_plaid_transaction_category(["txn-rent"], "rental-income")
         body = self._get("/real-expenditure.html").read().decode("utf-8")
         self.assertIn("counted as income", body)
-        self.assertIn("+$2,000.00", body)
+        self.assertIn("+$2,000", body)
 
     def test_income_chart_row_attribute_is_not_added_to_an_excluded_row_sharing_the_same_category(self):
         # Regression test for the click-to-filter bug reported alongside
@@ -4879,7 +4879,7 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn('id="nw-explorer"', body)
         self.assertIn('"points": [["2026-09-01", 100000.0], ["2026-09-02", 101000.0], ["2026-09-03", 103500.0]]', body)
-        self.assertIn("+$3,500.00", body)
+        self.assertIn("+$3,500", body)
         self.assertIn("since 2026-09-01", body)
 
     def test_the_headline_is_net_liquid_asset_net_of_liabilities(self):
@@ -4896,7 +4896,7 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertNotIn('["2026-09-01", 100000.0]', body)
         self.assertIn('["2026-09-01", 999000.0]', body)
-        self.assertIn("-$889,000.00", body)
+        self.assertIn("-$889,000", body)
 
     def test_real_estate_lines_are_chips_and_the_total_switches_to_total_asset(self):
         db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
@@ -4994,7 +4994,7 @@ class TestLineChartHtml(unittest.TestCase):
         body = self._render(points)
         self.assertEqual(body.count("<circle"), 100)  # every day still has a tooltip
         self.assertEqual(body.count('fill="transparent"'), 99)
-        self.assertIn("2026-01-01: $1,000.00", body)
+        self.assertIn("2026-01-01: $1,000", body)
 
     def test_has_labeled_x_and_y_axes(self):
         body = self._render([("2026-09-01", 7_000_000.0), ("2026-10-01", 8_000_000.0)])
@@ -5444,7 +5444,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             db.set_assumptions({"expected_return": "0.06"})
         self.assertIn("Today (starting balances, before any growth)", body)
         today_row = body.split("Today (starting balances, before any growth)")[1].split("</tr>")[0]
-        self.assertIn("1,234,567.00", today_row)           # the same total as the tiles above
+        self.assertIn("1,234,567", today_row)           # the same total as the tiles above
         self.assertIn("8.0% before the first row below", body)
 
     def test_year_table_shows_rental_and_social_security_income_columns(self):
@@ -5460,8 +5460,8 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn('<th class="num">Rental income</th>', body)
         self.assertIn('<th class="num">Social Security</th>', body)
         self.assertNotIn('<th class="num">Other income</th>', body)
-        self.assertIn("41,000.00", body)
-        self.assertIn("33,000.00", body)
+        self.assertIn("41,000", body)
+        self.assertIn("33,000", body)
 
     def test_nav_includes_drawdown_planning_tab(self):
         resp = self._get("/summary.html")
@@ -5481,7 +5481,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("Tax-deferred (401k/Traditional)", body)
         self.assertIn("Roth (tax-free)", body)
         self.assertIn("Taxable (brokerage)", body)
-        self.assertIn("200,000.00", body)
+        self.assertIn("200,000", body)
 
     def test_unlinked_fidelity_roth_account_shows_up_with_a_detected_roth_bucket(self):
         db.upsert_plaid_item(
@@ -5498,7 +5498,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("ROTH IRA", body)
         self.assertIn("Fidelity", body)
         self.assertIn("Linked account (not on Asset tab)", body)
-        self.assertIn("75,000.00", body)
+        self.assertIn("75,000", body)
         # Roth appears both as the tile and the source table's Tax bucket cell.
         self.assertIn("Roth (tax-free)", body)
 
@@ -5506,7 +5506,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self._link_fidelity_401k(balance=100_000.0)
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("Split a linked account across tax buckets", body)
-        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000.00)</option>', body)
+        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
 
     def test_no_unlinked_investment_accounts_shows_a_helpful_message_instead_of_the_add_form(self):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
@@ -5554,7 +5554,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
         db.update_line_item("assets", item_id, {"linked_account_id": "acc-401k"})
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000.00)</option>', body)
+        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
 
         status, _ = self._post("/api/line-item/add", {
             "section": "account_tax_splits",
@@ -5570,11 +5570,11 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("401k -- Base Pay Traditional", body)
         self.assertIn("401k -- Roth In-Plan Conversion", body)
         # The lump "401k" source row (and its old single bucket) is gone,
-        # and the tiles above reflect the split too -- $30,000.00 now
-        # shows up as Roth rather than all $100,000.00 sitting under
+        # and the tiles above reflect the split too -- $30,000 now
+        # shows up as Roth rather than all $100,000 sitting under
         # Tax-deferred.
-        self.assertIn("$70,000.00", body)
-        self.assertIn("$30,000.00", body)
+        self.assertIn("$70,000", body)
+        self.assertIn("$30,000", body)
 
     def test_year_by_year_table_is_present_with_data(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
@@ -5637,7 +5637,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertIn("Ending: Taxable", body)
         self.assertIn("Ending: Tax-deferred", body)
         self.assertIn("Ending: Roth", body)
-        # Columns that are $0 in every row are left out instead of printing a wall of $0.00.
+        # Columns that are $0 in every row are left out instead of printing a wall of $0.
         self.assertNotIn("Withdrawn: Roth", body)
         self.assertNotIn("Withdrawn: Real estate", body)
         self.assertNotIn("Ending: Real estate", body)
@@ -5742,7 +5742,7 @@ class TestLegacyPlanningPage(DashboardTestCase):
         status, _ = self._post("/api/assumptions", {"heir_base_income": "180000"})
         self.assertEqual(status, 200)
         body = self._get("/legacy-planning.html").read().decode("utf-8")
-        self.assertIn('name="heir_base_income" type="number" step="0.01" placeholder="$180,000.00" value="180000"', body)
+        self.assertIn('name="heir_base_income" type="number" step="0.01" placeholder="$180,000" value="180000"', body)
 
     def test_year_by_year_drilldown_for_the_recommended_strategy_is_present(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
@@ -5756,7 +5756,7 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Strategy comparison", body)
-        self.assertIn(dashboard._money(0.0), body)  # "Total converted" is $0.00 for every strategy
+        self.assertIn(dashboard._money(0.0), body)  # "Total converted" is $0 for every strategy
 
     def test_this_years_plan_callout_appears_before_the_heir_assumptions_card(self):
         db.set_assumptions({"current_year": "2027"})
@@ -6008,7 +6008,7 @@ class TestNetWorthExplorer(DashboardTestCase):
         self.assertIn("Fidelity 401k", body)
         self.assertIn('data-mode="pct"', body)
         self.assertIn('"points": [["2026-09-01", 1000000.0]', body)
-        self.assertIn("+$30,000.00 (+3.0%) since 2026-09-01", body)
+        self.assertIn("+$30,000 (+3.0%) since 2026-09-01", body)
 
     def test_explorer_is_shown_even_when_no_asset_has_two_days_of_history(self):
         self._net_worth([1_000_000.0, 1_010_000.0])
@@ -6056,3 +6056,33 @@ class TestNetWorthExplorer(DashboardTestCase):
         self.assertIn("nw-guide", body)
         # ...and its styling ships in the shared stylesheet.
         self.assertIn(".nw-tip {", body)
+
+
+class TestWholeDollarMoneyFormatting(unittest.TestCase):
+    def test_money_is_whole_dollars_with_thousands_commas(self):
+        from source.webapp.render_helpers.formatting import _money
+        self.assertEqual(_money(465965.67), "$465,966")
+        self.assertEqual(_money(1234567), "$1,234,567")
+        self.assertEqual(_money(-889000.4), "-$889,000")
+        self.assertEqual(_money(0), "$0")
+        self.assertEqual(_money(-0.2), "$0")  # never "-$0"
+        self.assertEqual(_money(None), "--")
+
+    def test_cents_are_kept_on_request(self):
+        from source.webapp.render_helpers.formatting import _money
+        self.assertEqual(_money(4.5, cents=True), "$4.50")
+        self.assertEqual(_money(-1234.567, cents=True), "-$1,234.57")
+
+    def test_money_input_values_have_commas_and_only_real_cents(self):
+        from source.webapp.render_helpers.formatting import _format_money_input_value
+        self.assertEqual(_format_money_input_value(1290000), "1,290,000")
+        self.assertEqual(_format_money_input_value(1234.56), "1,234.56")
+        self.assertEqual(_format_money_input_value(None), "0")
+        self.assertEqual(_format_money_input_value(-50000), "-50,000")
+
+    def test_money_cell_is_a_text_input_that_strips_commas_on_save(self):
+        from source.webapp.render_helpers.cells import _editable_number_cell
+        cell = _editable_number_cell("assets", 3, "balance", 1500000, money=True)
+        self.assertIn('type="text"', cell)
+        self.assertIn('value="1,500,000"', cell)
+        self.assertIn("updateMoneyField('assets', 3, 'balance', this)", cell)

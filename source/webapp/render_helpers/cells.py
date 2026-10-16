@@ -12,6 +12,7 @@ import html
 from source.reporting.aggregate import effective_loan_balance
 from source.webapp.render_helpers.formatting import (
     _account_number_display,
+    _format_money_input_value,
     _format_number_input_value,
     _money,
 )
@@ -68,13 +69,28 @@ def _editable_text_cell(
 def _editable_number_cell(
     section: str, item_id: int, field: str, value, *, width: str = "90px", step: str = "0.01",
     min_attr: str | None = None, max_attr: str | None = None, blank_if_none: bool = False,
+    money: bool = False,
 ) -> str:
     """blank_if_none=True renders an unset (None) value as an empty input
     instead of "0" -- for a genuinely optional numeric field like
     start_year/end_year/base_year, where 0 isn't a valid value and would
     otherwise look like (and be mistaken by JS emptiness checks for) a
     real, deliberately-typed 0. Fields where 0 is itself a legitimate
-    value (balance, annual_amount, ...) keep the old default."""
+    value (balance, annual_amount, ...) keep the old default.
+
+    money=True renders a dollar amount with thousands commas ("1,290,000")
+    in a text input (a number input cannot show commas); updateMoneyField()
+    strips them before saving."""
+    if money:
+        try:
+            shown = _format_money_input_value(value)
+        except (TypeError, ValueError):
+            shown = "0"
+        return (
+            f'<input type="text" inputmode="decimal" value="{shown}" data-field="{field}" data-money="1" '
+            f'style="width:{width}; font-size:12px; padding:3px 4px; text-align:right; box-sizing:border-box;" '
+            f'onchange="updateMoneyField(\'{section}\', {item_id}, \'{field}\', this)">'
+        )
     if value is None and blank_if_none:
         display_value = ""
     else:
