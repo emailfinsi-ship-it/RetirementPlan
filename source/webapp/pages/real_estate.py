@@ -38,7 +38,10 @@ def _render_real_estate_page() -> str:
         name_cell = _editable_text_cell("real_estate", r["id"], "name", r["name"], width="110px")
         updated = r.get("value_updated_at")
         address_cell = (
-            _editable_text_cell("real_estate", r["id"], "address", r.get("address") or "", width="170px")
+            _editable_text_cell(
+                "real_estate", r["id"], "address", r.get("address") or "", width="170px",
+                placeholder="street, city, ST ZIP",
+            )
             + f'<br><button type="button" style="padding:2px 8px; font-size:11px;" onclick="refreshPropertyValue({r["id"]}, this)">Update value</button>'
             + (f' <span class="muted" style="font-size:11px;">updated {html.escape(updated)}</span>' if updated else "")
         )

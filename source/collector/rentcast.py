@@ -26,7 +26,7 @@ def fetch_value_estimate(address: str, api_key: str, *, urlopen=urllib.request.u
     address. `urlopen` is injectable so tests never touch the network."""
     address = (address or "").strip()
     if not address:
-        raise RentCastError("This property has no address yet. Enter one first.")
+        raise RentCastError("This property has no address yet. Type the full address (street, city, state, ZIP) in its Address column, then try again.")
     request = urllib.request.Request(
         f"{AVM_URL}?{urllib.parse.urlencode({'address': address})}",
         headers={"X-Api-Key": api_key, "Accept": "application/json"},
@@ -37,7 +37,7 @@ def fetch_value_estimate(address: str, api_key: str, *, urlopen=urllib.request.u
     except urllib.error.HTTPError as exc:
         reasons = {
             401: "RentCast rejected the API key.",
-            404: "RentCast couldn't find a value for that address. Check the address spelling.",
+            404: "RentCast couldn't find a value for that address. Use the full address: street, city, state and ZIP.",
             429: "RentCast's request limit was reached. Try again later.",
         }
         raise RentCastError(reasons.get(exc.code, f"RentCast returned an error (HTTP {exc.code}).")) from exc

@@ -555,9 +555,13 @@ class Handler(BaseHTTPRequestHandler):
                 row = db.get_line_item("real_estate", int(payload["id"]))
                 if not row:
                     raise ValueError("That property no longer exists.")
+                address = (row.get("address") or "").strip()
+                if not address and (row.get("name") or "").strip()[:1].isdigit():
+                    # Properties are often named by their street address.
+                    address = row["name"].strip()
                 try:
                     api_key = secrets_store.get_rentcast_api_key()
-                    estimate = rentcast.fetch_value_estimate(row.get("address") or "", api_key)
+                    estimate = rentcast.fetch_value_estimate(address, api_key)
                 except (secrets_store.SecretNotFoundError, rentcast.RentCastError) as exc:
                     raise ValueError(str(exc)) from exc
                 db.update_line_item("real_estate", row["id"], {

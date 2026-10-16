@@ -48,15 +48,18 @@ def _link_select_html(row: dict, linkable: list[dict], *, section: str = "assets
     )
 
 
-def _editable_text_cell(section: str, item_id: int, field: str, value: str, *, width: str = "100%") -> str:
+def _editable_text_cell(
+    section: str, item_id: int, field: str, value: str, *, width: str = "100%", placeholder: str = "",
+) -> str:
     """A plain text <input> that saves on blur/change via the shared
     updateField() JS helper -- same generic /api/line-item/update endpoint
     the Real Estate tab's Ownership %/Annual Income fields already use,
     just parameterized by section now instead of hardcoded to
     real_estate."""
     escaped = html.escape(value or "")
+    placeholder_attr = f' placeholder="{html.escape(placeholder)}"' if placeholder else ""
     return (
-        f'<input type="text" value="{escaped}" data-field="{field}" '
+        f'<input type="text" value="{escaped}"{placeholder_attr} data-field="{field}" '
         f'style="width:{width}; font-size:12px; padding:3px 4px; box-sizing:border-box;" '
         f'onchange="updateField(\'{section}\', {item_id}, \'{field}\', this.value)">'
     )

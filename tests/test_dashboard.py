@@ -317,6 +317,20 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("real_estate")
             secrets_store.delete_rentcast_api_key()
 
+    def test_refresh_value_falls_back_to_a_street_address_used_as_the_name(self):
+        from unittest.mock import patch
+        from source.common import secrets_store
+        item_id = db.add_line_item("real_estate", {"name": "6675 Muscat Dr", "current_value": 100_000})
+        try:
+            self._post("/api/rentcast-key", {"api_key": "KEY"})
+            with patch.object(dashboard.rentcast, "fetch_value_estimate", return_value={"price": 9.0, "low": None, "high": None}) as fake:
+                status, _ = self._post("/api/real-estate/refresh-value", {"id": item_id})
+            self.assertEqual(status, 200)
+            fake.assert_called_once_with("6675 Muscat Dr", "KEY")
+        finally:
+            db.clear_section("real_estate")
+            secrets_store.delete_rentcast_api_key()
+
     def test_refresh_value_reports_a_missing_address(self):
         from source.common import secrets_store
         item_id = db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})

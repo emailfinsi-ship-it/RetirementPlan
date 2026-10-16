@@ -53,7 +53,7 @@ class TestFetchValueEstimate(unittest.TestCase):
             rentcast.fetch_value_estimate("  ", "K", urlopen=_opener({"price": 1}))
 
     def test_http_errors_become_readable_messages(self):
-        for code, text in ((401, "rejected the API key"), (404, "couldn't find"), (429, "limit"), (500, "HTTP 500")):
+        for code, text in ((401, "rejected the API key"), (404, "full address"), (429, "limit"), (500, "HTTP 500")):
             err = urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b""))
             with self.subTest(code=code):
                 with self.assertRaises(rentcast.RentCastError) as ctx:
