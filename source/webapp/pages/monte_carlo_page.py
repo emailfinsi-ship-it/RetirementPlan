@@ -21,7 +21,9 @@ from source.reporting.monte_carlo import (
     run_simulation,
     stable_simulation_seed,
 )
+from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
 from source.webapp.render_helpers import _money, _pct, _shell
+from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 
 
 def _render_monte_carlo_page() -> str:
@@ -135,6 +137,20 @@ def _render_monte_carlo_page() -> str:
     )
     withdrawal_order_suffix = ", then the opted-in real estate pool last of all" if re_pool else ""
 
+    sale = s["real_estate_sale"]
+    sale_card = sale_comparison_card_html(
+        sale=sale,
+        intro=(
+            "The same simulation re-run with every property sold, on the same random market paths so the only "
+            "difference is the sale."
+        ),
+        rows=monte_carlo_sale_comparison(
+            keep=result, keep_bootstrap=sp500_result, starting_balance=starting_balance, expenses=s["expenses"],
+            income=s["income_for_simulation"], assumptions=assumptions, pools=pools, sale=sale,
+            real_estate=s["real_estate"], loan_balances=s["real_estate_loan_balances"], seed=seed,
+        ),
+    ) if sale["has_properties"] else ""
+
     body = f"""
 <h2 style="margin-top:0">Monte Carlo simulation</h2>
 <p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
@@ -155,6 +171,7 @@ def _render_monte_carlo_page() -> str:
   <div class="tile"><div class="label">S&amp;P 500 median ending balance</div><div class="value">{_money(sp500_result['median_ending_balance'])}</div></div>
   <div class="tile"><div class="label">S&amp;P 500 90th percentile ending balance</div><div class="value">{_money(sp500_result['p90_ending_balance'])}</div></div>
 </div>
+{sale_card}
 {stress_html}
 {sensitivity_html}
 <h2>Assumptions</h2>

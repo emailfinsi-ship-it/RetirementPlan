@@ -519,4 +519,11 @@ DEFAULT_ASSUMPTIONS = {
     # some non-spouse heirs -- a minor child, a disabled or chronically
     # ill beneficiary -- are exempt from the flat 10-year rule too).
     "heir_spread_years": "",
+    # Real Estate tab's "what if I sold" what-if -- see source.reporting.
+    # monte_carlo.real_estate_sale. Sale year "" = this year; selling
+    # cost is a fraction of the sale price; appreciation "" = the
+    # Inflation assumption.
+    "re_sale_year": "",
+    "re_selling_cost": "0.06",
+    "re_appreciation": "",
 }

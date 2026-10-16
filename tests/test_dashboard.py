@@ -5248,6 +5248,18 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "balances": {"current": balance, "available": None, "iso_currency_code": "USD"},
         })
 
+    def test_year_table_has_a_today_row_that_matches_the_resource_total(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "A", "balance": 1_234_567, "include_in_monte_carlo": 1})
+        db.set_assumptions({"retirement_year": "2030", "current_year": "2026", "expected_return": "0.08"})
+        try:
+            body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        finally:
+            db.set_assumptions({"expected_return": "0.06"})
+        self.assertIn("Today (starting balances, before any growth)", body)
+        today_row = body.split("Today (starting balances, before any growth)")[1].split("</tr>")[0]
+        self.assertIn("1,234,567.00", today_row)           # the same total as the tiles above
+        self.assertIn("8.0% before the first row below", body)
+
     def test_year_table_shows_rental_and_social_security_income_columns(self):
         db.add_line_item("assets", {"kind": "asset", "category": "Liquid", "name": "A", "balance": 900_000, "include_in_monte_carlo": 1})
         db.add_line_item("expenses", {"name": "Living", "annual_amount": 120_000})

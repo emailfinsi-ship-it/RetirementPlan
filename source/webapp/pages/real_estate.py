@@ -4,7 +4,8 @@ equity, in one editable table."""
 from __future__ import annotations
 
 from source.common import db, linked_data
-from source.reporting.aggregate import real_estate_equity
+from source.reporting.aggregate import build_summary, real_estate_equity
+from source.webapp.render_helpers.sale_cards import sale_settings_card_html
 from source.webapp.render_helpers import (
     _editable_checkbox_cell,
     _editable_number_cell,
@@ -76,6 +77,9 @@ def _render_real_estate_page() -> str:
         e for r, (_, e, _, _, _) in zip(rows, rendered) if r.get("include_in_monte_carlo")
     )
 
+    summary = build_summary()
+    sale_card = sale_settings_card_html(summary["real_estate_sale"], summary["assumptions"])
+
     body = f"""
 <h2 style="margin-top:0">Real estate analysis</h2>
 <p class="muted">Link a property's loan to a live Plaid mortgage/HELOC account (its "Linked account" column) to have Loan Balance -- and equity everywhere else in the app -- track that balance automatically. Equity is your Ownership % share of (Current Value minus Loan Balance). Every field except Equity and the live-linked Loan Balance is editable right in the table below -- changes save immediately. Check "In Monte Carlo?" to have a property's equity added as a 4th pool the Monte Carlo / historical stress test simulations can draw from -- last, after your 401k/Roth/taxable pools are exhausted, and with no tax modeled on those draws (unlike the other three pools). Off by default: real estate equity has never been part of a plan's projected drawdown until you opt a property in here.</p>
@@ -96,5 +100,6 @@ def _render_real_estate_page() -> str:
 <div class="add-shortcut-row">
   <button type="button" class="primary" onclick="openAddModal('real_estate')">+ Add property</button>
 </div>
+{sale_card}
 """
     return _shell(title="Real Estate Analysis", active="real-estate.html", body=body)

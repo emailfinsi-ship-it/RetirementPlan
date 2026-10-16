@@ -46,6 +46,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_rental_taxable_fraction,
+    _resolve_taxable_deposit,
     _resolve_retirement_year,
     _truthy_assumption,
 )
@@ -328,6 +329,7 @@ def _run_conversion_schedule(
     for year in years:
         for name in path_pools:
             path_pools[name] *= (1 + expected_return)
+        path_pools["taxable"] += _resolve_taxable_deposit(assumptions, year)
 
         age = (year - birth_year) if birth_year is not None else None
         need = annual_net_withdrawal_need(expenses, income, year, inflation_rate, income_offset, retirement_year)

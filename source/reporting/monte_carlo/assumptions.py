@@ -89,6 +89,23 @@ def _resolve_rental_taxable_fraction(assumptions: dict, year: int) -> float:
     return taxable / total if total > 0 else 1.0
 
 
+def _resolve_taxable_deposit(assumptions: dict, year: int) -> float:
+    """A one-time cash deposit into the Taxable pool in `year` (after that
+    year's growth, before its withdrawal) -- NOT a user assumption: the
+    real-estate sale what-if (reporting.monte_carlo.real_estate_sale)
+    injects `taxable_deposits`, a JSON {"<year>": dollars} object, when
+    the sale happens in a future year rather than today. 0.0 for a
+    missing, blank or garbage value."""
+    raw = assumptions.get("taxable_deposits")
+    if not raw:
+        return 0.0
+    try:
+        deposits = json.loads(raw) if isinstance(raw, str) else raw
+        return float(deposits.get(str(year), 0.0))
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+
+
 def _resolve_retirement_year(assumptions: dict) -> int | None:
     """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year
     above, for the "Retirement year" assumption -- None means "not set",

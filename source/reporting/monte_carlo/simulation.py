@@ -21,6 +21,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_birth_year,
     _resolve_gains_fraction,
     _resolve_rental_taxable_fraction,
+    _resolve_taxable_deposit,
     _resolve_retirement_year,
     _truthy_assumption,
 )
@@ -118,6 +119,7 @@ def _run_random_simulation(
             annual_taxable_income(income, year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year))
             for year in years
         ]
+        deposits = [_resolve_taxable_deposit(assumptions, year) for year in years]
         paths = []
         path_total_taxes = []
         path_first_year_taxes = []
@@ -137,6 +139,7 @@ def _run_random_simulation(
                 r = draw_return(rng)
                 for name in path_pools:
                     path_pools[name] *= (1 + r)
+                path_pools["taxable"] += deposits[i]
                 age = (year - birth_year) if birth_year is not None else None
                 year_result = _apply_year_withdrawal(
                     path_pools, need=needs[i], age=age, birth_year=birth_year, gains_fraction=gains_fraction,

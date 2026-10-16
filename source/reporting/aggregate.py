@@ -673,7 +673,20 @@ def build_summary() -> dict:
     next_year = this_year + 1
     next_year_need = annual_expense_need(expenses, next_year, inflation_rate)
 
+    # The "what if I sold my real estate" what-if -- see monte_carlo.
+    # real_estate_sale. Each tab that shows a Keep-vs-Sell comparison reads
+    # this and applies it to its own pools.
+    from source.reporting.monte_carlo.real_estate_sale import estimate_real_estate_sale
+
+    real_estate_loan_balances = {r["id"]: effective_loan_balance(r, live_by_account_id) for r in real_estate}
+    real_estate_sale = estimate_real_estate_sale(
+        real_estate=real_estate, loan_balances=real_estate_loan_balances,
+        assumptions=assumptions, income=income_for_simulation,
+    )
+
     return {
+        "real_estate_sale": real_estate_sale,
+        "real_estate_loan_balances": real_estate_loan_balances,
         "assets": assets,
         "real_estate": real_estate,
         "expenses": expenses,

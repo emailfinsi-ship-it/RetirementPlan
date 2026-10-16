@@ -26,6 +26,8 @@ import html
 
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import _resolve_retirement_year, compare_roth_conversion_strategies
+from source.reporting.monte_carlo.real_estate_sale_compare import legacy_sale_comparison
+from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
     _money,
     _shell,
@@ -254,6 +256,19 @@ def _render_legacy_planning_page() -> str:
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
     )
     total_pool = sum(pools.values())
+    sale = s["real_estate_sale"]
+    sale_card = sale_comparison_card_html(
+        sale=sale,
+        intro=(
+            "Your current plan (the baseline row below, no conversions) re-run with every property sold, compared "
+            "on what's left for your heirs."
+        ),
+        rows=legacy_sale_comparison(
+            keep_result=result, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"],
+            assumptions=assumptions, sale=sale, real_estate=s["real_estate"],
+            loan_balances=s["real_estate_loan_balances"],
+        ),
+    ) if sale["has_properties"] else ""
     retirement_year = _resolve_retirement_year(assumptions)
     retirement_year_note = (
         f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year), same as '
@@ -279,6 +294,7 @@ plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real e
 Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p>
 {_this_years_plan_html(result, retirement_year)}
 {_heir_assumptions_card_html(result, assumptions)}
+{sale_card}
 <h2>Strategy comparison</h2>
 <p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no
 randomness) once per strategy, converting Tax-deferred to Roth every year up to that strategy's target -- capped so the

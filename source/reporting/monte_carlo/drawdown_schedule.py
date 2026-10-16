@@ -25,6 +25,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_early_tax_deferred_age,
     _resolve_gains_fraction,
     _resolve_rental_taxable_fraction,
+    _resolve_taxable_deposit,
     _resolve_retirement_year,
     _resolve_spouse_birth_year,
     _truthy_assumption,
@@ -97,10 +98,12 @@ def deterministic_drawdown_schedule(
         "real_estate": pools.get("real_estate", 0.0),
     }
     owners = new_owner_state(path_pools["tax_deferred"], assumptions)
+    starting_pools = dict(path_pools)
     rows = []
     for year in years:
         for name in path_pools:
             path_pools[name] *= (1 + expected_return)
+        path_pools["taxable"] += _resolve_taxable_deposit(assumptions, year)
         need = annual_net_withdrawal_need(expenses, income or [], year, inflation_rate, income_offset, retirement_year)
         age = (year - birth_year) if birth_year is not None else None
         income_parts = annual_income_breakdown(income or [], year, inflation_rate)
@@ -159,4 +162,7 @@ def deterministic_drawdown_schedule(
         "years": years, "rows": rows, "expected_return": expected_return,
         "retirement_year": retirement_year, "early_tax_deferred_age": early_tax_deferred_age,
         "has_spouse": owners is not None,
+        # The pool balances the projection starts from (today's, before any
+        # year's growth) -- the table's "Today" row.
+        "starting_pools": starting_pools,
     }

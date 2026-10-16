@@ -33,6 +33,8 @@ from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.rmd import rmd_age_for_birth_year
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
+from source.reporting.monte_carlo.real_estate_sale_compare import drawdown_sale_comparison
+from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
     _donut_chart_html,
     _editable_number_cell,
@@ -362,7 +364,9 @@ def _year_by_year_table_html(schedule: dict) -> str:
     hidden_years_note_html = (
         f'<p class="muted">Years before {retirement_year} (your set Retirement year) are omitted below -- '
         "need is always $0.00 for them, so there's nothing to see, though the pool balances from "
-        f"{retirement_year} on still reflect those years' own growth.</p>"
+        f"{retirement_year} on still reflect those years' own growth ({hidden_row_count} year"
+        f"{'s' if hidden_row_count != 1 else ''} at {schedule.get('expected_return', 0) * 100:.1f}% before the first "
+        "row below, which is why its Total is higher than today's resource total above -- see the Today row).</p>"
         if hidden_row_count else ""
     )
     has_spouse = bool(schedule.get("has_spouse"))
@@ -400,13 +404,24 @@ def _year_by_year_table_html(schedule: dict) -> str:
         + '</tr>'
         for r in visible_rows
     )
+    start = schedule.get("starting_pools")
+    leading_cols = 2 + (3 if has_spouse else 0) + 3 + (1 if show_other_income else 0) + 3
+    today_row_html = (
+        f'<tr style="background:var(--surface-alt); font-style:italic;"><td colspan="{leading_cols}">'
+        "Today (starting balances, before any growth)</td>"
+        '<td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td>'
+        f'<td class="num">{_money(start["taxable"])}</td><td class="num">{_money(start["tax_deferred"])}</td>'
+        f'<td class="num">{_money(start["roth"])}</td><td class="num">{_money(start["real_estate"])}</td>'
+        f'<td class="num">{_money(sum(start.values()))}</td><td></td></tr>'
+        if start else ""
+    )
     return f"""
 {hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th><th class="num">Rental income</th><th class="num">Social Security</th>{other_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
 {_withdrawn_ending_header_html()}
-<th class="num">Total</th><th></th></tr></thead>
+<th class="num">Total</th><th></th></tr>{today_row_html}</thead>
 <tbody>{rows_html}</tbody>
 </table>
 </div>
@@ -458,6 +473,19 @@ def _render_drawdown_planning_page() -> str:
         "pushes your withdrawals into higher brackets from then on.</p>"
         if assumptions.get("rental_taxable_schedule") else ""
     )
+    sale = s["real_estate_sale"]
+    sale_card = sale_comparison_card_html(
+        sale=sale,
+        intro=(
+            "Your year-by-year plan below re-run with every property sold: the proceeds join the Taxable pool, "
+            "rental income stops, and everything else stays the same."
+        ),
+        rows=drawdown_sale_comparison(
+            keep_schedule=schedule, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"],
+            assumptions=schedule_assumptions, sale=sale, real_estate=s["real_estate"],
+            loan_balances=s["real_estate_loan_balances"],
+        ),
+    ) if sale["has_properties"] else ""
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
     rmd_note = (
         "" if has_birth_year else
@@ -492,6 +520,7 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {_rmd_by_person_card_html(s, assumptions)}
 {_account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
+{sale_card}
 <h2>Year-by-year withdrawal sequence</h2>
 <p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
