@@ -20,8 +20,13 @@ from __future__ import annotations
 
 from source.common.db.connection import _now, connect
 
+# The two people in the plan, as shown on screen. The stored values stay
+# "self"/"spouse" so renaming here never touches saved data.
+SELF_NAME = "Sri"
+SPOUSE_NAME = "Anu"
+
 # (stored value, display label). "" first -- the default.
-OWNER_OPTIONS: tuple[tuple[str, str], ...] = (("", "Unassigned"), ("self", "Me"), ("spouse", "Wife"))
+OWNER_OPTIONS: tuple[tuple[str, str], ...] = (("", "Unassigned"), ("self", SELF_NAME), ("spouse", SPOUSE_NAME))
 _VALID_OWNERS = {value for value, _ in OWNER_OPTIONS}
 OWNER_LABELS: dict[str, str] = dict(OWNER_OPTIONS)
 

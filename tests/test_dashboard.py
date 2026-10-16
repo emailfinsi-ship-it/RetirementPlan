@@ -244,6 +244,140 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("after property costs", body)
         self.assertIn("Loan ends", body)
 
+    def test_income_tab_has_the_social_security_and_medicare_planner(self):
+        db.set_assumptions({"birth_year": "1965", "ss_benefit_self": "30000", "ss_claim_age_self": "67"})
+        try:
+            body = self._get("/expense.html").read().decode("utf-8")
+        finally:
+            db.set_assumptions({"birth_year": "", "ss_benefit_self": "", "ss_claim_age_self": ""})
+        self.assertIn("Social Security &amp; Medicare planner", body)
+        self.assertIn("claiming age comparison", body)
+        self.assertIn("function saveBenefits(", body)
+
+    def test_benefits_apply_endpoint_writes_the_rows(self):
+        db.set_assumptions({"birth_year": "1965", "ss_benefit_self": "30000", "ss_claim_age_self": "67", "medicare_magi": "100000"})
+        try:
+            status, payload = self._post("/api/benefits/apply", {})
+            self.assertEqual(status, 200)
+            self.assertEqual(sorted(payload["created"]), ["Medicare premiums (Sri)", "Social Security (Sri)"])
+            self.assertEqual([r["name"] for r in db.list_line_items("income")], ["Social Security (Sri)"])
+        finally:
+            db.clear_section("income")
+            db.clear_section("expenses")
+            db.set_assumptions({"birth_year": "", "ss_benefit_self": "", "ss_claim_age_self": "", "medicare_magi": ""})
+
+    def test_stress_test_tables_scroll_inside_their_own_box(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        section = body[body.index("Historical recession stress test"):body.index("Sensitivity: what moves the needle")]
+        self.assertEqual(section.count('<div style="overflow-x:auto">\n<table'), section.count("<table"))
+
+    def test_how_it_works_arrow_css_escape_is_a_real_css_escape(self):
+        # A Python "\\25B8" in the stylesheet would be an octal escape plus "B8" -- garbage on screen.
+        from source.webapp.render_helpers.styles import PAGE_CSS
+        self.assertIn('content: "\\25B8  "', PAGE_CSS)
+        self.assertNotIn("\x15", PAGE_CSS)
+
+    def test_real_estate_page_has_an_address_column_and_update_button(self):
+        db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000, "address": "1 Main St"})
+        try:
+            body = self._get("/real-estate.html").read().decode("utf-8")
+        finally:
+            db.clear_section("real_estate")
+        self.assertIn("Address (for value lookup)", body)
+        self.assertIn("1 Main St", body)
+        self.assertIn("refreshPropertyValue(", body)
+
+    def test_setup_page_has_the_rentcast_card(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Property value estimates (RentCast, optional)", body)
+        self.assertIn("No RentCast key saved", body)
+
+    def test_refresh_value_needs_a_key_then_updates_the_property(self):
+        from unittest.mock import patch
+        from source.common import secrets_store
+        item_id = db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000, "address": "1 Main St"})
+        try:
+            status, payload = self._post("/api/real-estate/refresh-value", {"id": item_id})
+            self.assertEqual(status, 400)
+            self.assertIn("RentCast API key", payload["error"])
+            status, _ = self._post("/api/rentcast-key", {"api_key": "KEY"})
+            self.assertEqual(status, 200)
+            with patch.object(dashboard.rentcast, "fetch_value_estimate",
+                              return_value={"price": 250_000.0, "low": 240_000.0, "high": 260_000.0}) as fake:
+                status, payload = self._post("/api/real-estate/refresh-value", {"id": item_id})
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["price"], 250_000.0)
+            fake.assert_called_once_with("1 Main St", "KEY")
+            row = db.get_line_item("real_estate", item_id)
+            self.assertEqual(row["current_value"], 250_000.0)
+            self.assertTrue(row["value_updated_at"])
+            body = self._get("/real-estate.html").read().decode("utf-8")
+            self.assertIn("updated ", body)
+        finally:
+            db.clear_section("real_estate")
+            secrets_store.delete_rentcast_api_key()
+
+    def test_refresh_value_reports_a_missing_address(self):
+        from source.common import secrets_store
+        item_id = db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})
+        try:
+            self._post("/api/rentcast-key", {"api_key": "KEY"})
+            status, payload = self._post("/api/real-estate/refresh-value", {"id": item_id})
+            self.assertEqual(status, 400)
+            self.assertIn("no address", payload["error"])
+        finally:
+            db.clear_section("real_estate")
+            secrets_store.delete_rentcast_api_key()
+
+    def test_monte_carlo_page_has_the_saved_scenarios_card(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("Saved scenarios", body)
+        self.assertIn("Nothing saved yet.", body)
+        self.assertIn("Save current assumptions", body)
+
+    def test_scenario_endpoints_save_list_compare_load_delete(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Living", "annual_amount": 40_000})
+        db.set_assumptions({"iterations": 100, "expected_return": "0.06"})
+        try:
+            status, payload = self._post("/api/scenarios/save", {"name": "Base"})
+            self.assertEqual(status, 200)
+            sid = payload["id"]
+            body = self._get("/monte-carlo.html").read().decode("utf-8")
+            self.assertIn("Base", body)
+            self.assertIn("Compare all scenarios", body)
+            status, payload = self._post("/api/scenarios/compare", {})
+            self.assertEqual(status, 200)
+            self.assertEqual([r["name"] for r in payload["results"]], ["Current plan", "Base"])
+            db.set_assumptions({"expected_return": "0.01"})
+            status, payload = self._post("/api/scenarios/load", {"id": sid})
+            self.assertTrue(payload["ok"])
+            self.assertEqual(str(db.get_assumptions()["expected_return"]), "0.06")
+            status, payload = self._post("/api/scenarios/delete", {"id": sid})
+            self.assertTrue(payload["ok"])
+            self.assertEqual(db.list_scenarios(), [])
+        finally:
+            db.clear_section("assets")
+            db.clear_section("expenses")
+            db.set_assumptions({"iterations": "", "expected_return": ""})
+            for sc in db.list_scenarios():
+                db.delete_scenario(sc["id"])
+
+    def test_summary_shows_the_plan_health_card(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Plan health", body)
+        self.assertIn("birth year isn&#x27;t set", body)
+
+    def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
+        for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
+            db.record_snapshot(
+                net_worth=total, manual_asset_total=total, linked_asset_total=0.0, liability_total=0.0,
+                real_estate_equity_total=0.0, retirement_liquid_total=total, snapshot_date=day,
+            )
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("Total Asset over time", body)
+        self.assertIn("<svg", body)
+
     def test_setup_page_has_the_excel_export_button(self):
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertIn("Generate Excel export", body)
@@ -3401,7 +3535,7 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
     def test_birth_year_field_defaults_blank_and_shows_rmd_nudge(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<label>Birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="">', body)
+        self.assertIn('<label>Sri\'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="">', body)
         self.assertIn("Set a Birth year in Assumptions below", body)
 
     def test_setting_birth_year_persists_and_removes_the_rmd_nudge(self):

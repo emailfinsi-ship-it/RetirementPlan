@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS real_estate (
     notes TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'manual',
     linked_account_id TEXT,                       -- plaid_accounts.account_id this row's loan_balance tracks live, or NULL
+    address TEXT NOT NULL DEFAULT '',             -- street address, used only to look up a value estimate (RentCast)
+    value_updated_at TEXT,                        -- when current_value was last refreshed from RentCast, or NULL
     loan_end_year INTEGER,                        -- year this property's loan is paid off, or NULL. Its rental income
                                                     -- is treated as taxable only AFTER this year (interest and
                                                     -- depreciation shelter it until then) -- see source.reporting.
@@ -353,6 +355,19 @@ CREATE INDEX IF NOT EXISTS idx_plaid_transactions_date ON plaid_transactions(dat
 -- transactions were already manually retyped (e.g. "salary") hits, and
 -- recategorize_all_transactions' normal category_edited_by_user=0 guard
 -- would otherwise skip those rows forever.
+-- Named snapshots of the planning assumptions (returns, inflation, retirement
+-- year, birth years, tax toggles, the real-estate sale settings, ...) so
+-- "Retire at 60" and "Retire at 65" can be compared side by side. The JSON
+-- holds only the assumption keys listed in source.reporting.scenarios.
+-- SCENARIO_KEYS; the line-item tables (assets, expenses, ...) are shared.
+CREATE TABLE IF NOT EXISTS saved_scenarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    assumptions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS category_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_type TEXT NOT NULL,          -- 'primary' | 'detailed' | 'keyword'

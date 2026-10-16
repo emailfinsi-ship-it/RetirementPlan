@@ -24,7 +24,7 @@ def _resolve_birth_year(assumptions: dict) -> int | None:
 
 def _resolve_spouse_birth_year(assumptions: dict) -> int | None:
     """Same blank-is-None/garbage-is-None parsing as _resolve_birth_year,
-    for the spouse's own "Wife's birth year" assumption -- what her own
+    for the spouse's own "Anu's birth year" assumption -- what her own
     RMD start age (73 vs 75) and her own age each simulated year come
     from, independent of the plan owner's. None means "not set", which
     skips RMD modeling for her accounts only (just like an unset birth

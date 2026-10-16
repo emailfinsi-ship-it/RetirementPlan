@@ -80,6 +80,7 @@ def _render_setup_page() -> str:
         rules=db.list_category_rules(), category_options_html=category_options_html,
     )
     auto_sync_html = _auto_sync_card_html()
+    rentcast_html = _rentcast_card_html(has_key=secrets_store.has_rentcast_api_key())
     plaid_credentials_html = "".join(
         _plaid_credentials_profile_html(profile=name, presence=presence.profiles[name]) for name in secrets_store.PROFILES
     )
@@ -162,10 +163,34 @@ def _render_setup_page() -> str:
 
 {category_rules_html}
 {auto_sync_html}
+{rentcast_html}
 {security_html}
 {network_html}
 """
     return _shell(title="Setup", active="setup.html", body=body)
+
+
+def _rentcast_card_html(*, has_key: bool) -> str:
+    status = (
+        '<p class="status-line status-ok">A RentCast API key is saved in your Keychain.</p>' if has_key
+        else '<p class="status-line">No RentCast key saved. Property values stay as you type them.</p>'
+    )
+    return f"""
+<div class="card">
+<h2 style="margin-top:0">Property value estimates (RentCast, optional)</h2>
+<p class="muted">With a RentCast API key, each property on the <a href="/real-estate.html">Real Estate</a> tab gets an
+"Update value" button that fetches RentCast's estimated market value for its address and puts it in Current Value.
+It only runs when you press the button, and each press uses one request from your RentCast plan's monthly allowance.
+Get a key from your RentCast account (its free plan includes a small monthly allowance). The key is stored in the
+macOS Keychain with your other credentials, never in the database.</p>
+{status}
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/rentcast-key', {{api_key: this.api_key.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>RentCast API key<input name="api_key" type="password" autocomplete="off" style="width:280px" required></label>
+  <button type="submit" class="primary">Save key</button>
+</form>
+</div>
+"""
 
 
 def _plaid_credentials_profile_html(*, profile: str, presence) -> str:

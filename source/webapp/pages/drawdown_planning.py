@@ -235,7 +235,7 @@ def _rmd_by_person_card_html(summary: dict, assumptions: dict) -> str:
 
     unassigned = by_owner.get("unassigned", 0.0)
     unassigned_row = (
-        f'<tr><td>Unassigned <span class="muted">(modeled under Me)</span></td><td>--</td><td>--</td>'
+        f'<tr><td>Unassigned <span class="muted">(modeled under Sri)</span></td><td>--</td><td>--</td>'
         f'<td class="num">{_money(unassigned)}</td></tr>' if unassigned > 0.005 else ""
     )
     warnings = ""
@@ -246,7 +246,7 @@ def _rmd_by_person_card_html(summary: dict, assumptions: dict) -> str:
         )
     if by_owner.get("spouse", 0.0) > 0.005 and not wife_raw:
         warnings += (
-            '<p class="status-line status-warn">Her accounts hold Tax-deferred money but no Wife\'s birth year is set -- enter it '
+            '<p class="status-line status-warn">Her accounts hold Tax-deferred money but no Anu\'s birth year is set -- enter it '
             "below so her RMDs can be modeled (until then she has no RMD at all).</p>"
         )
     if not me_raw and (by_owner.get("self", 0.0) + unassigned) > 0.005:
@@ -258,18 +258,18 @@ def _rmd_by_person_card_html(summary: dict, assumptions: dict) -> str:
 <h3 style="font-size:13px; margin-top:0;">Required Minimum Distributions, by person</h3>
 <p class="muted">Each person's RMD is calculated on THEIR OWN Tax-deferred accounts, starting at THEIR OWN RMD age
 (73 if born 1959 or earlier, 75 if 1960 or later) -- so one spouse's RMDs don't wait on the other's birthday. Assign
-each account to Me or Wife in the Owner column above. Spending beyond the RMDs draws the older spouse's Tax-deferred
+each account to Sri or Anu in the Owner column above. Spending beyond the RMDs draws the older spouse's Tax-deferred
 accounts first.</p>
 {warnings}
 <table>
 <thead><tr><th>Person</th><th>Birth year</th><th>RMD starts at</th><th class="num">Tax-deferred balance</th></tr></thead>
-<tbody>{_row("Me", me_raw, by_owner.get("self", 0.0))}{_row("Wife", wife_raw, by_owner.get("spouse", 0.0))}{unassigned_row}</tbody>
+<tbody>{_row("Sri", me_raw, by_owner.get("self", 0.0))}{_row("Anu", wife_raw, by_owner.get("spouse", 0.0))}{unassigned_row}</tbody>
 </table>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
   new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});
   postJSON('/api/assumptions', fields).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
-  <label>Wife's birth year<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(wife_raw)}"></label>
+  <label>Anu's birth year<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(wife_raw)}"></label>
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
 </div>
@@ -382,7 +382,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
         )
 
     spouse_header = (
-        '<th>Wife age</th><th class="num">RMD: Me</th><th class="num">RMD: Wife</th>' if has_spouse else ""
+        '<th>Anu age</th><th class="num">RMD: Sri</th><th class="num">RMD: Anu</th>' if has_spouse else ""
     )
     # "Other income" (a pension, say) only gets a column when some visible
     # year actually has any -- most plans just have rent and Social Security.

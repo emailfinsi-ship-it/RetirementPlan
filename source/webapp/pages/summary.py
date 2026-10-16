@@ -7,12 +7,16 @@ import html
 
 import random
 
+from source.common import db
 from source.reporting.aggregate import build_summary
+from source.reporting.plan_health import plan_health_card_html, plan_health_items
 from source.reporting.monte_carlo import _resolve_retirement_year, render_fan_svg, run_simulation, stable_simulation_seed
+from source.webapp.pages.asset import _liquid_and_total_points
 from source.webapp.render_helpers import (
     _bar_chart_html,
     _donut_chart_html,
     _grouped_slices,
+    _line_chart_html,
     _money,
     _pct,
     _shell,
@@ -97,6 +101,13 @@ def _render_summary_page() -> str:
             else "this year" if years_away == 0 else f"{-years_away} year{'s' if years_away != -1 else ''} into retirement"
         ) + ")"
 
+    _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
+    history_html = _line_chart_html(
+        "Total Asset over time", _total_points,
+        note="One point per day, captured automatically. Individual accounts and property lines are on the Asset tab.",
+        empty_message="The trend appears here after a couple of days of history -- it's captured automatically each day the program runs.",
+    )
+
     body = f"""
 <div class="tiles">{tiles_html}</div>
 <div class="card">
@@ -110,6 +121,8 @@ def _render_summary_page() -> str:
 Change these (and the other assumptions) under <a href="/monte-carlo.html#assumptions">Monte Carlo &rarr; Assumptions</a>;
 the full simulation chart is on that tab. Balances by category are on the <a href="/asset.html">Asset</a> tab.</p>
 </div>
+{plan_health_card_html(plan_health_items(s))}
+{history_html}
 {insight_html}
 <p class="muted">{linked_summary}</p>
 {sync_html}

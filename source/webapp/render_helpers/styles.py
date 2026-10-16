@@ -159,8 +159,8 @@ PAGE_CSS = """
   details.card[open] { padding: 18px 20px; }
   details.card > summary { cursor: pointer; list-style: none; }
   details.card > summary::-webkit-details-marker { display: none; }
-  details.card > summary::before { content: "\25b8  "; color: var(--ink-muted); font-size: 11px; }
-  details.card[open] > summary::before { content: "\25be  "; }
+  details.card > summary::before { content: "\\25b8  "; color: var(--ink-muted); font-size: 11px; }
+  details.card[open] > summary::before { content: "\\25be  "; }
   details.card > summary + p { margin-top: 8px; }
   form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
   form.inline label { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-muted); gap: 3px; font-weight: 500; }
@@ -272,8 +272,8 @@ PAGE_CSS = """
   details.how-it-works { margin: 4px 0 12px; }
   details.how-it-works > summary { cursor: pointer; color: var(--brand); font-size: 12px; font-weight: 500; list-style: none; }
   details.how-it-works > summary::-webkit-details-marker { display: none; }
-  details.how-it-works > summary::before { content: "\25B8  "; }
-  details.how-it-works[open] > summary::before { content: "\25BE  "; }
+  details.how-it-works > summary::before { content: "\\25B8  "; }
+  details.how-it-works[open] > summary::before { content: "\\25BE  "; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }

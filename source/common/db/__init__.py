@@ -34,6 +34,7 @@ from __future__ import annotations
 from source.common.db.schema import SCHEMA, DEFAULT_ASSUMPTIONS
 from source.common.db.connection import _now, connect
 from source.common.db.migrations import _migrate_schema
+from source.common.db.scenarios import delete_scenario, get_scenario, list_scenarios, save_scenario
 from source.common.db.category_rules import (
     delete_category_rule,
     list_category_rules,
@@ -161,6 +162,10 @@ __all__ = [
     "get_meta",
     "set_meta",
     "list_category_rules",
+    "list_scenarios",
+    "get_scenario",
+    "save_scenario",
+    "delete_scenario",
     "upsert_category_rule",
     "update_category_rule",
     "delete_category_rule",

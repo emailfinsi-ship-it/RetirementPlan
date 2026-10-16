@@ -83,7 +83,7 @@ _ASSUMPTION_LABELS = {
     "annual_income_offset": "Annual income offset",
     "apply_drawdown_tax": "Apply drawdown tax (1 = yes)",
     "birth_year": "Your birth year",
-    "spouse_birth_year": "Wife's birth year",
+    "spouse_birth_year": "Anu's birth year",
     "current_year": "Current year",
     "early_tax_deferred_age": "Early tax-deferred draw age",
     "expected_return": "Expected return",

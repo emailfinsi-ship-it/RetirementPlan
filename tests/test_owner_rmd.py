@@ -360,7 +360,7 @@ class TestOwnerEndpointsAndPages(DashboardTestCase):
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn("<th>Owner</th>", body)
         self.assertIn('data-field="owner"', body)
-        self.assertIn(">Wife</option>", body)
+        self.assertIn(">Anu</option>", body)
 
     def test_drawdown_page_shows_owner_column_and_rmd_by_person_card(self):
         item_id = db.add_line_item("assets", {
@@ -373,8 +373,8 @@ class TestOwnerEndpointsAndPages(DashboardTestCase):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("<th>Owner</th>", body)
         self.assertIn("Required Minimum Distributions, by person", body)
-        self.assertIn("RMD: Wife", body)
-        self.assertIn("Wife age", body)
+        self.assertIn("RMD: Anu", body)
+        self.assertIn("Anu age", body)
 
     def test_drawdown_page_warns_about_unassigned_and_a_missing_wife_birth_year(self):
         db.add_line_item("assets", {
@@ -388,7 +388,7 @@ class TestOwnerEndpointsAndPages(DashboardTestCase):
         db.set_assumption("spouse_birth_year", "")
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("has no Owner yet", body)
-        self.assertIn("no Wife", body)
+        self.assertIn("no Anu", body)
 
     def test_monte_carlo_page_has_the_wife_birth_year_field(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")

@@ -14,7 +14,7 @@ from source.common.db.connection import _now, connect
 
 _TABLE_COLUMNS = {
     "assets": ("kind", "category", "name", "institution", "last4", "balance", "notes", "source", "linked_account_id", "tax_treatment", "include_in_monte_carlo", "owner"),
-    "real_estate": ("name", "purchase_price", "current_value", "ownership_pct", "loan_balance", "annual_income", "notes", "source", "linked_account_id", "include_in_monte_carlo", "loan_end_year"),
+    "real_estate": ("name", "purchase_price", "current_value", "ownership_pct", "loan_balance", "annual_income", "notes", "source", "linked_account_id", "include_in_monte_carlo", "loan_end_year", "address", "value_updated_at"),
     "expenses": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source"),
     "income": ("name", "category", "annual_amount", "start_year", "end_year", "base_year", "inflates", "notes", "source", "include_in_monte_carlo"),
     "account_tax_splits": ("account_id", "name", "tax_treatment", "amount"),

@@ -100,7 +100,7 @@ PAGE_SHELL = """<!doctype html>
         <label>Institution<input name="institution"></label>
         <label>Account #<input name="last4" maxlength="20"></label>
         <label>Balance<input name="balance" type="number" step="0.01" required></label>
-        <label>Owner<select name="owner"><option value="">Unassigned</option><option value="self">Me</option><option value="spouse">Wife</option></select></label>
+        <label>Owner<select name="owner"><option value="">Unassigned</option><option value="self">Sri</option><option value="spouse">Anu</option></select></label>
         <label style="grid-column:1/-1;">Notes<input name="notes"></label>
       </fieldset>
 

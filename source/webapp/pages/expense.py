@@ -6,6 +6,7 @@ from __future__ import annotations
 import html
 
 from source.reporting.aggregate import build_summary
+from source.webapp.pages.benefits_card import social_security_medicare_card_html
 from source.reporting.monte_carlo import annual_line_item_total, effective_line_item_amount
 from source.webapp.render_helpers import (
     _donut_chart_html,
@@ -76,6 +77,7 @@ def _render_expense_page() -> str:
     </form>
   </div>
 </div>
+{social_security_medicare_card_html(assumptions)}
 <div class="group-section">
 {expense_chart_html}
 {income_chart_html}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import random
 
+from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import (
     _resolve_retirement_year,
@@ -22,6 +23,7 @@ from source.reporting.monte_carlo import (
     stable_simulation_seed,
 )
 from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
+from source.webapp.pages.scenarios_card import saved_scenarios_card_html
 from source.webapp.render_helpers import _money, _pct, _shell
 from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 
@@ -174,6 +176,7 @@ def _render_monte_carlo_page() -> str:
 {sale_card}
 {stress_html}
 {sensitivity_html}
+{saved_scenarios_card_html(db.list_scenarios(), assumptions)}
 <h2 id="assumptions">Assumptions</h2>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
@@ -186,14 +189,14 @@ def _render_monte_carlo_page() -> str:
   <label>Plan horizon (years)<input name="plan_horizon_years" type="number" value="{html.escape(str(assumptions.get('plan_horizon_years', 40)))}"></label>
   <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
   <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
-  <label>Birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
-  <label>Wife's birth year (for her RMDs)<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get('spouse_birth_year') or ''))}"></label>
+  <label>Sri's birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
+  <label>Anu's birth year (for her RMDs)<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get('spouse_birth_year') or ''))}"></label>
   <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
   <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>
   <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
-<p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year (also editable from the Summary tab) zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
+<p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
 """
     return _shell(title="Monte Carlo Simulation", active="monte-carlo.html", body=body)
 
@@ -370,16 +373,20 @@ def _historical_stress_test_html(result: dict) -> str:
     return f"""
 <h2>Historical recession stress test</h2>
 <p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. The last two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption, and the S&amp;P 500's compound average over every year on record.</p>
+<div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Scenario</th><th>Depleted?</th><th>Year depleted</th><th class="num">Ending balance</th></tr></thead>
 <tbody>{summary_rows}</tbody>
 </table>
+</div>
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Year-by-year detail</h3>
 {hidden_years_note_html}
+<div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr>{detail_thead_row}</tr></thead>
 <tbody>{detail_rows}</tbody>
 </table>
+</div>
 """
 
 def _success_rate_cell(rate: float, baseline: float) -> str:
@@ -436,10 +443,12 @@ def _sensitivity_html(sensitivity: dict) -> str:
     return f"""
 <h2>Sensitivity: what moves the needle</h2>
 <p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every Expense/Income-tab line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
+<div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Lever</th><th>Swing tested</th><th>Low vs. high success rate</th><th class="num">Low</th><th class="num">High</th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
+</div>
 """
 
 

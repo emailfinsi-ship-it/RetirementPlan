@@ -104,6 +104,7 @@ def _empty_vault() -> dict:
         "version": 2,
         "plaid_profiles": {name: _empty_profile() for name in PROFILES},
         "access_tokens": {},
+        "rentcast_api_key": "",
     }
 
 
@@ -113,6 +114,8 @@ def _vault_has_any_secret(vault: dict) -> bool:
             return True
         if any(str(v).strip() for v in (profile.get("secrets") or {}).values()):
             return True
+    if str(vault.get("rentcast_api_key") or "").strip():
+        return True
     return any(str(v).strip() for v in (vault.get("access_tokens") or {}).values())
 
 
@@ -137,6 +140,7 @@ def _normalize_vault(raw: dict) -> dict:
             "secrets": dict(raw.get("plaid_secrets") or {}),
         }
     vault["access_tokens"] = dict(raw.get("access_tokens") or {})
+    vault["rentcast_api_key"] = str(raw.get("rentcast_api_key") or "")
     return vault
 
 
@@ -240,6 +244,45 @@ def get_plaid_secret(*, env: str, profile: str = "primary") -> str:
             f"No Plaid secret saved for environment '{env}' in the {PROFILE_LABELS[profile]} credential profile."
         )
     return value
+
+
+def set_rentcast_api_key(key: str) -> None:
+    """The optional RentCast API key (property value estimates) -- kept in
+    the same Keychain vault as the Plaid credentials."""
+    value = (key or "").strip()
+    if not value:
+        raise SecretNotFoundError("RentCast API key cannot be empty.")
+    with _lock:
+        vault = _load_vault_unlocked()
+        vault["rentcast_api_key"] = value
+        _save_vault_unlocked(vault)
+
+
+def get_rentcast_api_key() -> str:
+    with _lock:
+        value = str(_load_vault_unlocked().get("rentcast_api_key") or "")
+    if not value:
+        raise SecretNotFoundError("No RentCast API key saved yet. Add one on the Setup tab.")
+    return value
+
+
+def delete_rentcast_api_key() -> None:
+    with _lock:
+        vault = _load_vault_unlocked()
+        vault["rentcast_api_key"] = ""
+        if _vault_has_any_secret(vault):
+            _save_vault_unlocked(vault)
+        else:
+            try:
+                keyring.delete_password(keychain_service(), VAULT_ACCOUNT)
+            except keyring.errors.PasswordDeleteError:
+                pass
+            clear_vault_cache()
+
+
+def has_rentcast_api_key() -> bool:
+    with _lock:
+        return bool(str(_load_vault_unlocked().get("rentcast_api_key") or "").strip())
 
 
 def set_item_access_token(item_key: str, token: str) -> None:

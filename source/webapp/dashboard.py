@@ -31,12 +31,14 @@ from urllib.parse import urlparse
 
 from source.collector import auto_sync
 from source.collector import link_item as plaid_link_item
+from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
 from source.common import app_settings, auth_store, backup, config, db, linked_data, secrets_store
 from source.importer import xlsx_import
-from source.reporting import excel_export
+from source.reporting import benefits, excel_export, scenarios as scenarios_module
 from source.reporting.aggregate import (
+    build_summary,
     capture_daily_snapshots_if_new_day,
     capture_investment_account_balances,
     capture_net_worth_snapshot,
@@ -527,6 +529,41 @@ class Handler(BaseHTTPRequestHandler):
                         updates[key] = raw
                 db.set_assumptions(updates)
                 self._send_json({"ok": True})
+            elif path == "/api/benefits/apply":
+                # Social Security & Medicare planner (Income/Expense tab):
+                # writes the saved planner inputs as ordinary rows.
+                result = benefits.apply_benefits_plan(db.get_assumptions())
+                self._send_json({"ok": True, **result})
+            elif path == "/api/scenarios/save":
+                scenario_id = db.save_scenario(
+                    payload.get("name") or "", scenarios_module.snapshot_assumptions(db.get_assumptions()),
+                )
+                self._send_json({"ok": True, "id": scenario_id})
+            elif path == "/api/scenarios/delete":
+                self._send_json({"ok": db.delete_scenario(int(payload["id"]))})
+            elif path == "/api/scenarios/load":
+                self._send_json({"ok": scenarios_module.restore_scenario(int(payload["id"]))})
+            elif path == "/api/scenarios/compare":
+                results = scenarios_module.compare_scenarios(build_summary(), db.list_scenarios())
+                self._send_json({"ok": True, "results": results})
+            elif path == "/api/rentcast-key":
+                secrets_store.set_rentcast_api_key(payload.get("api_key") or "")
+                self._send_json({"ok": True})
+            elif path == "/api/real-estate/refresh-value":
+                # One RentCast lookup (one request against the plan's monthly
+                # allowance) for one property, on a button press only.
+                row = db.get_line_item("real_estate", int(payload["id"]))
+                if not row:
+                    raise ValueError("That property no longer exists.")
+                try:
+                    api_key = secrets_store.get_rentcast_api_key()
+                    estimate = rentcast.fetch_value_estimate(row.get("address") or "", api_key)
+                except (secrets_store.SecretNotFoundError, rentcast.RentCastError) as exc:
+                    raise ValueError(str(exc)) from exc
+                db.update_line_item("real_estate", row["id"], {
+                    "current_value": estimate["price"], "value_updated_at": date.today().isoformat(),
+                })
+                self._send_json({"ok": True, **estimate})
             elif path == "/api/set-bind-host":
                 # The Setup page's Network access card -- which
                 # interface(s) the dashboard listens on. Only takes
