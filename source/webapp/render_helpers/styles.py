@@ -133,6 +133,11 @@ PAGE_CSS = """
     flex: 1 1 0; text-align: center; }
   nav a.active { background: var(--brand); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
   nav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
+  .subnav { display: flex; gap: 6px; margin: -14px 0 18px 0; }
+  .subnav a { padding: 5px 14px; border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 500;
+    color: var(--ink-soft); border: 1px solid var(--border); background: var(--surface); }
+  .subnav a.active { border-color: var(--brand); color: var(--brand); font-weight: 600; }
+  .subnav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
   th { background: var(--surface-alt); font-weight: 600; color: var(--ink-soft); font-size: 11px;

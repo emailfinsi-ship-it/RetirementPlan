@@ -13,20 +13,34 @@ from source.common import auth_store, db
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
 
 
+# Eight top-level tabs. Four of them hold two related pages each (the
+# NAV_GROUPS below): every page keeps its own URL -- old bookmarks and links
+# still work -- and shows a small "section" row under the tab bar to hop
+# between the pair. Each group's tab links to its first page.
 NAV_ITEMS = (
     ("summary.html", "Summary"),
     ("asset.html", "Asset"),
-    ("linked-accounts.html", "Linked Accounts"),
-    ("linked-positions.html", "Linked Positions"),
+    ("linked-accounts.html", "Linked"),
     ("expense.html", "Income/Expense"),
-    ("real-expenditure.html", "Real Expenditure"),
-    ("budget-vs-actual.html", "Budget vs Actual"),
-    ("real-estate.html", "Real Estate Analysis"),
+    ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
-    ("drawdown-planning.html", "Drawdown Planning"),
-    ("legacy-planning.html", "Legacy Planning"),
+    ("drawdown-planning.html", "Drawdown & Legacy"),
     ("setup.html", "Setup"),
 )
+
+NAV_GROUPS = (
+    (("asset.html", "Assets"), ("real-estate.html", "Real Estate")),
+    (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions")),
+    (("real-expenditure.html", "Real Expenditure"), ("budget-vs-actual.html", "Budget vs Actual")),
+    (("drawdown-planning.html", "Drawdown"), ("legacy-planning.html", "Legacy")),
+)
+
+
+def _group_for(active: str):
+    for group in NAV_GROUPS:
+        if any(href == active for href, _ in group):
+            return group
+    return None
 
 PAGE_SHELL = """<!doctype html>
 <html>
@@ -1039,14 +1053,30 @@ if ('serviceWorker' in navigator) {{
 """
 
 def _nav_html(active: str) -> str:
+    group = _group_for(active)
+    highlighted = group[0][0] if group else active
     return "".join(
         '<a href="/{href}"{cls}>{label}</a>'.format(
             href=href,
-            cls=' class="active"' if href == active else "",
+            cls=' class="active"' if href == highlighted else "",
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS
     )
+
+
+def _subnav_html(active: str) -> str:
+    """The "section" row for a tab that holds two pages; empty otherwise."""
+    group = _group_for(active)
+    if not group:
+        return ""
+    links = "".join(
+        '<a href="/{href}"{cls}>{label}</a>'.format(
+            href=href, cls=' class="active"' if href == active else "", label=html.escape(label),
+        )
+        for href, label in group
+    )
+    return f'<div class="subnav">{links}</div>'
 
 
 def _logout_html() -> str:
@@ -1076,7 +1106,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=body, current_year=current_year,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_subnav_html(active) + body, current_year=current_year,
         logout_html=_logout_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
     )
 

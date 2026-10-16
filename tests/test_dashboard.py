@@ -218,6 +218,26 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("Success rate", body)
         self.assertIn("Median ending balance", body)
 
+    def test_nav_has_eight_tabs_and_paired_pages_share_one(self):
+        from source.webapp.render_helpers.shell import NAV_ITEMS
+        self.assertEqual(len(NAV_ITEMS), 8)
+        pairs = {
+            "/asset.html": ("/real-estate.html", "Real Estate"),
+            "/linked-accounts.html": ("/linked-positions.html", "Positions"),
+            "/real-expenditure.html": ("/budget-vs-actual.html", "Budget vs Actual"),
+            "/drawdown-planning.html": ("/legacy-planning.html", "Legacy"),
+        }
+        for first, (second, label) in pairs.items():
+            for path in (first, second):
+                with self.subTest(path=path):
+                    body = self._get(path).read().decode("utf-8")
+                    self.assertIn(f'<a href="{first}" class="active">', body)  # same top-level tab lit
+                    self.assertIn(f'<a href="{second}"', body)
+                    self.assertIn(f'>{label}</a>', body)
+        # Unpaired tabs show no section row.
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertNotIn('<div class="subnav">', body)
+
     def test_setup_page_has_the_excel_export_button(self):
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertIn("Generate Excel export", body)
@@ -390,7 +410,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         db.add_line_item("assets", {"kind": "liability", "name": "Card", "balance": 500})
         db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})
         db.add_line_item("expenses", {"name": "Healthcare", "annual_amount": 500})
-        for path in ("/asset.html", "/real-estate.html", "/real-expenditure.html"):
+        for path in ("/asset.html", "/real-estate.html", "/expense.html"):
             with self.subTest(path=path):
                 resp = self._get(path)
                 body = resp.read().decode("utf-8")
@@ -1830,9 +1850,10 @@ class TestLinkedPositionsPage(DashboardTestCase):
         self.assertIn("Linked portfolio positions", body)
 
     def test_nav_includes_linked_positions_tab(self):
-        resp = self._get("/summary.html")
+        resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/linked-positions.html"', body)
+        self.assertIn('href="/linked-accounts.html" class="active">Linked</a>', body)
+        self.assertIn('href="/linked-positions.html" class="active">Positions</a>', body)
 
     def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
         resp = self._get("/asset.html")
@@ -3814,7 +3835,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Linked accounts", body)
-        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
+        self.assertIn('href="/linked-accounts.html" class="active">Linked</a>', body)
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
         resp = self._get("/linked-accounts.html")
@@ -4845,8 +4866,9 @@ class TestBudgetVsActualRouting(DashboardTestCase):
     def test_page_is_reachable_and_in_the_nav(self):
         body = self._get("/budget-vs-actual.html").read().decode("utf-8")
         self.assertIn("Budget vs Actual", body)
-        summary_body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn('href="/budget-vs-actual.html"', summary_body)
+        # Budget vs Actual lives under the Spending tab, next to Real Expenditure.
+        self.assertIn('href="/real-expenditure.html" class="active">Spending</a>', body)
+        self.assertIn('<div class="subnav">', body)
 
     def test_real_expenditure_page_links_to_it(self):
         body = self._get("/real-expenditure.html").read().decode("utf-8")
@@ -5522,9 +5544,10 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertIn("applies to the baseline and to every conversion row", body)
 
     def test_nav_includes_legacy_planning_tab(self):
-        resp = self._get("/summary.html")
+        resp = self._get("/legacy-planning.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/legacy-planning.html"', body)
+        self.assertIn('href="/drawdown-planning.html" class="active">Drawdown &amp; Legacy</a>', body)
+        self.assertIn('href="/legacy-planning.html" class="active">Legacy</a>', body)
 
     def test_page_loads_with_no_data_at_all(self):
         resp = self._get("/legacy-planning.html")
