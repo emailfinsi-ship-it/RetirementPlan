@@ -54,31 +54,42 @@ def _withdrawal_parts(r: dict) -> list[str]:
     return parts
 
 
-def _withdrawn_ending_header_html() -> str:
-    """The <th> cells shared by both tabs' year-by-year tables: what came
-    out of each of the four pools this year, and what each pool ends the
-    year holding. (Legacy Planning's table used to leave out "Ending: Real
-    estate" -- an oversight fixed here now that both tables share one
-    header, since real estate can matter to a legacy just like any other
-    pool.)"""
-    return (
-        '<th class="num">Withdrawn: Taxable</th><th class="num">Withdrawn: Tax-deferred</th>'
-        '<th class="num">Withdrawn: Roth</th><th class="num">Withdrawn: Real estate</th>'
-        '<th class="num">Ending: Taxable</th><th class="num">Ending: Tax-deferred</th>'
-        '<th class="num">Ending: Roth</th><th class="num">Ending: Real estate</th>'
+# (row key, header label), in display order -- the Withdrawn:/Ending: columns
+# both year-by-year tables share.
+_WITHDRAWN_ENDING_COLUMNS = (
+    ("drawn_taxable", "Withdrawn: Taxable"), ("drawn_tax_deferred", "Withdrawn: Tax-deferred"),
+    ("drawn_roth", "Withdrawn: Roth"), ("drawn_real_estate", "Withdrawn: Real estate"),
+    ("taxable", "Ending: Taxable"), ("tax_deferred", "Ending: Tax-deferred"),
+    ("roth", "Ending: Roth"), ("real_estate", "Ending: Real estate"),
+)
+
+# Columns that are dropped when they are $0 in every row shown -- most plans
+# never draw Roth or Real estate in the years displayed, so those columns
+# are just a wall of $0.00. (The Taxable/Tax-deferred ones always stay.)
+_HIDEABLE_WHEN_ZERO = frozenset({"drawn_roth", "drawn_real_estate", "real_estate"})
+
+
+def _visible_withdrawn_ending_columns(rows: list[dict] | None = None) -> tuple:
+    """The (key, label) columns to show for `rows`: all eight, minus any
+    hideable one that is zero in every row. With no rows given (the old
+    call style), all eight."""
+    if not rows:
+        return _WITHDRAWN_ENDING_COLUMNS
+    return tuple(
+        (key, label) for key, label in _WITHDRAWN_ENDING_COLUMNS
+        if key not in _HIDEABLE_WHEN_ZERO or any(abs(r.get(key) or 0.0) > 0.005 for r in rows)
     )
 
 
-def _withdrawn_ending_cells_html(r: dict) -> str:
+def _withdrawn_ending_header_html(columns: tuple | None = None) -> str:
+    """The <th> cells shared by both tabs' year-by-year tables: what came
+    out of each pool this year, and what each pool ends the year holding.
+    `columns` (from _visible_withdrawn_ending_columns) drops all-zero
+    ones; omitted, every column is shown."""
+    return "".join(f'<th class="num">{label}</th>' for _, label in (columns or _WITHDRAWN_ENDING_COLUMNS))
+
+
+def _withdrawn_ending_cells_html(r: dict, columns: tuple | None = None) -> str:
     """The <td> cells matching _withdrawn_ending_header_html, in the same
     order."""
-    return (
-        f'<td class="num">{_money(r["drawn_taxable"])}</td>'
-        f'<td class="num">{_money(r["drawn_tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["drawn_roth"])}</td>'
-        f'<td class="num">{_money(r["drawn_real_estate"])}</td>'
-        f'<td class="num">{_money(r["taxable"])}</td>'
-        f'<td class="num">{_money(r["tax_deferred"])}</td>'
-        f'<td class="num">{_money(r["roth"])}</td>'
-        f'<td class="num">{_money(r["real_estate"])}</td>'
-    )
+    return "".join(f'<td class="num">{_money(r[key])}</td>' for key, _ in (columns or _WITHDRAWN_ENDING_COLUMNS))

@@ -145,7 +145,7 @@ def _render_monte_carlo_page() -> str:
             "difference is the sale."
         ),
         rows=monte_carlo_sale_comparison(
-            keep=result, keep_bootstrap=sp500_result, starting_balance=starting_balance, expenses=s["expenses"],
+            keep=result, starting_balance=starting_balance, expenses=s["expenses"],
             income=s["income_for_simulation"], assumptions=assumptions, pools=pools, sale=sale,
             real_estate=s["real_estate"], loan_balances=s["real_estate_loan_balances"], seed=seed,
         ),
@@ -153,7 +153,7 @@ def _render_monte_carlo_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Monte Carlo simulation</h2>
-<p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p></details>
 <div class="tiles">{pool_tiles}</div>
 <div class="tiles">
   <div class="tile"><div class="label">Success rate</div><div class="value">{result['success_rate'] * 100:.0f}%</div></div>
@@ -164,7 +164,7 @@ def _render_monte_carlo_page() -> str:
 {tax_tiles}</div>
 {chart}
 <h2>S&amp;P 500 historical-returns simulation</h2>
-<p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p>
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p></details>
 <div class="tiles">
   <div class="tile"><div class="label">S&amp;P 500 success rate</div><div class="value">{sp500_result['success_rate'] * 100:.0f}%</div></div>
   <div class="tile"><div class="label">S&amp;P 500 10th percentile ending balance</div><div class="value">{_money(sp500_result['p10_ending_balance'])}</div></div>
@@ -174,7 +174,7 @@ def _render_monte_carlo_page() -> str:
 {sale_card}
 {stress_html}
 {sensitivity_html}
-<h2>Assumptions</h2>
+<h2 id="assumptions">Assumptions</h2>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
   new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});

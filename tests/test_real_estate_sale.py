@@ -187,7 +187,7 @@ class TestComparisons(unittest.TestCase):
             pools=self.pools,
         )
         rows = {r["label"]: r for r in monte_carlo_sale_comparison(
-            keep=keep, keep_bootstrap=None, starting_balance=1_000_000, expenses=self.expenses, income=[],
+            keep=keep, starting_balance=1_000_000, expenses=self.expenses, income=[],
             assumptions=a, pools=self.pools, sale=sale, real_estate=[PROPERTY], loan_balances={1: 500_000}, seed=7,
         )}
         success = rows["Success rate (random returns)"]

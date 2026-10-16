@@ -264,6 +264,11 @@ PAGE_CSS = """
   .bar-chart { display: flex; flex-direction: column; gap: 2px; max-height: 272px; overflow-y: auto; scrollbar-gutter: stable;
     overscroll-behavior: contain; }
   .bar-chart-hint { margin: 6px 0 0; font-size: 11px; }
+  details.how-it-works { margin: 4px 0 12px; }
+  details.how-it-works > summary { cursor: pointer; color: var(--brand); font-size: 12px; font-weight: 500; list-style: none; }
+  details.how-it-works > summary::-webkit-details-marker { display: none; }
+  details.how-it-works > summary::before { content: "\25B8  "; }
+  details.how-it-works[open] > summary::before { content: "\25BE  "; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }

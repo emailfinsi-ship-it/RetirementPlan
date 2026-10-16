@@ -139,6 +139,10 @@ def _render_setup_page() -> str:
 <p class="status-line">Data (retirement_plan.db): {html.escape(data_status['current'])}</p>
 <p class="status-line">Output (Excel exports): {html.escape(output_status['current'])}</p>
 <p class="status-line">{'Last export: ' + html.escape(last_export) if last_export else 'No export generated yet.'}</p>
+<form class="inline" onsubmit="event.preventDefault(); postJSON('/api/export', {{}}).then(function(d) {{ alert('Exported: ' + d.path); }}).catch(function(e) {{ alert(e.message); }});">
+  <button type="submit" class="primary">Generate Excel export</button>
+</form>
+<p class="muted">Writes a fresh .xlsx snapshot of everything currently in this program to the output folder.</p>
 
 <h2>Backups</h2>
 <p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.KEEP_BACKUPS}. There's no in-app restore yet -- to roll back, close this app and copy the backup file you want over data/retirement_plan.db by hand.</p>

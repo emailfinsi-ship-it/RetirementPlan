@@ -17,7 +17,7 @@ import random
 from source.reporting.monte_carlo.drawdown_schedule import deterministic_drawdown_schedule
 from source.reporting.monte_carlo.legacy_planning import compare_roth_conversion_strategies
 from source.reporting.monte_carlo.real_estate_sale import apply_sale, property_equity_at
-from source.reporting.monte_carlo.simulation import run_historical_bootstrap_simulation, run_simulation
+from source.reporting.monte_carlo.simulation import run_simulation
 
 HIGHER, LOWER = "higher", "lower"
 
@@ -33,25 +33,19 @@ def _outside_pool_equity(sale: dict, real_estate: list, loan_balances: dict, ass
 
 
 def monte_carlo_sale_comparison(
-    *, keep: dict, keep_bootstrap: dict | None, starting_balance: float, expenses: list, income: list,
+    *, keep: dict, starting_balance: float, expenses: list, income: list,
     assumptions: dict, pools: dict, sale: dict, real_estate: list, loan_balances: dict, seed: int,
 ) -> list[dict]:
-    """`keep` / `keep_bootstrap` are the Monte Carlo tab's own Gaussian /
-    S&P-bootstrap results. The Sell runs reuse the same random seeds, so
-    both sides face identical market paths and the difference is the sale
-    alone."""
+    """`keep` is the Monte Carlo tab's own random-returns result. The Sell
+    run reuses the same seed, so both sides face identical market paths and
+    the difference is the sale alone. (Only this one method is re-run --
+    the S&P 500 history run is left out to keep the page quick.)"""
     sell_pools, sell_income, sell_assumptions = apply_sale(pools=pools, income=income, assumptions=assumptions, sale=sale)
     sell_start = sum(sell_pools.values())
     sell = run_simulation(
         starting_balance=sell_start, expenses=expenses, assumptions=sell_assumptions, income=sell_income,
         rng=random.Random(seed), pools=sell_pools,
     )
-    sell_bootstrap = None
-    if keep_bootstrap is not None:
-        sell_bootstrap = run_historical_bootstrap_simulation(
-            starting_balance=sell_start, expenses=expenses, assumptions=sell_assumptions, income=sell_income,
-            rng=random.Random(seed ^ 0x5DEECE66D), pools=sell_pools,
-        )
     s = sale["settings"]
     keep_outside = _outside_pool_equity(sale, real_estate, loan_balances, assumptions, s["horizon_end_year"])
     immediate = s["sale_year"] <= s["current_year"]
@@ -63,8 +57,6 @@ def monte_carlo_sale_comparison(
     rows += [
         {"label": "Success rate (random returns)", "kind": "pct", "keep": keep["success_rate"], "sell": sell["success_rate"], "better": HIGHER, "strong": True},
     ]
-    if sell_bootstrap is not None:
-        rows.append({"label": "Success rate (S&P 500 history)", "kind": "pct", "keep": keep_bootstrap["success_rate"], "sell": sell_bootstrap["success_rate"], "better": HIGHER})
     rows += [
         {"label": "Median ending liquid balance", "keep": keep["median_ending_balance"], "sell": sell["median_ending_balance"], "better": HIGHER},
         {"label": "10th percentile ending liquid balance", "keep": keep["p10_ending_balance"], "sell": sell["p10_ending_balance"], "better": HIGHER},

@@ -213,10 +213,21 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
     def test_summary_page_has_what_if_return_card(self):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("What if: expected return", body)
-        self.assertIn("expected_return_pct", body)
+        self.assertIn("Plan outlook", body)
+        self.assertIn("/monte-carlo.html#assumptions", body)
         self.assertIn("Success rate", body)
         self.assertIn("Median ending balance", body)
+
+    def test_setup_page_has_the_excel_export_button(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Generate Excel export", body)
+        self.assertIn("/api/export", body)
+
+    def test_long_intro_text_is_collapsed_behind_how_it_works(self):
+        for path in ("/monte-carlo.html", "/drawdown-planning.html", "/legacy-planning.html", "/real-estate.html", "/real-expenditure.html"):
+            with self.subTest(path=path):
+                body = self._get(path).read().decode("utf-8")
+                self.assertIn('<details class="how-it-works">', body)
 
     def test_account_balances_export_not_generated_yet_is_404(self):
         resp = self._get("/account-balances.html")
@@ -379,7 +390,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         db.add_line_item("assets", {"kind": "liability", "name": "Card", "balance": 500})
         db.add_line_item("real_estate", {"name": "Rental", "current_value": 100_000})
         db.add_line_item("expenses", {"name": "Healthcare", "annual_amount": 500})
-        for path in ("/asset.html", "/real-estate.html", "/expense.html"):
+        for path in ("/asset.html", "/real-estate.html", "/real-expenditure.html"):
             with self.subTest(path=path):
                 resp = self._get(path)
                 body = resp.read().decode("utf-8")
@@ -2642,7 +2653,7 @@ class TestAssumptionsEndpoint(DashboardTestCase):
 
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('value="9.00"', body)
+        self.assertIn("expected return 9.00%", body)
 
 
 class TestMonteCarloStartingBalance(DashboardTestCase):
@@ -2735,7 +2746,6 @@ class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
         self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000.00</div>', body)
-        self.assertIn("Plus $300,000.00 of real estate equity opted in", body)
 
 
 class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
@@ -2848,14 +2858,14 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         # the "What if" card's own input field uses.
         self.assertIn('<div class="label">Expected rate of return</div><div class="value">6.00%</div>', body)
 
-    def test_assets_by_category_card_matches_the_asset_tab(self):
-        # Same underlying figures as the Asset tab's own top Summary
-        # table -- both now read build_summary()'s asset_category_subtotals,
-        # so they can't drift apart the way "Manual asset total" could.
+    def test_summary_points_to_the_asset_tab_instead_of_repeating_the_category_table(self):
+        # The per-category table lives only on the Asset tab; Summary keeps
+        # its Net Liquid / Total Asset tiles and links across.
         self._seed()
         summary_body = self._get("/summary.html").read().decode("utf-8")
         asset_body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn("Assets by category", summary_body)
+        self.assertNotIn("Assets by category", summary_body)
+        self.assertIn('href="/asset.html"', summary_body)
         for expected in (
             "<td>401k</td><td class=\"num\">$100,000.00</td>",
             "<td>Liquid</td><td class=\"num\">$50,000.00</td>",
@@ -2863,7 +2873,6 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
             "Net Liquid Asset</td><td class=\"num\">$145,000.00</td>",
             "Total Asset</td><td class=\"num\">$345,000.00</td>",
         ):
-            self.assertIn(expected, summary_body)
             self.assertIn(expected, asset_body)
 
     def test_empty_state_shows_zero_totals_not_an_error(self):
@@ -2874,7 +2883,7 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
 
     def test_rollup_table_renders_above_the_category_summary_table(self):
         self._seed()
-        body = self._get("/summary.html").read().decode("utf-8")
+        body = self._get("/asset.html").read().decode("utf-8")
         self.assertLess(body.index("Total Asset</td>"), body.index("Net Liquid Asset = the balance"))
 
 
@@ -3308,7 +3317,7 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         body = resp.read().decode("utf-8")
         stress_idx = body.index("Historical recession stress test")
         sensitivity_idx = body.index("Sensitivity: what moves the needle")
-        assumptions_idx = body.index("<h2>Assumptions</h2>")
+        assumptions_idx = body.index('<h2 id="assumptions">Assumptions</h2>')
         self.assertLess(stress_idx, sensitivity_idx)
         self.assertLess(sensitivity_idx, assumptions_idx)
 
@@ -5447,10 +5456,21 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("Withdrawn: Taxable", body)
         self.assertIn("Withdrawn: Tax-deferred", body)
-        self.assertIn("Withdrawn: Roth", body)
-        self.assertIn("Withdrawn: Real estate", body)
         self.assertIn("Ending: Taxable", body)
         self.assertIn("Ending: Tax-deferred", body)
+        self.assertIn("Ending: Roth", body)
+        # Columns that are $0 in every row are left out instead of printing a wall of $0.00.
+        self.assertNotIn("Withdrawn: Roth", body)
+        self.assertNotIn("Withdrawn: Real estate", body)
+        self.assertNotIn("Ending: Real estate", body)
+
+    def test_real_estate_columns_appear_once_a_property_is_opted_in(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
+        db.add_line_item("real_estate", {"name": "Cabin", "current_value": 300_000, "include_in_monte_carlo": 1})
+        try:
+            body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        finally:
+            db.clear_section("real_estate")
         self.assertIn("Ending: Real estate", body)
 
     def test_links_to_the_legacy_planning_tab_for_the_heir_tax_question(self):
@@ -5579,9 +5599,8 @@ class TestLegacyPlanningPage(DashboardTestCase):
         self.assertIn("Withdrawn: Taxable", body)
         self.assertIn("Withdrawn: Tax-deferred", body)
         self.assertIn("Ending: Taxable", body)
-        # Previously missing on this tab even though Drawdown Planning had
-        # it -- both tabs now share the same Withdrawn:/Ending: column set.
-        self.assertIn("Ending: Real estate", body)
+        # Both tabs share the same column set, and both leave out columns that are $0 in every row.
+        self.assertNotIn("Ending: Real estate", body)
 
     def test_links_back_to_the_drawdown_planning_tab(self):
         body = self._get("/legacy-planning.html").read().decode("utf-8")
@@ -5625,38 +5644,33 @@ class TestLegacyPlanningPage(DashboardTestCase):
 
 
 class TestSummaryRetirementYearCard(DashboardTestCase):
-    """The Summary tab's own "Retirement year" card -- where the
-    assumption gets entered (per the user's own request), plus the
-    countdown tile and note reflecting it there."""
+    """The Summary tab's "Plan outlook" card states the retirement year
+    (read-only -- it is entered on the Monte Carlo tab's Assumptions form)."""
 
     def tearDown(self):
         db.set_assumptions({"retirement_year": "", "current_year": ""})
 
-    def test_not_set_shows_the_not_set_tile_and_note(self):
+    def test_not_set_shows_the_not_set_note(self):
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Retirement year", body)
-        self.assertIn("Not set", body)
-        self.assertIn("Monte Carlo, the historical stress test, and Drawdown Planning all withdraw", body)
+        self.assertIn("Retirement year not set", body)
 
-    def test_setting_it_here_persists_and_is_readable_from_monte_carlo_tab_too(self):
+    def test_setting_it_on_the_assumptions_endpoint_shows_on_summary_and_monte_carlo(self):
         status, _ = self._post("/api/assumptions", {"retirement_year": "2040"})
         self.assertEqual(status, 200)
         summary_body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn('value="2040"', summary_body)
+        self.assertIn("Retirement year 2040", summary_body)
         mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertIn('name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="2040"', mc_body)
 
-    def test_countdown_tile_shows_years_until_retirement(self):
+    def test_outlook_says_years_away(self):
         db.set_assumptions({"current_year": "2026", "retirement_year": "2036"})
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Years until retirement", body)
-        self.assertIn("<div class=\"value\">10</div>", body)
+        self.assertIn("Retirement year 2036 (10 years away)", body)
 
-    def test_countdown_tile_shows_years_into_retirement_once_past_it(self):
+    def test_outlook_says_years_into_retirement_once_past_it(self):
         db.set_assumptions({"current_year": "2036", "retirement_year": "2026"})
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Years into retirement", body)
-        self.assertIn("<div class=\"value\">10</div>", body)
+        self.assertIn("Retirement year 2026 (10 years into retirement)", body)
 
 
 class TestLogTicks(unittest.TestCase):

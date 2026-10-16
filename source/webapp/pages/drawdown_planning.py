@@ -46,6 +46,7 @@ from source.webapp.render_helpers import (
     _TAX_TREATMENT_OPTIONS,
     _visible_rows_by_year,
     _withdrawal_parts,
+    _visible_withdrawn_ending_columns,
     _withdrawn_ending_cells_html,
     _withdrawn_ending_header_html,
 )
@@ -385,42 +386,50 @@ def _year_by_year_table_html(schedule: dict) -> str:
     )
     # "Other income" (a pension, say) only gets a column when some visible
     # year actually has any -- most plans just have rent and Social Security.
+    show_rental = any(abs(r.get("income_rental", 0.0)) > 0.005 for r in visible_rows)
+    show_ss = any(abs(r.get("income_social_security", 0.0)) > 0.005 for r in visible_rows)
     show_other_income = any(abs(r.get("income_other", 0.0)) > 0.005 for r in visible_rows)
-    other_header = '<th class="num">Other income</th>' if show_other_income else ""
+    income_header = (
+        ('<th class="num">Rental income</th>' if show_rental else "")
+        + ('<th class="num">Social Security</th>' if show_ss else "")
+        + ('<th class="num">Other income</th>' if show_other_income else "")
+    )
+    columns = _visible_withdrawn_ending_columns(visible_rows)
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
         + _spouse_cells(r)
         + f'<td class="num">{_money(r.get("expenses", 0.0))}</td>'
-        f'<td class="num">{_money(r.get("income_rental", 0.0))}</td>'
-        f'<td class="num">{_money(r.get("income_social_security", 0.0))}</td>'
+        + (f'<td class="num">{_money(r.get("income_rental", 0.0))}</td>' if show_rental else "")
+        + (f'<td class="num">{_money(r.get("income_social_security", 0.0))}</td>' if show_ss else "")
         + (f'<td class="num">{_money(r.get("income_other", 0.0))}</td>' if show_other_income else "")
         + f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
-        + _withdrawn_ending_cells_html(r)
+        + _withdrawn_ending_cells_html(r, columns)
         + f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
         + '</tr>'
         for r in visible_rows
     )
     start = schedule.get("starting_pools")
-    leading_cols = 2 + (3 if has_spouse else 0) + 3 + (1 if show_other_income else 0) + 3
+    leading_cols = 2 + (3 if has_spouse else 0) + 1 + show_rental + show_ss + show_other_income + 3
     today_row_html = (
         f'<tr style="background:var(--surface-alt); font-style:italic;"><td colspan="{leading_cols}">'
         "Today (starting balances, before any growth)</td>"
-        '<td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td>'
-        f'<td class="num">{_money(start["taxable"])}</td><td class="num">{_money(start["tax_deferred"])}</td>'
-        f'<td class="num">{_money(start["roth"])}</td><td class="num">{_money(start["real_estate"])}</td>'
-        f'<td class="num">{_money(sum(start.values()))}</td><td></td></tr>'
+        + "".join(
+            '<td class="num">--</td>' if key.startswith("drawn_") else f'<td class="num">{_money(start[key])}</td>'
+            for key, _ in columns
+        )
+        + f'<td class="num">{_money(sum(start.values()))}</td><td></td></tr>'
         if start else ""
     )
     return f"""
 {hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th><th class="num">Rental income</th><th class="num">Social Security</th>{other_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
-{_withdrawn_ending_header_html()}
+<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th>{income_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
+{_withdrawn_ending_header_html(columns)}
 <th class="num">Total</th><th></th></tr>{today_row_html}</thead>
 <tbody>{rows_html}</tbody>
 </table>
@@ -509,12 +518,12 @@ def _render_drawdown_planning_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Drawdown planning</h2>
-<p class="muted">Every retirement/liquid resource this program knows about, classified by tax treatment -- Taxable
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Every retirement/liquid resource this program knows about, classified by tax treatment -- Taxable
 (brokerage, taxed on gains as you withdraw), Tax-deferred (401k/Traditional IRA, taxed as ordinary income and
 subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never forces an RMD), and Real estate equity
-opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unlinked_note}</p>
+opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
 <div class="tiles">{tiles}</div>
-{donut}
+<details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Resources by source</h3>
 {_sources_table_html(sources)}
 {_rmd_by_person_card_html(s, assumptions)}
@@ -522,11 +531,11 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 {sale_card}
 <h2>Year-by-year withdrawal sequence</h2>
-<p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
+<details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
 set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
-pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p>
+pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
 {rental_tax_note}{_year_by_year_table_html(schedule)}
 <p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).

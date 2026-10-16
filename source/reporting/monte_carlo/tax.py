@@ -216,18 +216,26 @@ def _total_year_tax(ordinary_income: float, gains_income: float, year: int, infl
     return _compute_year_tax(ordinary_income, gains_income, year, inflation_rate)
 
 
-def _compute_year_tax(ordinary_income: float, gains_income: float, year: int, inflation_rate: float) -> float:
+@lru_cache(maxsize=512)
+def _year_tables(year: int, inflation_rate: float) -> tuple:
+    """(fed deduction, CA deduction, fed ordinary brackets, fed LTCG
+    brackets, CA brackets) grown from _TAX_BRACKET_BASE_YEAR to `year` --
+    identical for every call in the same (year, inflation), so built once
+    rather than on each of the million-plus calls a Monte Carlo page makes."""
     growth = (1.0 + inflation_rate) ** (year - _TAX_BRACKET_BASE_YEAR)
-    fed_deduction = FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * growth
-    ca_deduction = CA_STANDARD_DEDUCTION_MFJ_2026 * growth
-    fed_ordinary_brackets = tuple(
-        (None if upper is None else upper * growth, rate) for upper, rate in FEDERAL_TAX_BRACKETS_MFJ_2026
+
+    def grown(brackets):
+        return tuple((None if upper is None else upper * growth, rate) for upper, rate in brackets)
+
+    return (
+        FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * growth, CA_STANDARD_DEDUCTION_MFJ_2026 * growth,
+        grown(FEDERAL_TAX_BRACKETS_MFJ_2026), grown(FEDERAL_LTCG_BRACKETS_MFJ_2026), grown(CA_TAX_BRACKETS_MFJ_2026),
     )
-    fed_ltcg_brackets = tuple(
-        (None if upper is None else upper * growth, rate) for upper, rate in FEDERAL_LTCG_BRACKETS_MFJ_2026
-    )
-    ca_brackets = tuple(
-        (None if upper is None else upper * growth, rate) for upper, rate in CA_TAX_BRACKETS_MFJ_2026
+
+
+def _compute_year_tax(ordinary_income: float, gains_income: float, year: int, inflation_rate: float) -> float:
+    fed_deduction, ca_deduction, fed_ordinary_brackets, fed_ltcg_brackets, ca_brackets = _year_tables(
+        year, inflation_rate,
     )
     fed_ordinary_taxable = max(0.0, ordinary_income - fed_deduction)
     fed_tax = _bracket_tax(fed_ordinary_taxable, fed_ordinary_brackets)

@@ -49,6 +49,7 @@ from source.webapp.render_helpers.tables import (
 )
 from source.webapp.render_helpers.drawdown_rows import (
     _visible_rows_by_year,
+    _visible_withdrawn_ending_columns,
     _withdrawal_parts,
     _withdrawn_ending_cells_html,
     _withdrawn_ending_header_html,
@@ -88,6 +89,7 @@ __all__ = [
     "_asset_rollup_summary_html",
     "_visible_rows_by_year",
     "_withdrawal_parts",
+    "_visible_withdrawn_ending_columns",
     "_withdrawn_ending_cells_html",
     "_withdrawn_ending_header_html",
     "_DONUT_COLORS",

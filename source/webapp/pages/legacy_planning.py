@@ -33,6 +33,7 @@ from source.webapp.render_helpers import (
     _shell,
     _visible_rows_by_year,
     _withdrawal_parts,
+    _visible_withdrawn_ending_columns,
     _withdrawn_ending_cells_html,
     _withdrawn_ending_header_html,
 )
@@ -59,7 +60,7 @@ def _heir_assumptions_card_html(result: dict, assumptions: dict) -> str:
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Heir assumptions</h2>
-<p class="muted">A spouse can roll an inherited Traditional IRA into their own and take Required Minimum Distributions
+<details class="how-it-works"><summary>How this works</summary><p class="muted">A spouse can roll an inherited Traditional IRA into their own and take Required Minimum Distributions
 on their own schedule -- no forced window at all; a non-spouse heir (an adult child, etc.) must usually empty it within
 10 years of your death under the SECURE Act, often stacking on top of their own working-years income. Some non-spouse
 heirs (a minor child of yours until they reach majority, a disabled or chronically ill beneficiary) are exempt from that
@@ -70,7 +71,7 @@ placeholder for "a long remaining lifetime") -- type over it for your own real s
 what their own inherited distributions are assumed to stack on top of -- auto-filled from this plan's own current
 Yearly Drawdown need ("use my own current bracket as a stand-in"), estimated right now at {_money(heir_base_income)}
 (about a {heir_marginal_rate * 100:.1f}% combined federal + California marginal rate) -- type over it if you have a
-better estimate of your heir's own income.</p>
+better estimate of your heir's own income.</p></details>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
   new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});
@@ -214,13 +215,14 @@ def _recommended_year_by_year_html(result: dict, retirement_year: int | None) ->
         "conversion that happened before retirement).</p>"
         if hidden_row_count else ""
     )
+    columns = _visible_withdrawn_ending_columns(rows)
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["conversion"])}</td>'
         f'<td class="num">{_money(r["tax"] + r["conversion_tax"])}</td>'
-        + _withdrawn_ending_cells_html(r)
+        + _withdrawn_ending_cells_html(r, columns)
         + f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
         + '</tr>'
@@ -235,7 +237,7 @@ that year's conversion tax combined).</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Year</th><th>Age</th><th class="num">RMD</th><th class="num">Conversion</th><th class="num">Tax</th>
-{_withdrawn_ending_header_html()}
+{_withdrawn_ending_header_html(columns)}
 <th class="num">Total</th><th></th></tr></thead>
 <tbody>{rows_html}</tbody>
 </table>
@@ -280,7 +282,7 @@ def _render_legacy_planning_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Legacy planning</h2>
-<p class="muted">Today's default withdrawal order (Taxable, then Tax-deferred, then Roth, then Real estate -- see the
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Today's default withdrawal order (Taxable, then Tax-deferred, then Roth, then Real estate -- see the
 Drawdown Planning tab) is built to minimize YOUR OWN lifetime tax bill. It isn't necessarily what leaves the most
 after-tax money to an heir: a Roth balance passes to any heir 100% tax-free, a Taxable balance gets a full step-up in
 cost basis at death (no capital-gains tax on the appreciation up to your death), but a Tax-deferred (401k/Traditional)
@@ -291,18 +293,18 @@ otherwise keep compounding. A related but different lever: 401k/IRA withdrawals 
 well before RMDs would force them at 73 or 75 -- spending Tax-deferred money earlier, in the lower-income years before
 then, is compared below too, alongside the Roth-conversion strategies. The table below runs the actual numbers for your
 plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the
-Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p>
+Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p></details>
 {_this_years_plan_html(result, retirement_year)}
 {_heir_assumptions_card_html(result, assumptions)}
 {sale_card}
 <h2>Strategy comparison</h2>
-<p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no
 randomness) once per strategy, converting Tax-deferred to Roth every year up to that strategy's target -- capped so the
 conversion's own tax can be paid from the Taxable pool without an extra tax-deferred withdrawal, which would give away
 much of the point of converting. "Net after-tax legacy" is Taxable + Roth + Real estate at full value, plus whatever
 Tax-deferred survives net of the Estimated heir tax column. A depleted strategy (ran out of money during your own
 lifetime) is flagged rather than hidden -- a smaller legacy from a strategy that never ran out beats a larger one on
-paper that only looks that way because the money ran out.</p>
+paper that only looks that way because the money ran out.</p></details>
 {_early_age_note_html(result)}
 {_comparison_table_html(result)}
 {_recommended_year_by_year_html(result, retirement_year)}
