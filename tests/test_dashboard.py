@@ -202,7 +202,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         # than just "Expense".
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/expense.html" class="active">Income/Expense</a>', body)
+        self.assertRegex(body, r'href="/expense.html" class="active">.*<span class="nl">Income/Expense</span></a>')
         self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income/Expense</title>", body)
 
     def test_monte_carlo_page_renders_with_no_data(self):
@@ -2012,7 +2012,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
     def test_nav_includes_linked_positions_tab(self):
         resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">Linked Accounts</span></a>')
         self.assertIn('href="/linked-positions.html" class="active">Positions</a>', body)
 
     def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
@@ -3140,7 +3140,10 @@ class TestSp500HistoricalBootstrapSection(DashboardTestCase):
         # page, belonging to the Gaussian simulation above it.
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertEqual(body.count("<svg"), 1)
+        import re
+
+        # (the nav's own icon tiles are <svg>s too -- count only the page's charts)
+        self.assertEqual(re.sub(r"<nav>.*?</nav>", "", body, flags=re.S).count("<svg"), 1)
 
     def test_tiles_show_figures_consistent_with_a_freshly_run_bootstrap_simulation(self):
         from source.reporting.aggregate import build_summary
@@ -3997,7 +4000,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Linked accounts", body)
-        self.assertIn('href="/linked-accounts.html" class="active">Linked Accounts</a>', body)
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">Linked Accounts</span></a>')
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
         resp = self._get("/linked-accounts.html")
@@ -5029,7 +5032,7 @@ class TestBudgetVsActualRouting(DashboardTestCase):
         body = self._get("/budget-vs-actual.html").read().decode("utf-8")
         self.assertIn("Budget vs Actual", body)
         # Budget vs Actual lives under the Spending tab, next to Real Expenditure.
-        self.assertIn('href="/real-expenditure.html" class="active">Spending</a>', body)
+        self.assertRegex(body, r'href="/real-expenditure.html" class="active">.*<span class="nl">Spending</span></a>')
         self.assertIn('<div class="subnav">', body)
 
     def test_real_expenditure_page_links_to_it(self):
@@ -5708,7 +5711,7 @@ class TestLegacyPlanningPage(DashboardTestCase):
     def test_nav_includes_legacy_planning_tab(self):
         resp = self._get("/legacy-planning.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('href="/drawdown-planning.html" class="active">Drawdown &amp; Legacy</a>', body)
+        self.assertRegex(body, r'href="/drawdown-planning.html" class="active">.*<span class="nl">Drawdown &amp; Legacy</span></a>')
         self.assertIn('href="/legacy-planning.html" class="active">Legacy</a>', body)
 
     def test_page_loads_with_no_data_at_all(self):

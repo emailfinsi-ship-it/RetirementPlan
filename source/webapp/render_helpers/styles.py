@@ -129,11 +129,28 @@ PAGE_CSS = """
     nav { position: sticky; top: 10px; z-index: 20; background: color-mix(in srgb, var(--surface) 72%, transparent);
       -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
   }
-  nav a { padding: 7px 6px; border-radius: 8px; text-decoration: none; color: var(--ink-soft); font-size: 12px;
-    font-weight: 500; transition: background 0.15s var(--ease), color 0.15s var(--ease); white-space: normal;
+  nav a { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 7px 4px 6px;
+    border-radius: 12px; text-decoration: none; color: var(--ink-soft); font-size: 11.5px; line-height: 1.15;
+    font-weight: 500; transition: background 0.15s var(--ease), color 0.15s var(--ease);
     flex: 1 1 0; text-align: center; }
-  nav a.active { background: var(--brand); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-  nav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
+  /* iOS-style 3D icon tile: vertical gradient, glossy top highlight, inner
+     bevel (light top edge, dark bottom edge) and a soft cast shadow. */
+  nav a .ni { position: relative; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(180deg, var(--c1), var(--c2));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -2px 3px rgba(0,0,0,0.25),
+      0 4px 7px rgba(0,0,0,0.28), 0 1px 1px rgba(0,0,0,0.25);
+    transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); }
+  nav a .ni::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 52%;
+    border-radius: 10px 10px 60% 60% / 10px 10px 14px 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0.02)); pointer-events: none; }
+  nav a .ni svg { position: relative; width: 23px; height: 23px; fill: none; stroke: #fff; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4)); }
+  nav a:not(.active):hover .ni { transform: translateY(-2px); }
+  nav a:not(.active):hover { color: var(--ink); }
+  nav a.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  nav a.active .ni { transform: translateY(-1px) scale(1.06);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), inset 0 -2px 3px rgba(0,0,0,0.25),
+      0 7px 12px rgba(0,0,0,0.32), 0 0 0 2px var(--brand); }
   .subnav { display: flex; gap: 6px; margin: -14px 0 18px 0; }
   .subnav a { padding: 5px 14px; border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 500;
     color: var(--ink-soft); border: 1px solid var(--border); background: var(--surface); }
@@ -358,7 +375,7 @@ PAGE_CSS = """
        little breathing room) -- otherwise whichever tab you're actually
        on can land flush against the edge, half cut off, which reads as
        broken rather than "swipe for more". */
-    nav a { flex: 0 0 auto; white-space: nowrap; }
+    nav a { flex: 0 0 auto; min-width: 76px; }
     /* A table wider than the phone screen (Asset/Expense/Linked
        Positions all have several columns) scrolls horizontally
        within its own card instead of forcing the whole page to

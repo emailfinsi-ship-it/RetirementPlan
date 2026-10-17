@@ -1078,13 +1078,49 @@ if ('serviceWorker' in navigator) {{
 </html>
 """
 
+# (gradient top, gradient bottom, SVG glyph body) for each top-level tab's
+# iOS-style 3D icon tile. Glyphs are white outlines drawn on a 24x24 grid.
+_NAV_ICONS = {
+    "summary.html": ("#5ac8fa", "#0a63e6",
+        '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/>'
+        '<rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>'),
+    "asset.html": ("#72e38c", "#1b9a45",
+        '<path d="M3 10l9-6 9 6"/><path d="M5.5 10.5v7M9.8 10.5v7M14.2 10.5v7M18.5 10.5v7"/><path d="M3 20h18"/>'),
+    "linked-accounts.html": ("#60e3e8", "#0e8c9c",
+        '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/>'
+        '<path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    "expense.html": ("#ffb84d", "#ee5f00",
+        '<path d="M7 4v15M7 19l-3-3M7 19l3-3"/><path d="M17 20V5M17 5l-3 3M17 5l3 3"/>'),
+    "real-expenditure.html": ("#ff8296", "#d71c47",
+        '<rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M3 10h18M7 15h4"/>'),
+    "monte-carlo.html": ("#c993ff", "#7132d6",
+        '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1" fill="#fff"/>'
+        '<circle cx="15" cy="9" r="1" fill="#fff"/><circle cx="9" cy="15" r="1" fill="#fff"/>'
+        '<circle cx="15" cy="15" r="1" fill="#fff"/><circle cx="12" cy="12" r="1" fill="#fff"/>'),
+    "drawdown-planning.html": ("#8a96ff", "#3338c0",
+        '<path d="M3 7l6 6 4-4 8 8"/><path d="M21 17v-5M21 17h-5"/>'),
+    "setup.html": ("#bcc1ca", "#646a76",
+        '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9" cy="7" r="2" fill="#fff"/>'
+        '<circle cx="15" cy="12" r="2" fill="#fff"/><circle cx="8" cy="17" r="2" fill="#fff"/>'),
+}
+
+
+def _nav_icon_html(href: str) -> str:
+    top, bottom, glyph = _NAV_ICONS.get(href, ("#bcc1ca", "#646a76", ""))
+    return (
+        f'<span class="ni" style="--c1:{top}; --c2:{bottom}">'
+        f'<svg viewBox="0 0 24 24" aria-hidden="true">{glyph}</svg></span>'
+    )
+
+
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
     return "".join(
-        '<a href="/{href}"{cls}>{label}</a>'.format(
+        '<a href="/{href}"{cls}>{icon}<span class="nl">{label}</span></a>'.format(
             href=href,
             cls=' class="active"' if href == highlighted else "",
+            icon=_nav_icon_html(href),
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS
