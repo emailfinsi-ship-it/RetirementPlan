@@ -1133,7 +1133,7 @@ def _owner_options_html() -> str:
     )
 
 
-# The motto ("See your future. Shape your retirement.") lives on the
+# The motto ("See your future. Shape your retirement and Legacy.") lives on the
 # forward-looking planning pages rather than in the global header.
 _MOTTO_PAGES = frozenset({"monte-carlo.html", "legacy-planning.html", "drawdown-planning.html"})
 
@@ -1142,7 +1142,7 @@ def _motto_html(active: str) -> str:
     if active not in _MOTTO_PAGES:
         return ""
     return (
-        f'<p class="motto brand-tagline" style="margin:0 0 10px; font-size:15px; font-style:italic;">'
+        f'<p class="motto brand-tagline" style="margin:0 0 12px; font-size:16px; font-style:italic; text-align:center;">'
         f'{html.escape(branding.PRODUCT_MOTTO)}</p>'
     )
 
