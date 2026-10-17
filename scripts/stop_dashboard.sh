@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stops the Retirement Plan dashboard by finding whatever process is bound
+# Stops the dashboard by finding whatever process is bound
 # to its port (127.0.0.1:8898 -- see source.webapp.dashboard.PORT) and
 # signaling it, same idea as Ctrl+C in the Terminal window running
 # scripts/run_dashboard.sh, so it hits that script's own
@@ -17,7 +17,7 @@ if [ -z "$PIDS" ]; then
   exit 0
 fi
 
-echo "Stopping Retirement Plan dashboard (pid: $PIDS)..."
+echo "Stopping the dashboard (pid: $PIDS)..."
 kill -INT $PIDS 2>/dev/null || true
 
 for _ in 1 2 3 4 5; do

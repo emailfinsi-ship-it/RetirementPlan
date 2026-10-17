@@ -32,7 +32,9 @@ from dataclasses import dataclass, field
 
 import keyring
 
-SERVICE_NAME = "RetirementPlan"
+from source.common import branding
+
+SERVICE_NAME = branding.INTERNAL_ID
 VAULT_ACCOUNT = "vault"
 KEYCHAIN_SERVICE_ENV = "RP_KEYCHAIN_SERVICE"
 
@@ -67,6 +69,13 @@ def keychain_service() -> str:
     if _running_under_unittest():
         return f"{SERVICE_NAME}-test"
     return SERVICE_NAME
+
+
+def _delete_vault_item() -> None:
+    try:
+        keyring.delete_password(keychain_service(), VAULT_ACCOUNT)
+    except keyring.errors.PasswordDeleteError:
+        pass
 
 
 class SecretNotFoundError(RuntimeError):
@@ -273,10 +282,7 @@ def delete_rentcast_api_key() -> None:
         if _vault_has_any_secret(vault):
             _save_vault_unlocked(vault)
         else:
-            try:
-                keyring.delete_password(keychain_service(), VAULT_ACCOUNT)
-            except keyring.errors.PasswordDeleteError:
-                pass
+            _delete_vault_item()
             clear_vault_cache()
 
 
@@ -310,8 +316,5 @@ def delete_item_access_token(item_key: str) -> None:
         if _vault_has_any_secret(vault):
             _save_vault_unlocked(vault)
         else:
-            try:
-                keyring.delete_password(keychain_service(), VAULT_ACCOUNT)
-            except keyring.errors.PasswordDeleteError:
-                pass
+            _delete_vault_item()
             clear_vault_cache()

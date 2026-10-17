@@ -121,9 +121,14 @@ def _year(value):
 
 def planner_people(assumptions: dict) -> list[dict]:
     """The people the planner covers: [{"key", "name", "birth_year",
-    "benefit" (annual, full retirement age), "claim_age"}], Sri then Anu."""
+    "benefit" (annual, full retirement age), "claim_age"}] -- the household's
+    first person, then the second one when the household has one."""
+    household = db.household()
     out = []
-    for key, name, birth_key in (("self", "Sri", "birth_year"), ("spouse", "Anu", "spouse_birth_year")):
+    candidates = [("self", household["self_name"], "birth_year")]
+    if household["has_spouse"]:
+        candidates.append(("spouse", household["spouse_name"], "spouse_birth_year"))
+    for key, name, birth_key in candidates:
         out.append({
             "key": key, "name": name, "birth_year": _year(assumptions.get(birth_key)),
             "benefit": _number(assumptions.get(f"ss_benefit_{key}")),
@@ -150,7 +155,7 @@ def planned_rows(assumptions: dict, this_year: int | None = None) -> dict:
             })
     magi = _number(assumptions.get("medicare_magi"))
     if magi is not None:
-        married = bool(people[1]["birth_year"])
+        married = len(people) > 1 and bool(people[1]["birth_year"])
         tier = medicare_tier(magi, married)
         other_monthly = _number(assumptions.get("medicare_other_monthly"), 0.0) or 0.0
         for p in people:
@@ -181,4 +186,15 @@ def apply_benefits_plan(assumptions: dict, this_year: int | None = None) -> dict
             else:
                 db.add_line_item(section, fields)
                 created.append(fields["name"])
-    return {"created": created, "updated": updated}
+    # The planner owns every row it writes (source == BENEFITS_SOURCE). A
+    # row for someone no longer in the plan -- a renamed person, a household
+    # that dropped its second person -- would otherwise stay behind and
+    # double-count, so rows it did not just write are removed.
+    kept = {fields["name"] for section in rows.values() for fields in section}
+    removed = []
+    for section in ("income", "expenses"):
+        for row in db.list_line_items(section):
+            if row.get("source") == BENEFITS_SOURCE and row["name"] not in kept:
+                db.delete_line_item(section, row["id"])
+                removed.append(row["name"])
+    return {"created": created, "updated": updated, "removed": removed}

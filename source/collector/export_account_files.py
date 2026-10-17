@@ -13,7 +13,7 @@ from __future__ import annotations
 import csv
 import html
 
-from source.common import config, db
+from source.common import branding, config, db
 
 ACCOUNT_CSV_COLUMNS = ("Financial Institution", "Last 4 Digits", "Balance", "Last Update", "Account Type")
 POSITION_CSV_COLUMNS = (
@@ -109,7 +109,7 @@ _HTML_PAGE = """<!doctype html>
 </head>
 <body>
 <h1>{title}</h1>
-<p class="muted">Generated {generated_at} by Retirement Plan's own Plaid sync. Same data as {csv_name} in this folder. Click a column header to sort.</p>
+<p class="muted">Generated {generated_at} by {product_name}'s own Plaid sync. Same data as {csv_name} in this folder. Click a column header to sort.</p>
 <table>
   <thead><tr>{header_cells}</tr></thead>
   <tbody>
@@ -176,6 +176,7 @@ def write_account_balances(*, downloaded_at: str) -> None:
             rows=rows_html,
             footer_cells=f'<td colspan="3">Total</td><td class="num">{html.escape(_format_money(total))}</td><td></td>',
             sort_script=SORT_SCRIPT,
+            product_name=branding.PRODUCT_NAME,
         ),
         encoding="utf-8",
     )
@@ -240,6 +241,7 @@ def write_portfolio_positions(*, downloaded_at: str) -> None:
             rows=rows_html,
             footer_cells=f'<td colspan="7">Total</td><td class="num">{html.escape(_format_money(total_value))}</td><td colspan="2"></td>',
             sort_script=SORT_SCRIPT,
+            product_name=branding.PRODUCT_NAME,
         ),
         encoding="utf-8",
     )

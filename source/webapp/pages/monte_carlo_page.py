@@ -153,6 +153,10 @@ def _render_monte_carlo_page() -> str:
         ),
     ) if sale["has_properties"] else ""
 
+    spouse_birth_field = (
+        f'<label>{html.escape(db.spouse_name())}\'s birth year (for their RMDs)<input name="spouse_birth_year" type="number" '
+        f'step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get("spouse_birth_year") or ""))}"></label>'
+    ) if db.has_spouse() else ""
     body = f"""
 <h2 style="margin-top:0">Monte Carlo simulation</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p></details>
@@ -189,8 +193,8 @@ def _render_monte_carlo_page() -> str:
   <label>Plan horizon (years)<input name="plan_horizon_years" type="number" value="{html.escape(str(assumptions.get('plan_horizon_years', 40)))}"></label>
   <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
   <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
-  <label>Sri's birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
-  <label>Anu's birth year (for her RMDs)<input name="spouse_birth_year" type="number" step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get('spouse_birth_year') or ''))}"></label>
+  <label>{html.escape(db.self_name())}'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
+  {spouse_birth_field}
   <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
   <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>
   <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>

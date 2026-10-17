@@ -8,7 +8,7 @@ def _summary(**over):
         "assumptions": {"birth_year": "1965", "spouse_birth_year": "1967", "retirement_year": "2030", "apply_drawdown_tax": "1"},
         "drawdown_tax_deferred_by_owner": {"self": 100.0, "spouse": 50.0, "unassigned": 0.0},
         "expenses": [{"name": "Living", "annual_amount": 1}],
-        "income": [{"name": "Social Security (Sri)", "category": "Social Security"}],
+        "income": [{"name": "Social Security (Person 1)", "category": "Social Security"}],
         "retirement_pools": {"tax_deferred": 1.0, "roth": 0.0, "taxable": 0.0},
         "real_estate": [],
     }
@@ -24,8 +24,8 @@ class TestPlanHealth(unittest.TestCase):
     def test_missing_birth_years_and_retirement_year(self):
         s = _summary(assumptions={"apply_drawdown_tax": "1"})
         texts = " | ".join(i["text"] for i in plan_health_items(s))
-        self.assertIn("Sri's birth year", texts)
-        self.assertIn("Anu's birth year", texts)
+        self.assertIn("Person 1's birth year", texts)
+        self.assertIn("Person 2's birth year", texts)
         self.assertIn("No retirement year", texts)
 
     def test_anu_birth_year_only_flagged_when_anu_owns_tax_deferred_money(self):

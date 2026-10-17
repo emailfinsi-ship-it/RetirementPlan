@@ -46,12 +46,12 @@ def _table_html(person: dict) -> str:
 
 def social_security_medicare_card_html(assumptions: dict) -> str:
     people = benefits.planner_people(assumptions)
-    sri, anu = people
+    married = len(people) > 1 and bool(people[1]["birth_year"])
     magi_raw = assumptions.get("medicare_magi")
     magi = benefits._number(magi_raw)
     tier_text = ""
     if magi is not None:
-        tier = benefits.medicare_tier(magi, married=bool(anu["birth_year"]))
+        tier = benefits.medicare_tier(magi, married=married)
         tier_text = (
             f'<p class="status-line">At {_money(magi)} of income, you are in {benefits.MEDICARE_TABLE_YEAR} IRMAA tier '
             f'{tier["tier"] + 1} of 6: Part B {_money(tier["part_b_monthly"], cents=True)}/mo plus a Part D surcharge of '
@@ -62,11 +62,7 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
     if planned["income"] or planned["expenses"]:
         names = ", ".join(r["name"] for r in planned["income"] + planned["expenses"])
         status = f'<p class="muted">"Save &amp; apply" will create or update these rows: {html.escape(names)}.</p>'
-    missing = []
-    if not sri["birth_year"]:
-        missing.append("Sri's birth year")
-    if not anu["birth_year"]:
-        missing.append("Anu's birth year")
+    missing = [f"{p['name']}'s birth year" for p in people if not p["birth_year"]]
     missing_text = (
         f'<p class="status-line status-warn">Set {" and ".join(missing)} on the Monte Carlo tab\'s Assumptions '
         "for the matching person's rows and tables.</p>" if missing else ""
@@ -92,8 +88,7 @@ and one income estimate; the real IRMAA rule looks at your income from two years
 Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
 {missing_text}
 <form class="inline" id="benefits-form" onsubmit="event.preventDefault();">
-  {person_fields(sri)}
-  {person_fields(anu)}
+  {"".join(person_fields(p) for p in people)}
   <label>Expected retirement income for Medicare (MAGI, $/yr)<input name="medicare_magi" type="number" step="1000" placeholder="e.g. 150000" value="{html.escape(str(magi_raw or ''))}"></label>
   <label>Other monthly Medicare costs per person ($)<input name="medicare_other_monthly" type="number" step="10" placeholder="Part D plan, Medigap" value="{_value(assumptions, 'medicare_other_monthly')}"></label>
   <button type="button" onclick="saveBenefits(false)">Save</button>
@@ -101,8 +96,7 @@ Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
 </form>
 {tier_text}
 {status}
-{_table_html(sri)}
-{_table_html(anu)}
+{"".join(_table_html(p) for p in people)}
 <script>
 function saveBenefits(apply) {{
   var fields = {{}};

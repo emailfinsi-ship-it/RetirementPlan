@@ -8,7 +8,7 @@ independent of that one, not a sub-package of it, per the "standalone
 new program" decision).
 
 When bundled into a standalone app (PyInstaller -- see
-scripts/build_standalone_app.sh), __file__ points inside the bundle's
+scripts/build_mac_app.sh), __file__ points inside the bundle's
 internal, temp-extracted library folder instead, which has no sibling
 data/output/config/logs folders and (for a onefile build) may not even
 persist between runs -- sys.frozen is PyInstaller's own flag for "yes,
@@ -23,12 +23,25 @@ import os
 import sys
 from pathlib import Path
 
-from source.common import app_settings
+from source.common import app_settings, branding
 
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+def resolve_base_dir(*, frozen: bool, executable: str, module_file: str) -> Path:
+    """Where data/, logs/, output/ and config/ live: the project root when
+    running from source; next to the executable for a plain PyInstaller
+    folder; and, inside a Mac app bundle, the user's own Application
+    Support folder (the bundle itself must stay read-only and may live in
+    /Applications)."""
+    if not frozen:
+        return Path(module_file).resolve().parent.parent.parent
+    exe_dir = Path(executable).resolve().parent
+    if any(part.endswith(".app") for part in exe_dir.parts):
+        return Path.home() / "Library" / "Application Support" / branding.INTERNAL_ID
+    return exe_dir
+
+
+BASE_DIR = resolve_base_dir(
+    frozen=bool(getattr(sys, "frozen", False)), executable=sys.executable, module_file=__file__,
+)
 
 _data_override = app_settings.get_data_dir()
 DATA_DIR = Path(_data_override) if _data_override else BASE_DIR / "data"

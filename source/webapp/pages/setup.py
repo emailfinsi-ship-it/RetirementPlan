@@ -6,7 +6,7 @@ from __future__ import annotations
 import html
 
 from source.collector import auto_sync
-from source.common import app_settings, auth_store, backup, config, db, plaid_categorize, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
 from source.webapp.render_helpers import _shell
 
 
@@ -70,6 +70,7 @@ def _render_setup_page() -> str:
 
     password_set = auth_store.is_password_set()
     bind_host = app_settings.get_bind_host()
+    quit_html = _quit_card_html()
     security_html = _security_card_html(password_set=password_set)
     network_html = _network_access_card_html(bind_host=bind_host, password_set=password_set)
     known_transaction_categories = sorted({
@@ -89,9 +90,13 @@ def _render_setup_page() -> str:
         for name, label in secrets_store.PROFILE_LABELS.items()
     )
 
+    household_html = _household_card_html()
     body = f"""
-<h2 style="margin-top:0">One-time workbook import</h2>
-<p class="muted">Point this at your retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the Monte Carlo assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
+{household_html}
+<details class="card" style="padding:12px 16px;">
+<summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
+<h2 style="margin-top:8px">One-time workbook import</h2>
+<p class="muted">Point this at a retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the Monte Carlo assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
 <p class="status-line">{'Last imported: ' + html.escape(last_import) if last_import else 'Not imported yet.'}</p>
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/import', {{path: this.path.value, password: this.password.value}})
@@ -102,10 +107,10 @@ def _render_setup_page() -> str:
   <label>Password (if protected)<input name="password" type="password"></label>
   <button type="submit" class="primary">Import</button>
 </form>
+</details>
 
 <h2>Plaid API keys</h2>
-<p class="muted">Two independent Plaid credential profiles -- Primary and Secondary -- each with its own client ID and per-environment secret, stored only in this Mac's Keychain (never sent anywhere except directly to Plaid). Most people only ever need Primary; Secondary is there if you have a second Plaid developer account (e.g. a separate app, or you've hit a per-app linked-Item limit) and want this dashboard to link/sync accounts under both side by side. Already have credentials saved in FamilyFinanceTracker? Run
-<code>venv/bin/python scripts/copy_plaid_credentials_from_familyfinancetracker.py</code> once in your own Terminal to copy them into the Primary profile here instead of re-entering them -- see that script's own comments for details.</p>
+<p class="muted">Two independent Plaid credential profiles -- Primary and Secondary -- each with its own client ID and per-environment secret, stored only in this Mac's Keychain (never sent anywhere except directly to Plaid). Most people only ever need Primary; Secondary is there if you have a second Plaid developer account (e.g. a separate app, or you've hit a per-app linked-Item limit) and want this dashboard to link/sync accounts under both side by side.</p>
 {plaid_credentials_html}
 
 <h2>Connect an account</h2>
@@ -166,8 +171,43 @@ def _render_setup_page() -> str:
 {rentcast_html}
 {security_html}
 {network_html}
+{quit_html}
 """
     return _shell(title="Setup", active="setup.html", body=body)
+
+
+def _quit_card_html() -> str:
+    """The Mac app runs without a window of its own, so this is how it is
+    closed: it stops the program (the next launch starts it again)."""
+    return f"""
+<div class="card">
+<h2 style="margin-top:0">Quit {html.escape(branding.PRODUCT_NAME)}</h2>
+<p class="muted">Stops the program running on this computer. Open the app again any time to start it; your data is kept.</p>
+<button type="button" onclick="if (confirm('Quit {html.escape(branding.PRODUCT_NAME)}?')) {{ postJSON('/api/quit', {{}}).then(function() {{ document.body.innerHTML = '<p style=&quot;font-family:sans-serif;padding:40px&quot;>{html.escape(branding.PRODUCT_NAME)} has quit. You can close this tab.</p>'; }}); }}">Quit {html.escape(branding.PRODUCT_NAME)}</button>
+</div>
+"""
+
+
+def _household_card_html() -> str:
+    """Who the plan is for: the first person's name, an optional second
+    person (spouse or partner) and their name. Drives every label, the
+    Owner dropdowns and the second birth-year fields across the app."""
+    household = db.household()
+    checked = " checked" if household["has_spouse"] else ""
+    return f"""
+<div class="card" id="household">
+<h2 style="margin-top:0">Household</h2>
+<p class="muted">The names shown on every page and in the Owner dropdowns. Turn the second person off for a one-person plan -- their fields, columns and Social Security rows then disappear (rows the Social Security planner wrote for them are removed the next time you apply it).</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/household', {{self_name: this.self_name.value, spouse_name: this.spouse_name.value, has_spouse: this.has_spouse.checked}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>First person<input name="self_name" maxlength="40" value="{html.escape(household['self_name'])}"></label>
+  <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="has_spouse" style="width:auto;"{checked}> Spouse or partner</label>
+  <label>Their name<input name="spouse_name" maxlength="40" value="{html.escape(household['spouse_name'])}"></label>
+  <button type="submit" class="primary">Save</button>
+</form>
+</div>
+"""
 
 
 def _rentcast_card_html(*, has_key: bool) -> str:

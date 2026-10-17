@@ -27,7 +27,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_SETTINGS_DIR = Path.home() / "Library" / "Application Support" / "RetirementPlan"
+from source.common import branding
+
+_SETTINGS_DIR = Path.home() / "Library" / "Application Support" / branding.INTERNAL_ID
 _SETTINGS_PATH = _SETTINGS_DIR / "settings.json"
 
 

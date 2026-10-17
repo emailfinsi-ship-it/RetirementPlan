@@ -7,7 +7,7 @@ import http.client
 import json
 import unittest
 
-from source.common import auth_store
+from source.common import auth_store, branding
 from tests.test_dashboard import DashboardTestCase
 
 
@@ -26,7 +26,8 @@ class TestStaticAssetsServed(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         self.assertIn("manifest+json", resp.getheader("Content-Type"))
         parsed = json.loads(body)
-        self.assertEqual(parsed["name"], "Retirement Plan")
+        self.assertEqual(parsed["name"], branding.PRODUCT_NAME)
+        self.assertNotIn("__PRODUCT", json.dumps(parsed))
         self.assertEqual(parsed["display"], "standalone")
         self.assertTrue(parsed["icons"])
 

@@ -20,7 +20,10 @@ from openpyxl.chart.series import DataPoint
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
 from openpyxl.utils import get_column_letter
+
+from source.common import branding
 
 FONT_NAME = "Arial"
 
@@ -215,7 +218,7 @@ def finish_sheet(ws, *, tab_color: str, gridlines: bool = True, landscape: bool 
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_options.horizontalCentered = False
     ws.page_margins.left = ws.page_margins.right = 0.5
-    ws.oddFooter.center.text = "Retirement Plan -- &A -- page &P of &N"
+    ws.oddFooter.center.text = f"{branding.PRODUCT_NAME} -- &A -- page &P of &N"
 
 
 # --------------------------------------------------------------------------

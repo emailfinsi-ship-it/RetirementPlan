@@ -254,7 +254,7 @@ def _category_table_html(
         # source.common.db.owners). Unassigned (the default) is modeled
         # under the plan owner's birth year until someone picks.
         owner_td = (
-            f'<td>{_editable_select_cell("assets", a["id"], "owner", a.get("owner") or "", db.OWNER_OPTIONS, width="90px")}</td>'
+            f'<td>{_editable_select_cell("assets", a["id"], "owner", a.get("owner") or "", db.owner_options(), width="90px")}</td>'
             if is_asset_table else ""
         )
         mc_td = (

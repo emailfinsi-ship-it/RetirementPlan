@@ -90,7 +90,18 @@ from source.common.db.line_items import (
     update_line_item,
 )
 from source.common.db.assumptions import get_assumptions, set_assumption, set_assumptions
-from source.common.db.owners import OWNER_LABELS, OWNER_OPTIONS, get_account_owners, normalize_owner, set_account_owner
+from source.common.db.owners import (
+    get_account_owners,
+    has_spouse,
+    household,
+    normalize_owner,
+    owner_label,
+    owner_options,
+    self_name,
+    set_account_owner,
+    set_household,
+    spouse_name,
+)
 from source.common.db.meta import get_meta, set_meta
 from source.common.db.plaid import (
     account_balances_from_payload,
@@ -154,8 +165,13 @@ __all__ = [
     "get_assumptions",
     "set_assumption",
     "set_assumptions",
-    "OWNER_LABELS",
-    "OWNER_OPTIONS",
+    "has_spouse",
+    "household",
+    "owner_label",
+    "owner_options",
+    "self_name",
+    "set_household",
+    "spouse_name",
     "get_account_owners",
     "normalize_owner",
     "set_account_owner",

@@ -19,7 +19,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from source.common import config, db, linked_data
+from source.common import branding, config, db, linked_data
 from source.reporting import excel_style as xs
 from source.reporting.aggregate import build_summary, effective_balance, effective_loan_balance, real_estate_equity
 from source.reporting.monte_carlo import (
@@ -83,7 +83,7 @@ _ASSUMPTION_LABELS = {
     "annual_income_offset": "Annual income offset",
     "apply_drawdown_tax": "Apply drawdown tax (1 = yes)",
     "birth_year": "Your birth year",
-    "spouse_birth_year": "Anu's birth year",
+    "spouse_birth_year": "Second person's birth year",
     "current_year": "Current year",
     "early_tax_deferred_age": "Early tax-deferred draw age",
     "expected_return": "Expected return",
@@ -178,7 +178,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
     # ---------------------------------------------------------------- Summary
     ws = wb.active
     ws.title = "Summary"
-    xs.write_title(ws, "Retirement Plan", f"Snapshot generated {generated}  |  all figures in US dollars")
+    xs.write_title(ws, branding.PRODUCT_NAME, f"Snapshot generated {generated}  |  all figures in US dollars")
     row = xs.write_section_header(ws, 4, 1, "Key figures", span=2)
     metrics = [
         ("Net worth", summary["net_worth"]),

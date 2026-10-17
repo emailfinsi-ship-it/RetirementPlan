@@ -32,9 +32,9 @@ from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUse
 from plaid.model.products import Products
 
 from source.collector.plaid_client import build_client
-from source.common import db, secrets_store
+from source.common import branding, db, secrets_store
 
-CLIENT_NAME = "Retirement Plan"
+CLIENT_NAME = branding.PRODUCT_NAME
 DEFAULT_PORT = 8766
 # Single-user local app -- this is just Plaid's required opaque user
 # identifier, not a real account/username.
@@ -42,9 +42,9 @@ LOCAL_USER_ID = "retirement_plan_primary_user"
 
 _LINK_PAGE_TEMPLATE = """<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Retirement Plan - Link your account</title></head>
+<head><meta charset="utf-8"><title>%(product_name)s - Link your account</title></head>
 <body style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 80px auto; text-align: center;">
-  <h2>Retirement Plan</h2>
+  <h2>%(product_name)s</h2>
   <p id="status">Opening Plaid Link...</p>
   <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
   <script>
@@ -87,7 +87,7 @@ class _LinkResult:
 
 
 def _make_handler(link_token: str, result: _LinkResult):
-    page = (_LINK_PAGE_TEMPLATE % {"link_token_json": json.dumps(link_token)}).encode("utf-8")
+    page = (_LINK_PAGE_TEMPLATE % {"link_token_json": json.dumps(link_token), "product_name": CLIENT_NAME}).encode("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args) -> None:  # quiet

@@ -1,4 +1,4 @@
-# Shared by run_dashboard.sh and build_standalone_app.sh -- not meant to
+# Shared by run_dashboard.sh and build_mac_app.sh -- not meant to
 # be run directly (no shebang/executable bit on purpose; it's sourced).
 #
 # Picks a real, working python3, and specifically avoids two paths that

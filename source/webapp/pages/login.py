@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import html
 
+from source.common import branding
+
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT
 
 
@@ -26,7 +28,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
         endpoint = "/api/set-password"
         extra_field = ""
     else:
-        heading = "Retirement Plan"
+        heading = branding.PRODUCT_NAME
         intro = "Enter your password to continue."
         submit_label = "Log in"
         endpoint = "/api/login"
@@ -36,12 +38,12 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Retirement Plan -- Log in</title>
+<title>{branding.PRODUCT_NAME} -- Log in</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#0071e3">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Retirement Plan">
+<meta name="apple-mobile-web-app-title" content="{branding.PRODUCT_NAME}">
 <style>{PAGE_CSS}
   body {{ max-width: 380px; padding-top: 18vh; }}
   .login-card {{ text-align: left; }}
@@ -51,7 +53,13 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 {THEME_INIT_SCRIPT}
 </head>
 <body>
-<h1 style="text-align:center;">Retirement Plan</h1>
+<div style="text-align:center; padding-bottom:14px; border-bottom:1px solid var(--border, #e5e5ea); margin-bottom:16px;">
+<img src="/icons/logo.svg" alt="" width="76" height="76" style="border-radius:17px;">
+<h1 style="margin:8px 0 2px;">{branding.PRODUCT_NAME}</h1>
+<p class="muted" style="margin:0; font-size:12px; letter-spacing:.06em; text-transform:uppercase;">{branding.PRODUCT_TAGLINE}</p>
+<p style="margin:14px 0 4px; font-weight:600;">{branding.PRODUCT_HEADLINE}</p>
+<p class="muted" style="margin:0; font-size:13px;">{branding.PRODUCT_SUBLINE}</p>
+</div>
 <div class="card login-card">
 <h2 style="margin-top:0">{heading}</h2>
 <p class="muted">{intro}</p>

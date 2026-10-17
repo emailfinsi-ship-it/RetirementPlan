@@ -9,9 +9,15 @@ one real entry point both paths share, so behavior never drifts between
 
 from __future__ import annotations
 
+import os
 import sys
 
 from source.webapp import dashboard
 
 if __name__ == "__main__":
+    # A bundled app launched without a terminal can have no stdout/stderr;
+    # point them at nothing rather than letting a print() raise.
+    for _name in ("stdout", "stderr"):
+        if getattr(sys, _name) is None:
+            setattr(sys, _name, open(os.devnull, "w"))
     dashboard.run(open_browser="--no-browser" not in sys.argv)

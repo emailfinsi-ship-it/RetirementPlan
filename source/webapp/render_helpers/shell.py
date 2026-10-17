@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from source.common import auth_store, db
+from source.common import auth_store, branding, db
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
 
 
@@ -47,20 +47,20 @@ PAGE_SHELL = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Retirement Plan -- {title}</title>
+<title>{product_name} -- {title}</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#0071e3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Retirement Plan">
+<meta name="apple-mobile-web-app-title" content="{product_name}">
 <style>{css}</style>
 {theme_head_script}
 </head>
 <body data-current-year="{current_year}">
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
   <div>
-    <h1>Retirement Plan</h1>
+    <h1>{product_name}</h1>
     <p class="muted">Your own retirement/asset plan -- standalone program, your own data.</p>
   </div>
   <div style="display:flex; gap:8px; align-items:flex-start;">{theme_toggle_html}{logout_html}</div>
@@ -100,7 +100,7 @@ PAGE_SHELL = """<!doctype html>
         <label>Institution<input name="institution"></label>
         <label>Account #<input name="last4" maxlength="20"></label>
         <label>Balance<input name="balance" type="number" step="0.01" required></label>
-        <label>Owner<select name="owner"><option value="">Unassigned</option><option value="self">Sri</option><option value="spouse">Anu</option></select></label>
+        <label>Owner<select name="owner">{owner_options_html}</select></label>
         <label style="grid-column:1/-1;">Notes<input name="notes"></label>
       </fieldset>
 
@@ -1120,6 +1120,14 @@ def _logout_html() -> str:
     )
 
 
+def _owner_options_html() -> str:
+    """<option> list for the shared "+ Add" modal's Owner dropdown -- the
+    household's own names, and no second person when there isn't one."""
+    return "".join(
+        f'<option value="{html.escape(value)}">{html.escape(label)}</option>' for value, label in db.owner_options()
+    )
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1128,7 +1136,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_subnav_html(active) + body, current_year=current_year,
-        logout_html=_logout_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
     )
 
 

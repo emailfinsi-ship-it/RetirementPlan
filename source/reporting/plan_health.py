@@ -18,6 +18,8 @@ def _blank(value) -> bool:
 
 def plan_health_items(summary: dict) -> list[dict]:
     a = summary["assumptions"]
+    household = summary.get("household") or {"self_name": "Person 1", "spouse_name": "Person 2", "has_spouse": True}
+    me, partner = household["self_name"], household["spouse_name"]
     items: list[dict] = []
 
     def add(level: str, text: str, href: str) -> None:
@@ -25,13 +27,13 @@ def plan_health_items(summary: dict) -> list[dict]:
 
     by_owner = summary.get("drawdown_tax_deferred_by_owner") or {}
     if _blank(a.get("birth_year")):
-        add("warn", "Sri's birth year isn't set, so Required Minimum Distributions aren't modeled for Sri.",
+        add("warn", f"{me}'s birth year isn't set, so Required Minimum Distributions aren't modeled for {me}.",
             "/monte-carlo.html#assumptions")
-    if by_owner.get("spouse", 0.0) > 0.005 and _blank(a.get("spouse_birth_year")):
-        add("warn", "Anu owns Tax-deferred money but Anu's birth year isn't set, so Anu has no RMDs in the plan.",
+    if household.get("has_spouse", True) and by_owner.get("spouse", 0.0) > 0.005 and _blank(a.get("spouse_birth_year")):
+        add("warn", f"{partner} owns Tax-deferred money but {partner}'s birth year isn't set, so {partner} has no RMDs in the plan.",
             "/drawdown-planning.html")
     if by_owner.get("unassigned", 0.0) > 0.005:
-        add("info", "Some Tax-deferred money has no Owner, so it is modeled under Sri's birth year.",
+        add("info", f"Some Tax-deferred money has no Owner, so it is modeled under {me}'s birth year.",
             "/drawdown-planning.html")
     if _resolve_retirement_year(a) is None:
         add("info", "No retirement year is set, so withdrawals are modeled from the first plan year.",

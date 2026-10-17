@@ -34,7 +34,7 @@ from source.collector import link_item as plaid_link_item
 from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
-from source.common import app_settings, auth_store, backup, config, db, linked_data, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, linked_data, secrets_store
 from source.importer import xlsx_import
 from source.reporting import benefits, excel_export, scenarios as scenarios_module
 from source.reporting.aggregate import (
@@ -193,7 +193,7 @@ def _linked_institution_fields(account_id: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RetirementPlanDashboard/1.0"
+    server_version = "PlanDashboard/1.0"
 
     def log_message(self, format, *args):  # noqa: A002 -- stdlib signature
         pass
@@ -264,6 +264,13 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._send_html("<h1>Not found</h1>", status=404)
             return
+        if rel_path == "manifest.json":
+            # The brand lives in source.common.branding, not in this file.
+            data = (
+                data.decode("utf-8")
+                .replace("__PRODUCT_NAME__", branding.PRODUCT_NAME)
+                .replace("__PRODUCT_TAGLINE__", branding.PRODUCT_TAGLINE)
+            ).encode("utf-8")
         try:
             self.send_response(200)
             self.send_header("Content-Type", content_type)
@@ -320,6 +327,11 @@ class Handler(BaseHTTPRequestHandler):
                 ext = path.rsplit(".", 1)[-1].lower()
                 content_type = "image/svg+xml" if ext == "svg" else f"image/{ext}"
                 self._send_static_file(path.lstrip("/"), content_type)
+                return
+            if path == "/api/health":
+                # Public on purpose: the app launcher polls it to learn whether a
+                # copy is already running. Reveals nothing but the product name.
+                self._send_json({"ok": True, "app": branding.PRODUCT_NAME})
                 return
             if path == "/login.html":
                 self._send_html(_render_login_page(first_time=not auth_store.is_password_set()))
@@ -546,6 +558,17 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/scenarios/compare":
                 results = scenarios_module.compare_scenarios(build_summary(), db.list_scenarios())
                 self._send_json({"ok": True, "results": results})
+            elif path == "/api/quit":
+                # Setup's "Quit" button -- the app has no window of its own to close.
+                self._send_json({"ok": True})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+            elif path == "/api/household":
+                db.set_household(
+                    self_name=str(payload.get("self_name") or ""),
+                    spouse_name=str(payload.get("spouse_name") or ""),
+                    has_spouse=bool(payload.get("has_spouse")),
+                )
+                self._send_json({"ok": True, "household": db.household()})
             elif path == "/api/rentcast-key":
                 secrets_store.set_rentcast_api_key(payload.get("api_key") or "")
                 self._send_json({"ok": True})
@@ -993,7 +1016,7 @@ def run(*, open_browser: bool = True) -> None:
 
     server = ThreadingHTTPServer((bind_host, PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/" if bind_host == "127.0.0.1" else f"http://{bind_host}:{PORT}/ (and http://127.0.0.1:{PORT}/)"
-    print(f"Retirement Plan dashboard running at {url}")
+    print(f"{branding.PRODUCT_NAME} dashboard running at {url}")
     if open_browser:
         try:
             webbrowser.open(url)
@@ -1004,6 +1027,8 @@ def run(*, open_browser: bool = True) -> None:
     except KeyboardInterrupt:
         print("Shutting down.")
         server.shutdown()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

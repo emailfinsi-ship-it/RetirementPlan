@@ -74,14 +74,14 @@ class TestPlannedRowsAndApply(TempConfigTestCase):
     def test_rows_describe_each_person(self):
         rows = benefits.planned_rows(self.ASSUMPTIONS, this_year=2026)
         names = {r["name"]: r for r in rows["income"]}
-        sri = names["Social Security (Sri)"]
+        sri = names["Social Security (Person 1)"]
         self.assertEqual(sri["start_year"], 2032)
         self.assertAlmostEqual(sri["annual_amount"], 30_000)
-        anu = names["Social Security (Anu)"]
+        anu = names["Social Security (Person 2)"]
         self.assertEqual(anu["start_year"], 2029)
         self.assertAlmostEqual(anu["annual_amount"], 20_000 * benefits.benefit_factor(1967, 62))
         self.assertTrue(sri["inflates"] and sri["base_year"] == 2026)
-        med = {r["name"]: r for r in rows["expenses"]}["Medicare premiums (Sri)"]
+        med = {r["name"]: r for r in rows["expenses"]}["Medicare premiums (Person 1)"]
         # 300k joint is IRMAA tier 3: 405.80 + 37.50, plus 250 other, per month.
         self.assertAlmostEqual(med["annual_amount"], 12 * (405.80 + 37.50 + 250))
         self.assertEqual(med["start_year"], 2030)
@@ -99,8 +99,8 @@ class TestPlannedRowsAndApply(TempConfigTestCase):
         self.assertEqual(len(second["updated"]), 4)
         income = {r["name"]: r for r in db.list_line_items("income")}
         self.assertEqual(len(income), 2)
-        self.assertEqual(income["Social Security (Sri)"]["start_year"], 2035)
-        self.assertAlmostEqual(income["Social Security (Sri)"]["annual_amount"], 37_200)
+        self.assertEqual(income["Social Security (Person 1)"]["start_year"], 2035)
+        self.assertAlmostEqual(income["Social Security (Person 1)"]["annual_amount"], 37_200)
         self.assertEqual(len(db.list_line_items("expenses")), 2)
 
     def test_a_social_security_row_is_recognised_as_social_security_income(self):

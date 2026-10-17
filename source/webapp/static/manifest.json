@@ -1,7 +1,7 @@
 {
-  "name": "Retirement Plan",
-  "short_name": "Retirement",
-  "description": "Personal retirement, asset, and Monte Carlo planning dashboard.",
+  "name": "__PRODUCT_NAME__",
+  "short_name": "__PRODUCT_NAME__",
+  "description": "__PRODUCT_TAGLINE__ -- personal retirement, asset, and Monte Carlo planning.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

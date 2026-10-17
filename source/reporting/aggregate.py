@@ -693,6 +693,7 @@ def build_summary() -> dict:
         "income": income,
         "income_for_simulation": income_for_simulation,
         "assumptions": assumptions,
+        "household": db.household(),
         "linked_totals": linked,
         "linked_status": linked_status,
         "manual_asset_total": manual_asset_total,

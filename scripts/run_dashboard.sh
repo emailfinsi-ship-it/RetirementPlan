@@ -1,11 +1,11 @@
 #!/bin/bash
-# Sets up (if needed) and runs the Retirement Plan dashboard at
+# Sets up (if needed) and runs the dashboard at
 # http://127.0.0.1:8898/. --no-compile sidesteps a known olefile/pip
 # bytecompile quirk on some Python installs -- see FamilyFinanceTracker's
 # own install notes for the full story; harmless either way (Python
 # compiles bytecode lazily on first import regardless).
 #
-# Prefer scripts/build_standalone_app.sh instead if you just want a
+# Prefer scripts/build_mac_app.sh instead if you just want a
 # drop-in, no-setup app you can unzip and run on any Mac without Python
 # installed at all -- this script is the "run from source" path, which
 # still needs a working Python on the machine it runs on.

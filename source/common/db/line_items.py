@@ -49,7 +49,7 @@ _NUMERIC_FIELDS = {
 
 _INT_FLAG_FIELDS = {"inflates", "include_in_monte_carlo"}
 
-# assets.owner -- see source.common.db.owners.OWNER_OPTIONS. Duplicated
+# assets.owner -- see source.common.db.owners.owner_options(). Duplicated
 # as a literal rather than imported to keep this module's import graph
 # unchanged; owners.normalize_owner is the one place that logic lives
 # for callers outside this file.

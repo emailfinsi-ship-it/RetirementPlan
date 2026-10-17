@@ -24,7 +24,7 @@ from unittest.mock import Mock, patch
 
 import keyring
 
-from source.common import app_settings, auth_store, backup, config, db, secrets_store
+from source.common import branding, app_settings, auth_store, backup, config, db, secrets_store
 from source.webapp import dashboard
 from tests.testing_utils import FakeKeyring
 
@@ -197,7 +197,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertIn('href="/expense.html" class="active">Income/Expense</a>', body)
-        self.assertIn("<title>Retirement Plan -- Income/Expense</title>", body)
+        self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income/Expense</title>", body)
 
     def test_monte_carlo_page_renders_with_no_data(self):
         resp = self._get("/monte-carlo.html")
@@ -259,8 +259,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         try:
             status, payload = self._post("/api/benefits/apply", {})
             self.assertEqual(status, 200)
-            self.assertEqual(sorted(payload["created"]), ["Medicare premiums (Sri)", "Social Security (Sri)"])
-            self.assertEqual([r["name"] for r in db.list_line_items("income")], ["Social Security (Sri)"])
+            self.assertEqual(sorted(payload["created"]), ["Medicare premiums (Person 1)", "Social Security (Person 1)"])
+            self.assertEqual([r["name"] for r in db.list_line_items("income")], ["Social Security (Person 1)"])
         finally:
             db.clear_section("income")
             db.clear_section("expenses")
@@ -3549,7 +3549,7 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
     def test_birth_year_field_defaults_blank_and_shows_rmd_nudge(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<label>Sri\'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="">', body)
+        self.assertIn('<label>Person 1\'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="">', body)
         self.assertIn("Set a Birth year in Assumptions below", body)
 
     def test_setting_birth_year_persists_and_removes_the_rmd_nudge(self):
