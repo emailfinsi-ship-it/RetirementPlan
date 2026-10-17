@@ -119,3 +119,22 @@ def set_auto_sync_interval_days(days: int) -> None:
     data = _read()
     data["auto_sync_interval_days"] = max(1, int(days))
     _write(data)
+
+
+_DEFAULT_BACKUP_KEEP = 3
+_MAX_BACKUP_KEEP = 100
+
+
+def get_backup_keep() -> int:
+    """How many automatic backups of the database to keep (default 3)."""
+    try:
+        keep = int(_read().get("backup_keep") or _DEFAULT_BACKUP_KEEP)
+    except (TypeError, ValueError):
+        return _DEFAULT_BACKUP_KEEP
+    return min(max(keep, 1), _MAX_BACKUP_KEEP)
+
+
+def set_backup_keep(keep: int) -> None:
+    data = _read()
+    data["backup_keep"] = min(max(int(keep), 1), _MAX_BACKUP_KEEP)
+    _write(data)

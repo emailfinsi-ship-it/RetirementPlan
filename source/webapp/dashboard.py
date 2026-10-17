@@ -79,6 +79,7 @@ from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
 from source.webapp.pages.real_estate import _render_real_estate_page
 from source.webapp.pages.real_expenditure import _render_real_expenditure_page
 from source.webapp.pages.setup import _render_setup_page
+from source.webapp.pages.setup_wizard import _render_wizard_page
 from source.webapp.pages.summary import _render_summary_page
 
 # Every name imported above from render_helpers/pages.* is a re-export:
@@ -341,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/" and db.setup_needed():
                 # Brand-new install: land on the setup wizard, not an empty Summary.
-                self._send_redirect("/setup.html")
+                self._send_redirect("/setup-wizard.html")
             elif path in ("/", "/summary.html"):
                 self._send_html(_render_summary_page())
             elif path == "/asset.html":
@@ -366,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_legacy_planning_page())
             elif path == "/setup.html":
                 self._send_html(_render_setup_page())
+            elif path == "/setup-wizard.html":
+                self._send_html(_render_wizard_page())
             elif path == "/account-balances.html":
                 self._send_export_html(config.account_balances_html_path())
             elif path == "/portfolio-positions.html":
@@ -572,6 +575,13 @@ class Handler(BaseHTTPRequestHandler):
                     has_spouse=bool(payload.get("has_spouse")),
                 )
                 self._send_json({"ok": True, "household": db.household()})
+            elif path == "/api/backup-keep":
+                keep = int(payload.get("keep"))
+                if not 1 <= keep <= 100:
+                    raise ValueError("Keep between 1 and 100 backups.")
+                app_settings.set_backup_keep(keep)
+                backup.prune_backups()
+                self._send_json({"ok": True, "keep": backup.keep_count()})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)
                 self._send_json({"ok": True})

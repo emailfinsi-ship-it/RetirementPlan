@@ -26,15 +26,12 @@ import sqlite3
 import time
 from pathlib import Path
 
-from source.common import config
+from source.common import app_settings, config
 
 BACKUP_DIR_NAME = "backups"
-# How many backups to keep on disk at once. In practice this is roughly
-# one per calendar day the app is opened plus one per import, so this
-# comfortably covers a month-plus of ordinary daily use before the
-# oldest backups start rolling off -- generous for how little a small
-# SQLite file costs to keep around.
-KEEP_BACKUPS = 30
+# Default number of backups kept on disk. The user can change it on the
+# Setup page (stored in app_settings); keep_count() is what code uses.
+KEEP_BACKUPS = 3
 _FILENAME_PREFIX = "retirement_plan-"
 _FILENAME_SUFFIX = ".db"
 
@@ -83,7 +80,7 @@ def create_backup(reason: str = "manual") -> Path | None:
     reason-tagged filename (e.g. retirement_plan-20260923-110200-
     startup.db). Returns None and does nothing if there's no database
     yet -- a brand-new install with nothing to back up. Always prunes
-    down to KEEP_BACKUPS afterward, so a caller never has to remember to
+    down to keep_count() afterward, so a caller never has to remember to
     clean up itself."""
     db_path = config.DB_PATH
     if not db_path.exists():
@@ -119,9 +116,22 @@ def _existing_backups(target_dir: Path) -> list[Path]:
     return [p for p, _ in dated]
 
 
+def keep_count() -> int:
+    """How many backups to keep: the user's Setup-page choice when they
+    made one, else the KEEP_BACKUPS default."""
+    if app_settings._read().get("backup_keep"):
+        return app_settings.get_backup_keep()
+    return KEEP_BACKUPS
+
+
 def _prune_backups(target_dir: Path) -> None:
-    for stale in _existing_backups(target_dir)[KEEP_BACKUPS:]:
+    for stale in _existing_backups(target_dir)[keep_count():]:
         stale.unlink(missing_ok=True)
+
+
+def prune_backups() -> None:
+    """Deletes backups beyond keep_count(), oldest first."""
+    _prune_backups(backup_dir())
 
 
 def list_backups() -> list[dict]:
@@ -167,5 +177,6 @@ def ensure_daily_backup() -> Path | None:
     today, today gets backed up" -- which is reliable precisely because
     this program only ever runs while someone's actually using it."""
     if has_backup_today():
+        prune_backups()
         return None
     return create_backup(reason="startup")

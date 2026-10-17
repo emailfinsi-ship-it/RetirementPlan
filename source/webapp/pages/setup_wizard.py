@@ -40,10 +40,9 @@ def _wizard_card_html() -> str:
         intro = "Setup is finished. You can walk through the wizard again any time -- your answers are pre-filled."
     else:
         intro = "Walk through the basics step by step."
-    open_attr = " open" if (needed or not done) else ""
     return f"""
-<details class="card" id="wizard"{open_attr}>
-<summary style="font-weight:600; font-size:16px;">Setup wizard</summary>
+<div class="card" id="wizard">
+<h2 style="margin-top:0">Setup wizard</h2>
 <p class="muted">{intro}</p>
 <div class="wz-dots" style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 14px; font-size:12px;">{dots}</div>
 <style>
@@ -88,7 +87,7 @@ def _wizard_card_html() -> str:
   <h3 style="margin-top:0">Where does your money data come from?</h3>
   <p class="muted">Pick either or both -- you can do this after the wizard too.</p>
   <p><strong>Connect your accounts.</strong> Link banks and brokerages with Plaid for live balances and spending (needs your own free Plaid developer keys; they are kept only in this Mac's Keychain).</p>
-  <p><button type="button" onclick="wizardGoTo('plaid-keys')">Take me to Plaid setup</button></p>
+  <p><button type="button" onclick="location.href='/setup.html#plaid-keys'">Take me to Plaid setup</button></p>
   <p><strong>Type it in yourself.</strong> Add accounts, real estate, income and expenses by hand -- no bank connection needed.</p>
   <p><a href="/asset.html"><button type="button">Open the Assets page</button></a> <a href="/expense.html"><button type="button">Open Income/Expense</button></a></p>
 </div>
@@ -96,7 +95,7 @@ def _wizard_card_html() -> str:
 <div class="wz-step" data-step="4">
   <h3 style="margin-top:0">All set</h3>
   <p>Your plan is ready to look at. The Summary page shows net worth and the Monte Carlo result; everything else is a tab away.</p>
-  <p class="muted">Tip: the Setup tab keeps backups, the optional login password and all of these settings -- reopen this wizard from the top of this page whenever you like.</p>
+  <p class="muted">Tip: the Setup tab keeps backups, the optional login password and all of these settings -- you can reopen this wizard from the top of the Setup page whenever you like.</p>
 </div>
 
 <div class="wz-nav">
@@ -149,15 +148,17 @@ def _wizard_card_html() -> str:
   }};
   window.wizardFinish = function(goSummary) {{
     postJSON('/api/setup-complete', {{}}).then(function() {{
-      if (goSummary) {{ location.href = '/summary.html'; }} else {{ location.reload(); }}
+      location.href = goSummary ? '/summary.html' : '/setup.html';
     }}).catch(function(e) {{ alert(e.message); }});
-  }};
-  window.wizardGoTo = function(id) {{
-    var el = document.getElementById(id);
-    if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}
   }};
   show(0);
 }})();
 </script>
-</details>
+</div>
 """
+
+
+def _render_wizard_page() -> str:
+    from source.webapp.render_helpers import _shell
+
+    return _shell(title="Setup wizard", active="setup.html", body=_wizard_card_html())

@@ -127,7 +127,6 @@ class TestBranding(DashboardTestCase):
             self.assertIn('src="/icons/logo.svg"', body, path)
             self.assertIn(branding.PRODUCT_TAGLINE, body, path)
             self.assertIn(branding.PRODUCT_HEADLINE, body, path)
-            self.assertIn(branding.PRODUCT_MOTTO, body, path)
             self.assertNotIn("Sri", body, path)
             self.assertNotIn("Anu", body, path)
 
@@ -143,13 +142,24 @@ class TestLoginBranding(DashboardTestCase):
 
         page = _render_login_page()
         for text in (branding.PRODUCT_NAME, branding.PRODUCT_TAGLINE, branding.PRODUCT_HEADLINE,
-                     branding.PRODUCT_SUBLINE, branding.PRODUCT_MOTTO, "/icons/logo.svg"):
+                     branding.PRODUCT_SUBLINE, "/icons/logo.svg"):
             self.assertIn(text, page)
 
     def test_logo_is_served_without_login(self):
         resp = self._get("/icons/logo.svg")
         self.assertEqual(resp.status, 200)
         self.assertIn("image/svg+xml", resp.getheader("Content-Type"))
+
+
+class TestMottoPlacement(DashboardTestCase):
+    def test_motto_is_on_monte_carlo_legacy_and_drawdown_only(self):
+        for path in ("/monte-carlo.html", "/legacy-planning.html", "/drawdown-planning.html"):
+            body = self._get(path).read().decode("utf-8")
+            self.assertIn(branding.PRODUCT_MOTTO, body, path)
+        for path in ("/summary.html", "/setup.html", "/asset.html"):
+            self.assertNotIn(branding.PRODUCT_MOTTO, self._get(path).read().decode("utf-8"), path)
+        from source.webapp.pages.login import _render_login_page
+        self.assertNotIn(branding.PRODUCT_MOTTO, _render_login_page())
 
 
 class TestBrandIsDisplayOnly(unittest.TestCase):

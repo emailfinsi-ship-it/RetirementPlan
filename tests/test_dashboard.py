@@ -175,7 +175,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
     def test_every_page_returns_200(self):
         for path in (
             "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/expense.html",
-            "/real-estate.html", "/monte-carlo.html", "/setup.html",
+            "/real-estate.html", "/monte-carlo.html", "/setup.html", "/setup-wizard.html",
         ):
             with self.subTest(path=path):
                 resp = self._get(path)
@@ -186,7 +186,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         resp = self._get("/")
         resp.read()
         self.assertEqual(resp.status, 302)
-        self.assertEqual(resp.getheader("Location"), "/setup.html")
+        self.assertEqual(resp.getheader("Location"), "/setup-wizard.html")
 
     def test_cache_control_no_store(self):
         resp = self._get("/summary.html")

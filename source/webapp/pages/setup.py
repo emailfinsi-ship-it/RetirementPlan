@@ -7,7 +7,6 @@ import html
 
 from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
-from source.webapp.pages.setup_wizard import _wizard_card_html
 from source.webapp.render_helpers import _shell
 
 
@@ -92,9 +91,8 @@ def _render_setup_page() -> str:
     )
 
     household_html = _household_card_html()
-    wizard_html = _wizard_card_html()
     body = f"""
-{wizard_html}
+<p class="muted">New here? <a href="/setup-wizard.html">Run the setup wizard</a> for a guided walk through the basics.</p>
 {household_html}
 <details class="card" style="padding:12px 16px;">
 <summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
@@ -137,12 +135,14 @@ def _render_setup_page() -> str:
   <button type="submit" class="primary">Connect</button>
 </form>
 
-<h2>Linked accounts</h2>
+<details class="card" id="linked-accounts-card" style="padding:12px 16px;">
+<summary style="font-weight:600;">Linked accounts ({len(items)})</summary>
 <table class="sortable">
 <thead><tr><th>Item key</th><th>Institution</th><th>Products</th><th>Env</th><th>Plaid app</th><th>Last synced</th><th></th></tr></thead>
 <tbody>{items_rows_html}</tbody>
 </table>
 <p class="muted">"Sync now" (pulls current balances/holdings/transactions from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, <a href="/linked-positions.html">Linked Positions</a>, and <a href="/real-expenditure.html">Real Expenditure</a> pages now, next to the data it actually refreshes. An Item's "Enable Transactions" button above (shown until its Products column already includes "transactions") opens Plaid Link once more so it can start syncing spend history for <a href="/real-expenditure.html">Real Expenditure</a> -- no need to unlink and relink it from scratch.</p>
+</details>
 
 <h2>Data &amp; output locations</h2>
 <p class="status-line">Data (retirement_plan.db): {html.escape(data_status['current'])}</p>
@@ -153,8 +153,9 @@ def _render_setup_page() -> str:
 </form>
 <p class="muted">Writes a fresh .xlsx snapshot of everything currently in this program to the output folder.</p>
 
-<h2>Backups</h2>
-<p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.KEEP_BACKUPS}. There's no in-app restore yet -- to roll back, close this app and copy the backup file you want over data/retirement_plan.db by hand.</p>
+<details class="card" id="backups-card" style="padding:12px 16px;">
+<summary style="font-weight:600;">Backups ({len(backups)})</summary>
+<p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.keep_count()} (older ones are deleted automatically). There's no in-app restore yet -- to roll back, close this app and copy the backup file you want over data/retirement_plan.db by hand.</p>
 <p class="status-line">{backup_status_line}</p>
 <form class="inline" onsubmit="event.preventDefault();
   var btn = this.querySelector('button');
@@ -168,8 +169,18 @@ def _render_setup_page() -> str:
 <thead><tr><th>When</th><th>File</th><th class="num">Size</th></tr></thead>
 <tbody>{backup_rows_html}</tbody>
 </table>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/backup-keep', {{keep: this.keep.value}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Backups to keep (1-100)<input name="keep" type="number" min="1" max="100" step="1" value="{backup.keep_count()}" style="width:80px"></label>
+  <button type="submit">Save</button>
+</form>
+</details>
 
+<details class="card" id="category-rules-card" style="padding:12px 16px;">
+<summary style="font-weight:600;">Category rules ({len(db.list_category_rules())})</summary>
 {category_rules_html}
+</details>
 {auto_sync_html}
 {rentcast_html}
 {security_html}
