@@ -339,7 +339,10 @@ class Handler(BaseHTTPRequestHandler):
             if auth_store.is_password_set() and not self._has_valid_session():
                 self._send_redirect("/login.html")
                 return
-            if path in ("/", "/summary.html"):
+            if path == "/" and db.setup_needed():
+                # Brand-new install: land on the setup wizard, not an empty Summary.
+                self._send_redirect("/setup.html")
+            elif path in ("/", "/summary.html"):
                 self._send_html(_render_summary_page())
             elif path == "/asset.html":
                 self._send_html(_render_asset_page())
@@ -569,6 +572,9 @@ class Handler(BaseHTTPRequestHandler):
                     has_spouse=bool(payload.get("has_spouse")),
                 )
                 self._send_json({"ok": True, "household": db.household()})
+            elif path == "/api/setup-complete":
+                db.set_setup_complete(True)
+                self._send_json({"ok": True})
             elif path == "/api/rentcast-key":
                 secrets_store.set_rentcast_api_key(payload.get("api_key") or "")
                 self._send_json({"ok": True})

@@ -7,6 +7,7 @@ import html
 
 from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
+from source.webapp.pages.setup_wizard import _wizard_card_html
 from source.webapp.render_helpers import _shell
 
 
@@ -91,7 +92,9 @@ def _render_setup_page() -> str:
     )
 
     household_html = _household_card_html()
+    wizard_html = _wizard_card_html()
     body = f"""
+{wizard_html}
 {household_html}
 <details class="card" style="padding:12px 16px;">
 <summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
@@ -109,11 +112,11 @@ def _render_setup_page() -> str:
 </form>
 </details>
 
-<h2>Plaid API keys</h2>
+<h2 id="plaid-keys">Plaid API keys</h2>
 <p class="muted">Two independent Plaid credential profiles -- Primary and Secondary -- each with its own client ID and per-environment secret, stored only in this Mac's Keychain (never sent anywhere except directly to Plaid). Most people only ever need Primary; Secondary is there if you have a second Plaid developer account (e.g. a separate app, or you've hit a per-app linked-Item limit) and want this dashboard to link/sync accounts under both side by side.</p>
 {plaid_credentials_html}
 
-<h2>Connect an account</h2>
+<h2 id="connect-account">Connect an account</h2>
 <p class="muted">Opens Plaid Link in a new browser tab -- log in to your bank/brokerage there (your credentials go straight to the bank/Plaid, never through this program). This request waits (up to 5 minutes) until you finish in that tab.</p>
 <p class="muted">"Full account number" only works for a checking, savings, or cash-management account (Plaid's Auth product doesn't cover investment, loan, or credit accounts at all) -- check it when connecting one of those and this program stores the real account/routing number alongside the balance, instead of just the last few digits.</p>
 <form class="inline" onsubmit="event.preventDefault();

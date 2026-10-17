@@ -102,7 +102,7 @@ from source.common.db.owners import (
     set_household,
     spouse_name,
 )
-from source.common.db.meta import get_meta, set_meta
+from source.common.db.meta import get_meta, set_meta, set_setup_complete, setup_complete, setup_needed
 from source.common.db.plaid import (
     account_balances_from_payload,
     delete_plaid_item,
@@ -177,6 +177,9 @@ __all__ = [
     "set_account_owner",
     "get_meta",
     "set_meta",
+    "set_setup_complete",
+    "setup_complete",
+    "setup_needed",
     "list_category_rules",
     "list_scenarios",
     "get_scenario",

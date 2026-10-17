@@ -60,6 +60,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 <p class="muted" style="margin:0; font-size:12px; letter-spacing:.06em; text-transform:uppercase;">{branding.PRODUCT_TAGLINE}</p>
 <p style="margin:14px 0 4px; font-weight:600;">{branding.PRODUCT_HEADLINE}</p>
 <p class="muted" style="margin:0; font-size:13px;">{branding.PRODUCT_SUBLINE}</p>
+<p style="margin:10px 0 0; font-size:13px; font-style:italic;">{branding.PRODUCT_MOTTO}</p>
 </div>
 <div class="card login-card">
 <h2 style="margin-top:0">{heading}</h2>

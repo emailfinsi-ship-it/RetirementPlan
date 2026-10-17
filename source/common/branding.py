@@ -15,6 +15,7 @@ orphan every existing install's saved secrets and data.
 PRODUCT_NAME = "FinSI"
 PRODUCT_TAGLINE = "Financial Super Intelligence"
 PRODUCT_HEADLINE = "Your financial future, intelligently planned."
+PRODUCT_MOTTO = "See your future. Shape your retirement."
 PRODUCT_SUBLINE = "Track your wealth. Anticipate your needs. Retire with confidence."
 BUNDLE_ID = "com.finsi.app"
 

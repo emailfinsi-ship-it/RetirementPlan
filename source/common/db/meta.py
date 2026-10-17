@@ -22,3 +22,29 @@ def set_meta(key: str, value) -> None:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, str(value)),
         )
+
+
+_META_SETUP_COMPLETE = "setup_complete"
+
+
+def setup_complete() -> bool:
+    """True once the first-run wizard was finished (or dismissed)."""
+    return get_meta(_META_SETUP_COMPLETE) == "1"
+
+
+def set_setup_complete(done: bool = True) -> None:
+    set_meta(_META_SETUP_COMPLETE, "1" if done else "0")
+
+
+def setup_needed() -> bool:
+    """A brand-new install: wizard never finished AND nothing entered yet.
+    An existing install that already has accounts or line items is never
+    sent to the wizard, even if it predates the flag."""
+    if setup_complete():
+        return False
+    from source.common.db.line_items import list_line_items
+    from source.common.db.plaid import list_plaid_items
+
+    if list_plaid_items():
+        return False
+    return not any(list_line_items(section) for section in ("assets", "real_estate", "expenses", "income"))

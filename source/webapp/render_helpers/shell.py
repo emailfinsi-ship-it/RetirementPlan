@@ -18,6 +18,7 @@ from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THE
 # still work -- and shows a small "section" row under the tab bar to hop
 # between the pair. Each group's tab links to its first page.
 NAV_ITEMS = (
+    ("setup.html", "Setup"),
     ("summary.html", "Summary"),
     ("asset.html", "Asset"),
     ("linked-accounts.html", "Linked Accounts"),
@@ -25,7 +26,6 @@ NAV_ITEMS = (
     ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Monte Carlo Simulation"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
-    ("setup.html", "Setup"),
 )
 
 NAV_GROUPS = (
@@ -65,6 +65,7 @@ PAGE_SHELL = """<!doctype html>
     <div>
       <h1 style="margin:0;">{product_name}</h1>
       <p class="muted" style="margin:2px 0 0; font-size:11px; letter-spacing:.06em; text-transform:uppercase;">{product_tagline}</p>
+      <p style="margin:3px 0 0; font-size:12px;"><strong>{product_headline}</strong> <span class="muted">{product_motto}</span></p>
     </div>
   </div>
   <div style="display:flex; gap:8px; align-items:flex-start;">{theme_toggle_html}{logout_html}</div>
@@ -1140,7 +1141,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_subnav_html(active) + body, current_year=current_year,
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), product_motto=html.escape(branding.PRODUCT_MOTTO), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
     )
 
 
