@@ -65,7 +65,7 @@ THEME_TOGGLE_HTML = (
 PAGE_CSS = """
   :root {
     --brand: #0071e3; --brand-dark: #0059b2; --brand-soft: #e8f1fc;
-    --ink: #1d1d1f; --ink-muted: #6e6e73; --ink-soft: #424245; --navy: #14283f;
+    --ink: #1d1d1f; --ink-muted: #6e6e73; --ink-soft: #424245; --navy: #14283f; --raise-top: #ffffff; --raise-bottom: #eef1f7; --hi: rgba(255,255,255,0.95); --lo: rgba(20,40,80,0.07); --drop: 20,40,80;
     --surface: #ffffff; --surface-alt: #f5f5f7; --border: #d2d2d7;
     --success: #1f8a3f; --warn: #b36200; --danger: #d70015;
     --radius: 12px; --radius-lg: 18px;
@@ -89,7 +89,7 @@ PAGE_CSS = """
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
-      --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8;
+      --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8; --raise-top: #3b3b3f; --raise-bottom: #242426; --hi: rgba(255,255,255,0.12); --lo: rgba(0,0,0,0.45); --drop: 0,0,0;
       --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
       --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
       --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
@@ -98,7 +98,7 @@ PAGE_CSS = """
   }
   :root[data-theme="dark"] {
     --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
-    --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8;
+    --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8; --raise-top: #3b3b3f; --raise-bottom: #242426; --hi: rgba(255,255,255,0.12); --lo: rgba(0,0,0,0.45); --drop: 0,0,0;
     --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
     --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
@@ -130,20 +130,20 @@ PAGE_CSS = """
       -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
   }
   nav a { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 7px 4px 6px;
-    border-radius: 12px; text-decoration: none; color: var(--ink-soft); font-size: 11.5px; line-height: 1.15;
+    border-radius: 14px; text-decoration: none; color: var(--ink-soft); font-size: clamp(11.5px, 1.15vw, 13.5px); line-height: 1.15;
     font-weight: 500; transition: background 0.15s var(--ease), color 0.15s var(--ease);
     flex: 1 1 0; text-align: center; }
   /* iOS-style 3D icon tile: vertical gradient, glossy top highlight, inner
      bevel (light top edge, dark bottom edge) and a soft cast shadow. */
-  nav a .ni { position: relative; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+  nav a .ni { position: relative; width: clamp(48px, 5.4vw, 64px); aspect-ratio: 1; border-radius: 23%; display: grid; place-items: center;
     background: linear-gradient(180deg, var(--c1), var(--c2));
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -2px 3px rgba(0,0,0,0.25),
       0 4px 7px rgba(0,0,0,0.28), 0 1px 1px rgba(0,0,0,0.25);
     transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); }
   nav a .ni::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 52%;
-    border-radius: 10px 10px 60% 60% / 10px 10px 14px 14px;
+    border-radius: 23% 23% 60% 60% / 23% 23% 30% 30%;
     background: linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0.02)); pointer-events: none; }
-  nav a .ni svg { position: relative; width: 23px; height: 23px; fill: none; stroke: #fff; stroke-width: 2;
+  nav a .ni svg { position: relative; width: 54%; height: 54%; fill: none; stroke: #fff; stroke-width: 2;
     stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4)); }
   nav a:not(.active):hover .ni { transform: translateY(-2px); }
   nav a:not(.active):hover { color: var(--ink); }
@@ -163,12 +163,23 @@ PAGE_CSS = """
   td.num, th.num { text-align: right; }
   tfoot td { font-weight: 600; border-top: 2px solid var(--border); background: var(--surface-alt); }
   .tiles { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 22px 0; }
+  /* Apple-style raised tiles: a faint top-to-bottom gradient, a bright
+     inner top edge and a soft inner bottom edge (the bevel), then a tight
+     contact shadow plus a wide soft one underneath for depth. */
   .tile { flex: 1 1 170px; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
-    background: var(--surface); box-shadow: var(--shadow-sm); }
+    background: linear-gradient(180deg, var(--raise-top), var(--raise-bottom));
+    box-shadow: inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo),
+      0 1px 1px rgba(var(--drop),0.10), 0 6px 14px rgba(var(--drop),0.12), 0 12px 24px -8px rgba(var(--drop),0.10);
+    transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease); }
+  .tile:hover { transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo),
+      0 2px 2px rgba(var(--drop),0.10), 0 12px 22px rgba(var(--drop),0.18), 0 20px 32px -10px rgba(var(--drop),0.14); }
   .tile .label { font-size: 11px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
   .tile .value { font-size: 21px; font-weight: 700; margin-top: 6px; color: var(--ink); letter-spacing: -0.01em; }
   .card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin: 14px 0;
-    background: var(--surface); box-shadow: var(--shadow-sm); }
+    background: linear-gradient(180deg, var(--raise-top), color-mix(in srgb, var(--raise-bottom) 45%, var(--raise-top)));
+    box-shadow: inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo),
+      0 1px 1px rgba(var(--drop),0.08), 0 8px 18px rgba(var(--drop),0.09), 0 16px 30px -12px rgba(var(--drop),0.08); }
   /* A <details>-based card (currently just _line_chart_html's "no data
      yet" state) -- collapsed by default so a chart with nothing to show
      yet doesn't claim a full card's worth of space; clicking the
@@ -375,7 +386,7 @@ PAGE_CSS = """
        little breathing room) -- otherwise whichever tab you're actually
        on can land flush against the edge, half cut off, which reads as
        broken rather than "swipe for more". */
-    nav a { flex: 0 0 auto; min-width: 76px; }
+    nav a { flex: 0 0 auto; min-width: 84px; }
     /* A table wider than the phone screen (Asset/Expense/Linked
        Positions all have several columns) scrolls horizontally
        within its own card instead of forcing the whole page to
