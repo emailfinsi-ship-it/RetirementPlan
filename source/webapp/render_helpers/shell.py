@@ -64,7 +64,7 @@ PAGE_SHELL = """<!doctype html>
     <img src="/icons/logo.svg" alt="" width="84" height="84" style="border-radius:18px; flex:none;">
     <div>
       <h1 style="margin:0;">{product_name}</h1>
-      <p class="muted" style="margin:2px 0 0; font-size:11px; letter-spacing:.06em; text-transform:uppercase;">{product_tagline}</p>
+      <p class="brand-tagline" style="margin:2px 0 0; font-size:13px;">{product_tagline}</p>
       <p style="margin:3px 0 0; font-size:12px;"><strong>{product_headline}</strong></p>
     </div>
   </div>

@@ -65,7 +65,7 @@ THEME_TOGGLE_HTML = (
 PAGE_CSS = """
   :root {
     --brand: #0071e3; --brand-dark: #0059b2; --brand-soft: #e8f1fc;
-    --ink: #1d1d1f; --ink-muted: #6e6e73; --ink-soft: #424245;
+    --ink: #1d1d1f; --ink-muted: #6e6e73; --ink-soft: #424245; --navy: #14283f;
     --surface: #ffffff; --surface-alt: #f5f5f7; --border: #d2d2d7;
     --success: #1f8a3f; --warn: #b36200; --danger: #d70015;
     --radius: 12px; --radius-lg: 18px;
@@ -89,7 +89,7 @@ PAGE_CSS = """
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
-      --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc;
+      --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8;
       --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
       --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
       --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
@@ -98,12 +98,13 @@ PAGE_CSS = """
   }
   :root[data-theme="dark"] {
     --brand: #0a84ff; --brand-dark: #409cff; --brand-soft: rgba(10,132,255,0.18);
-    --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc;
+    --ink: #f5f5f7; --ink-muted: #98989d; --ink-soft: #c7c7cc; --navy: #8db4e8;
     --surface: #2c2c2e; --surface-alt: #1c1c1e; --border: #38383a;
     --success: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
     --shadow-md: 0 16px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
   }
+  .brand-tagline { color: var(--navy); font-weight: 600; letter-spacing: .02em; }
   #theme-toggle { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;

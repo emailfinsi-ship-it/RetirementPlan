@@ -57,7 +57,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 <div style="text-align:center; padding-bottom:14px; border-bottom:1px solid var(--border, #e5e5ea); margin-bottom:16px;">
 <img src="/icons/logo.svg" alt="" width="76" height="76" style="border-radius:17px;">
 <h1 style="margin:8px 0 2px;">{branding.PRODUCT_NAME}</h1>
-<p class="muted" style="margin:0; font-size:12px; letter-spacing:.06em; text-transform:uppercase;">{branding.PRODUCT_TAGLINE}</p>
+<p class="brand-tagline" style="margin:0; font-size:14px;">{branding.PRODUCT_TAGLINE}</p>
 <p style="margin:14px 0 4px; font-weight:600;">{branding.PRODUCT_HEADLINE}</p>
 <p class="muted" style="margin:0; font-size:13px;">{branding.PRODUCT_SUBLINE}</p>
 </div>
