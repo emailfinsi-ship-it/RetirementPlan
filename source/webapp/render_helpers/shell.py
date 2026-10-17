@@ -61,7 +61,7 @@ PAGE_SHELL = """<!doctype html>
 <body data-current-year="{current_year}">
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
   <div style="display:flex; align-items:center; gap:12px;">
-    <img src="/icons/logo.svg" alt="" width="46" height="46" style="border-radius:11px; flex:none;">
+    <img src="/icons/logo.svg" alt="" width="84" height="84" style="border-radius:18px; flex:none;">
     <div>
       <h1 style="margin:0;">{product_name}</h1>
       <p class="muted" style="margin:2px 0 0; font-size:11px; letter-spacing:.06em; text-transform:uppercase;">{product_tagline}</p>
