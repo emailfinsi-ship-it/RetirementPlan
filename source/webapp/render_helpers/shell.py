@@ -1142,7 +1142,7 @@ def _motto_html(active: str) -> str:
     if active not in _MOTTO_PAGES:
         return ""
     return (
-        f'<p class="motto" style="margin:0 0 10px; font-size:14px; font-style:italic;">'
+        f'<p class="motto brand-tagline" style="margin:0 0 10px; font-size:15px; font-style:italic;">'
         f'{html.escape(branding.PRODUCT_MOTTO)}</p>'
     )
 
