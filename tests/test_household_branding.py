@@ -124,6 +124,8 @@ class TestBranding(DashboardTestCase):
             body = self._get(path).read().decode("utf-8")
             self.assertIn(f"<title>{branding.PRODUCT_NAME} -- ", body, path)
             self.assertNotIn("Retirement Plan --", body, path)
+            self.assertIn('src="/icons/logo.svg"', body, path)
+            self.assertIn(branding.PRODUCT_TAGLINE, body, path)
             self.assertNotIn("Sri", body, path)
             self.assertNotIn("Anu", body, path)
 

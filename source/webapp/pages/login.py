@@ -40,6 +40,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{branding.PRODUCT_NAME} -- Log in</title>
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/icons/logo.svg">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#0071e3">
 <meta name="apple-mobile-web-app-capable" content="yes">

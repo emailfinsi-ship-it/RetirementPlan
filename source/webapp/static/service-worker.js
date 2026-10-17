@@ -14,9 +14,10 @@
 // connection-error screen when a page navigation fails outright (the
 // Mac this dashboard runs on is off, asleep, or unreachable).
 
-const CACHE_NAME = "retirement-plan-static-v1";
+const CACHE_NAME = "retirement-plan-static-v2";
 const STATIC_ASSETS = [
   "/manifest.json",
+  "/icons/logo.svg",
   "/icons/icon-180.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
