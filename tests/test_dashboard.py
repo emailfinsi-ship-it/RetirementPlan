@@ -284,7 +284,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
 
     def test_stress_test_tables_scroll_inside_their_own_box(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")
-        section = body[body.index("Historical recession stress test"):body.index("Sensitivity: what moves the needle")]
+        section = body[body.index("Historical recession stress test"):body.index("What moves your plan most")]
         self.assertEqual(section.count('<div style="overflow-x:auto">\n<table'), section.count("<table"))
 
     def test_how_it_works_arrow_css_escape_is_a_real_css_escape(self):
@@ -3218,7 +3218,7 @@ class TestHistoricalStressTestTable(DashboardTestCase):
         # "sortable" table, which would otherwise get counted as part of
         # the stress-test section by tests that count sortable tables in
         # this slice.
-        end = body.index("<h2>Sensitivity: what moves the needle</h2>")
+        end = body.index("<h2>What moves your plan most</h2>")
         return body[start:end]
 
     def test_section_and_both_tables_are_present(self):
@@ -3390,7 +3390,7 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
         # "sortable" table, which would otherwise get counted as part of
         # the stress-test section by tests that count sortable tables in
         # this slice.
-        end = body.index("<h2>Sensitivity: what moves the needle</h2>")
+        end = body.index("<h2>What moves your plan most</h2>")
         return body[start:end]
 
     def test_checkbox_is_checked_by_default(self):
@@ -3506,7 +3506,7 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
 
 
 class TestMonteCarloSensitivitySection(DashboardTestCase):
-    """The Monte Carlo tab's "Sensitivity: what moves the needle" tornado
+    """The Monte Carlo tab's "What moves your plan most" tornado
     view (source.reporting.monte_carlo.sensitivity) -- rendered by
     _sensitivity_html in monte_carlo_page.py, between the historical
     stress test and the Assumptions form."""
@@ -3523,7 +3523,7 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         resp = self._get("/monte-carlo.html")
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
-        self.assertIn("Sensitivity: what moves the needle", body)
+        self.assertIn("What moves your plan most", body)
         for label in ("Expected return", "Return volatility", "Inflation", "Plan horizon", "Expense level", "Income level"):
             self.assertIn(label, body)
 
@@ -3536,7 +3536,7 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         stress_idx = body.index("Historical recession stress test")
-        sensitivity_idx = body.index("Sensitivity: what moves the needle")
+        sensitivity_idx = body.index("What moves your plan most")
         assumptions_idx = body.index('id="assumptions"')
         self.assertLess(stress_idx, sensitivity_idx)
         self.assertLess(sensitivity_idx, assumptions_idx)

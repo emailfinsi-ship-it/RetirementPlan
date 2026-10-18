@@ -233,3 +233,37 @@ class TestSpendingChartInteractivity(DashboardTestCase):
             self.assertEqual(len(row["v"]), len(data["names"]))
         first = data["rows"][0]
         self.assertIn(f"<td>{first['year']}</td>", body)
+
+
+class TestMonteCarloPersonalPage(DashboardTestCase):
+    """The Monte Carlo tab reads as "Will my money last?": a plain verdict,
+    a retirement-year slider, a "What could go wrong?" group with one
+    sentence per historical crash, and advanced inputs tucked away."""
+
+    def setUp(self):
+        demo_data.seed_sample_household()
+
+    def tearDown(self):
+        demo_data.remove_sample_data()
+
+    def test_page_is_personal_and_organised(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        for needle in ("Will my money last?", "market simulations your savings last", "When could I retire?",
+                       'id="rx-slider"', "What could go wrong?", "markets replayed from today",
+                       "The biggest lever for your plan", "What moves your plan most", "Advanced settings"):
+            self.assertIn(needle, body)
+        self.assertLess(body.index('id="rx-slider"'), body.index("What could go wrong?"))
+        self.assertLess(body.index("What could go wrong?"), body.index("What moves your plan most"))
+
+    def test_advanced_inputs_still_saved_once(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        for name in ("iterations", "return_volatility_pct", "annual_income_offset", "taxable_gains_fraction_pct"):
+            self.assertEqual(body.count(f'name="{name}"'), 1)
+        adv = body[body.index("Advanced settings"):]
+        self.assertLess(adv.index('name="iterations"'), adv.index("Save &amp; re-run"))
+
+    def test_slider_needs_a_retirement_year(self):
+        db.set_assumptions({"retirement_year": ""})
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertNotIn('id="rx-slider"', body)
+        self.assertIn("When could I retire?", body)

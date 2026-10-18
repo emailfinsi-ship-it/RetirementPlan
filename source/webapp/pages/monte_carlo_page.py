@@ -170,20 +170,39 @@ def _render_monte_carlo_page() -> str:
         f'<label>{html.escape(db.spouse_name())}\'s birth year (for their RMDs)<input name="spouse_birth_year" type="number" '
         f'step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get("spouse_birth_year") or ""))}"></label>'
     ) if db.has_spouse() else ""
+    status = pres.plan_status(result["success_rate"])
+    verdict = pres.verdict_sentence(result, assumptions, s["next_year_expense_need"], _money)
+    explorer_html = _retire_explorer_html(retirement_year, birth, result["success_rate"])
+    advanced_fields = (
+        f'''<label>Return volatility %<input name="return_volatility_pct" type="number" step="0.01" value="{_pct(assumptions, 'return_volatility', 0.12)}"></label>
+  <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
+  <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
+  <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>'''
+    )
     body = f"""
-<div class="card-head"><h2 style="margin:0">Monte Carlo simulation</h2>{blocks.dollars_toggle_html(mode)}</div>
-<p class="muted small">Thousands of possible market futures for your plan. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
-<details class="how-it-works"><summary>How this works</summary><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p></details>
-<div class="tiles">{pool_tiles}</div>
+<div class="card-head"><h2 style="margin:0">Will my money last?</h2>{blocks.dollars_toggle_html(mode)}</div>
+<div class="card hero tone-{status['tone']}">
+<div class="hero-top"><span class="badge badge-{status['tone']}">&#9679; {html.escape(status['label'])}</span></div>
+<p class="hero-verdict" style="margin:6px 0 10px">{html.escape(verdict)}</p>
 <div class="tiles">
   <div class="tile"><div class="label">{pres.LABEL_CHANCE}</div><div class="value">{pres.percent_display(result['success_rate'])}</div></div>
   <div class="tile"><div class="label">{pres.LABEL_CAUTIOUS}</div><div class="value">{_money(display['p10_ending_balance'])}</div></div>
   <div class="tile"><div class="label">{pres.LABEL_TYPICAL}</div><div class="value">{_money(display['median_ending_balance'])}</div></div>
   <div class="tile"><div class="label">{pres.LABEL_STRONG}</div><div class="value">{_money(display['p90_ending_balance'])}</div></div>
+</div>
+<p class="muted small" style="margin-bottom:0">This is a Monte Carlo simulation: {result['iterations']:,} possible market futures run against your own savings and spending. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
+</div>
+{chart}
+{explorer_html}
+<details class="how-it-works"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
+<div class="tiles">{pool_tiles}
   <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
 {tax_tiles}</div>
-{chart}
-<h2>S&amp;P 500 historical-returns simulation</h2>
+<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
+</details>
+<h2>What could go wrong?</h2>
+<p class="muted small">Three ways to test your plan against bad luck: markets replaying their real history, real recessions starting the day your plan does, and what changes if you sell a property.</p>
+<h3 class="sub">Real market history replayed &mdash; S&amp;P 500 historical-returns simulation</h3>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p></details>
 <p class="note-box"><strong>Read this as a cross-check, not a forecast.</strong> It replays the real S&amp;P 500&#x27;s past years, which were one unusually strong stretch for one country&#x27;s stocks and never include a future shock. A very high result here is a best-case reference; the simulation above (and the stress test below) are the better guide to planning.</p>
 <div class="tiles">
@@ -207,15 +226,15 @@ def _render_monte_carlo_page() -> str:
   fields.apply_drawdown_tax = this.apply_drawdown_tax.checked ? 1 : 0;
   postJSON('/api/assumptions', fields).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>Expected return %<input name="expected_return_pct" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
-  <label>Return volatility %<input name="return_volatility_pct" type="number" step="0.01" value="{_pct(assumptions, 'return_volatility', 0.12)}"></label>
   <label>Inflation %<input name="inflation_rate_pct" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
   <label>Plan horizon (years)<input name="plan_horizon_years" type="number" value="{html.escape(str(assumptions.get('plan_horizon_years', 40)))}"></label>
-  <label>Iterations<input name="iterations" type="number" value="{html.escape(str(assumptions.get('iterations', 1000)))}"></label>
-  <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
   <label>{html.escape(db.self_name())}'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
   {spouse_birth_field}
   <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
-  <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>
+  <details style="flex:1 1 100%;"><summary style="cursor:pointer; color:var(--brand); font-size:12px; font-weight:500;">Advanced settings (volatility, iterations, income offset, taxable gains)</summary>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+  {advanced_fields}
+    </div></details>
   <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
@@ -395,8 +414,10 @@ def _historical_stress_test_html(result: dict) -> str:
         if hidden_year_count else ""
     )
     sp500_look = result.get("sp500_lookback") or sp500_lookback({})
+    personal_lines_html = _stress_personal_lines_html(result["scenarios"])
     return f"""
-<h2>What if markets fall? Historical recession stress test</h2>
+<h3 class="sub">What if markets fall? Historical recession stress test</h3>
+{personal_lines_html}
 <p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. Two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption (listed first, so every other column reads against it), and the S&amp;P 500's actual compound average over the most recent {sp500_look['years']} years ({sp500_look['first_year']}-{sp500_look['last_year']}) -- as many years as your plan horizon, instead of an all-time average.</p>
 <div style="overflow-x:auto">
 <table class="sortable">
@@ -404,7 +425,8 @@ def _historical_stress_test_html(result: dict) -> str:
 <tbody>{summary_rows}</tbody>
 </table>
 </div>
-<h3 style="font-size:13px; margin:20px 0 4px 0;">Year-by-year detail</h3>
+<details class="how-it-works" style="margin-top:14px"><summary>Show the year-by-year numbers</summary>
+<h3 style="font-size:13px; margin:10px 0 4px 0;">Year-by-year detail</h3>
 {hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
@@ -412,6 +434,7 @@ def _historical_stress_test_html(result: dict) -> str:
 <tbody>{detail_rows}</tbody>
 </table>
 </div>
+</details>
 """
 
 def _success_rate_cell(rate: float, baseline: float) -> str:
@@ -465,8 +488,10 @@ def _sensitivity_html(sensitivity: dict) -> str:
         f'<td class="num">{_success_rate_cell(row["high_success_rate"], baseline)}</td></tr>'
         for row in sensitivity["rows"]
     )
+    lead_html = _sensitivity_lead_html(sensitivity)
     return f"""
-<h2>Sensitivity: what moves the needle</h2>
+<h2>What moves your plan most</h2>
+{lead_html}
 <p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every Expense/Income-tab line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
 <div style="overflow-x:auto">
 <table class="sortable">
@@ -475,6 +500,86 @@ def _sensitivity_html(sensitivity: dict) -> str:
 </table>
 </div>
 """
+
+
+
+_EXPLORER_JS = """
+(function() {
+  var sl = document.getElementById('rx-slider'); if (!sl) { return; }
+  var baseYear = parseInt(sl.getAttribute('data-year'), 10), birth = parseInt(sl.getAttribute('data-birth'), 10) || 0;
+  var lab = document.getElementById('rx-label'), out = document.getElementById('rx-result'), timer = null, seq = 0;
+  function label() {
+    var shift = parseInt(sl.value, 10), y = baseYear + shift;
+    return 'Retire in ' + y + (birth ? ' (age ' + (y - birth) + ')' : '') +
+      (shift === 0 ? ' \u2014 your plan today' : (shift > 0 ? ' \u2014 ' + shift + ' year' + (shift > 1 ? 's' : '') + ' later' : ' \u2014 ' + (-shift) + ' year' + (shift < -1 ? 's' : '') + ' earlier'));
+  }
+  function run() {
+    var mine = ++seq; out.textContent = 'Running...';
+    postJSON('/api/what-if', {custom: true, spend_change_pct: 0, retire_shift_years: parseInt(sl.value, 10)}).then(function(d) {
+      if (mine !== seq) { return; }
+      var w = d.whatif, b = d.base;
+      out.innerHTML = 'Chance your money lasts: <strong>' + wiPct(w.success_rate) + '</strong> &middot; typical case <strong>' + wiMoney(w.median) + '</strong>' +
+        (parseInt(sl.value, 10) === 0 ? '' : ' <span class="muted">(plan today: ' + wiPct(b.success_rate) + ')</span>');
+    }).catch(function(e) { if (mine === seq) { out.textContent = e.message; } });
+  }
+  sl.addEventListener('input', function() { lab.textContent = label(); clearTimeout(timer); timer = setTimeout(run, 350); });
+})();
+"""
+
+
+def _retire_explorer_html(retirement_year: int | None, birth: int | None, success_rate: float) -> str:
+    """A "When could I retire?" slider: drag the retirement year and the
+    chance your money lasts re-computes (the same /api/what-if call the
+    what-if panel uses -- nothing is saved). Needs a retirement year."""
+    if retirement_year is None:
+        return (
+            '<div class="card"><h3 class="sub" style="margin-top:0">When could I retire?</h3>'
+            '<p class="muted small" style="margin:0">Set a retirement year in the Assumptions panel below and this '
+            "becomes a slider: drag it to see how retiring earlier or later changes the chance your money lasts.</p></div>"
+        )
+    age = f" (age {retirement_year - birth})" if birth else ""
+    return f"""
+<div class="card">
+<h3 class="sub" style="margin-top:0">When could I retire?</h3>
+<p class="muted small" style="margin-top:0">Drag to try a different retirement year. Nothing is saved &mdash; it just shows how that one decision changes your odds.</p>
+<input type="range" id="rx-slider" min="-5" max="10" step="1" value="0" data-year="{retirement_year}" data-birth="{birth or ''}" style="width:100%" aria-label="Retirement year shift">
+<p style="margin:4px 0 2px; font-weight:600;" id="rx-label">Retire in {retirement_year}{age} &mdash; your plan today</p>
+<p class="small" id="rx-result" style="margin:0">Chance your money lasts: <strong>{html.escape(pres.percent_display(success_rate))}</strong></p>
+</div>
+<script>{_EXPLORER_JS}</script>
+"""
+
+
+def _stress_personal_lines_html(scenarios: list) -> str:
+    """One plain sentence per real historical crash: what would be left
+    (or the year the money runs out) if that downturn started today."""
+    import re
+    lines = []
+    for sc in scenarios:
+        label = sc["label"]
+        if not re.search(r"\(\d{4}\)$", label):
+            continue
+        name = label.split(" (")[0]
+        if sc["depleted"]:
+            lines.append(f'<li class="status-warn">If the {html.escape(name)} markets replayed from today, your savings would run out in {sc["depleted_year"]}.</li>')
+        else:
+            lines.append(f'<li>If the {html.escape(name)} markets replayed from today, you would still have {_money(sc["ending_balance"])} at the end of your plan.</li>')
+    if not lines:
+        return ""
+    return '<ul style="margin:6px 0 10px 18px; padding:0; font-size:13px;">' + "".join(lines) + "</ul>"
+
+
+def _sensitivity_lead_html(sensitivity: dict) -> str:
+    rows = sensitivity.get("rows") or []
+    if not rows:
+        return ""
+    top = rows[0]
+    lo, hi = top["low_success_rate"] * 100, top["high_success_rate"] * 100
+    return (
+        f'<p><strong>The biggest lever for your plan is {html.escape(top["label"].lower())}.</strong> '
+        f'Testing {html.escape(top["swing_label"])} moves your chance of lasting between {min(lo, hi):.0f}% and {max(lo, hi):.0f}%. '
+        "That is the first place to look if you want to improve your odds.</p>"
+    )
 
 
 def _assumption_checked(assumptions: dict, key: str, default: bool = True) -> bool:
