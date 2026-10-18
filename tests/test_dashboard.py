@@ -3040,8 +3040,18 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         self._seed()
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn('<div class="label">Investable savings</div><div class="value">$145,000</div>', body)
-        # Net Liquid Asset (145,000) + RE equity (200,000) = 345,000.
-        self.assertIn('<div class="label">Everything you own</div><div class="value">$345,000</div>', body)
+        # The ledger lists property at full market value, its mortgage under
+        # "owe", and the lines reconcile to net worth.
+        from source.reporting.aggregate import build_summary
+
+        sm = build_summary()
+        own = sm["manual_asset_total"] + sm["linked_asset_total"] + sm["real_estate_value_total"]
+        owe = sm["liability_total"] + (sm["real_estate_value_total"] - sm["real_estate_equity_total"])
+        self.assertAlmostEqual(own - owe, sm["net_worth"], places=2)
+        self.assertIn(f"Total you own</span><span class=\"grow\"></span><strong>${own:,.0f}</strong>", body)
+        self.assertIn(f"Total you owe</span><span class=\"grow\"></span><strong>${owe:,.0f}</strong>", body)
+        self.assertIn("Real estate (market value)", body)
+        self.assertIn("Mortgages &amp; property loans", body)
 
     def test_expected_rate_of_return_tile_shows_the_assumption_as_a_percent(self):
         db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000})
@@ -3157,7 +3167,9 @@ class TestSp500HistoricalBootstrapSection(DashboardTestCase):
         import re
 
         # (the nav's own icon tiles are <svg>s too -- count only the page's charts)
-        self.assertEqual(re.sub(r"<nav>.*?</nav>", "", body, flags=re.S).count("<svg"), 1)
+        page = re.sub(r"<nav>.*?</nav>", "", body, flags=re.S)
+        page = re.sub(r'<button[^>]*id="hide-toggle".*?</button>', "", page, flags=re.S)  # header eye icon
+        self.assertEqual(page.count("<svg"), 1)
 
     def test_tiles_show_figures_consistent_with_a_freshly_run_bootstrap_simulation(self):
         from source.reporting.aggregate import build_summary

@@ -99,7 +99,6 @@ def _render_summary_page() -> str:
                 plan_health_items(s), can_vary_retirement=retirement_year is not None,
                 growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0,
             )
-            + (_report_link_html())
         )
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
@@ -118,14 +117,6 @@ def _render_summary_page() -> str:
 """
     return _shell(title="Summary", active="summary.html", body=body)
 
-
-def _report_link_html() -> str:
-    return (
-        '<div class="card report-card"><div><h2 style="margin:0">Plan report</h2>'
-        '<p class="muted small" style="margin:4px 0 0">A clean, printable summary of this plan -- save it as a PDF to share '
-        'with a spouse, advisor or family.</p></div>'
-        '<a href="/report.html" target="_blank" rel="noopener"><button type="button" class="primary">Download plan report (PDF)</button></a></div>'
-    )
 
 def _safe_pct(numerator: float, denominator: float) -> str:
     """Formats numerator/denominator as a whole-number percent, "--" when

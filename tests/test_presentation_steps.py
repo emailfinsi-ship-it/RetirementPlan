@@ -116,14 +116,27 @@ class TestPlanReport(DashboardTestCase):
         pat = r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>"
         self.assertEqual(re.search(pat, rep).group(1), re.search(pat, summ).group(1))
 
-    def test_summary_links_to_the_report(self):
+    def test_every_page_header_has_the_report_button_before_the_eye_icon(self):
+        for page in ("/summary.html", "/asset.html", "/setup.html"):
+            body = self._get(page).read().decode("utf-8")
+            self.assertIn("Download plan report", body, page)
+            self.assertIn('href="/report.html"', body, page)
+            self.assertLess(body.index('id="report-btn"'), body.index('id="hide-toggle"'), page)
+
+    def test_hide_balances_is_an_icon_with_an_accessible_label(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        toggle = re.search(r'<button[^>]*id="hide-toggle".*?</button>', body, flags=re.S).group(0)
+        self.assertIn('aria-label="Hide balances"', toggle)
+        self.assertIn("<svg", toggle)
+        self.assertNotIn(">Hide balances<", toggle)
+
+    def test_summary_no_longer_repeats_the_report_as_a_card(self):
         db.add_line_item("expenses", {"name": "Living", "category": "Fixed", "annual_amount": 50_000})
         try:
             body = self._get("/summary.html").read().decode("utf-8")
         finally:
             db.clear_section("expenses")
-        self.assertIn("Download plan report (PDF)", body)
-        self.assertIn('href="/report.html"', body)
+        self.assertNotIn("Download plan report (PDF)", body)
 
 
 class TestTabPolish(DashboardTestCase):

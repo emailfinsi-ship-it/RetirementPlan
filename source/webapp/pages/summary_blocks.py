@@ -72,35 +72,59 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
 
 
 def own_owe_html(s: dict) -> str:
-    total_assets = max(s["total_asset"], 0.0)
-    liquid = max(s["net_liquid_asset"], 0.0)
-    home = max(s["real_estate_equity_total"], 0.0)
-    other = max(total_assets - liquid - home, 0.0)
-    parts = [("Investments & savings", liquid), ("Home & property equity", home), ("Other assets", other)]
-    parts = [(n, v) for n, v in parts if v > 0.5]
-    denom = sum(v for _, v in parts) or 1.0
+    """A plain balance sheet: everything you own at full value (property at
+    market value, not just equity), everything you owe (mortgages and other
+    debts), and net worth as the difference. The lines add up to the Net
+    worth tile at the top of the page."""
+    re_value = s["real_estate_value_total"]
+    mortgages = max(re_value - s["real_estate_equity_total"], 0.0)
+    other_debts = s["liability_total"]
+    all_assets = s["manual_asset_total"] + s["linked_asset_total"]
+    investments = max(s["retirement_liquid_total"], 0.0)
+    other_assets = all_assets - investments
+    own_lines = [("Investments & savings", investments), ("Real estate (market value)", re_value), ("Other assets", other_assets)]
+    own_total = sum(v for _, v in own_lines)
+    owe_lines = [("Mortgages & property loans", mortgages), ("Other debts (cards, loans)", other_debts)]
+    owe_total = sum(v for _, v in owe_lines)
+    positive = [(n, v) for n, v in own_lines if v > 0.5]
+    denom = sum(v for _, v in positive) or 1.0
+    colors = {"Investments & savings": _SEG_COLORS[0], "Real estate (market value)": _SEG_COLORS[1], "Other assets": _SEG_COLORS[2]}
     bar = "".join(
-        f'<span class="segbar-part" style="width:{v / denom * 100:.2f}%; background:{_SEG_COLORS[i]}" '
+        f'<span class="segbar-part" style="width:{v / denom * 100:.2f}%; background:{colors[n]}" '
         f'title="{html.escape(n)}: {_money(v)}"></span>'
-        for i, (n, v) in enumerate(parts)
+        for n, v in positive
     )
-    legend = "".join(
-        f'<li><span class="dot" style="background:{_SEG_COLORS[i]}"></span>{html.escape(n)}'
-        f'<span class="grow"></span><strong>{_money(v)}</strong> <span class="muted">({v / denom * 100:.0f}%)</span></li>'
-        for i, (n, v) in enumerate(parts)
-    )
-    tiles = "".join((
-        _tile("Everything you own", _money(s["total_asset"])),
-        _tile("What you owe", _money(-s["liability_total"])),
-        _tile("Home & property equity", _money(s["real_estate_equity_total"])),
-    ))
+
+    def rows(lines, *, with_dots: bool, note: dict | None = None) -> str:
+        out = []
+        for n, v in lines:
+            dot = f'<span class="dot" style="background:{colors[n]}"></span>' if with_dots and n in colors else ""
+            extra = f'<div class="muted small ledger-note">{note[n]}</div>' if note and n in note and v > 0.5 else ""
+            out.append(f'<li><div class="ledger-row">{dot}<span>{html.escape(n)}</span><span class="grow"></span><strong>{_money(v)}</strong></div>{extra}</li>')
+        return "".join(out)
+
+    re_note = {"Real estate (market value)": f"Your equity after the mortgage is {_money(s['real_estate_equity_total'])}."}
+    net = own_total - owe_total
     return f"""
 <div class="card">
 <h2 style="margin-top:0">What you own and owe</h2>
 <div class="segbar">{bar}</div>
-<ul class="legend-list">{legend}</ul>
-<div class="tiles">{tiles}</div>
-<p class="muted small" style="margin-bottom:0">Net worth = everything you own minus what you owe. Details are on the <a href="/asset.html">Asset</a> tab.</p>
+<div class="ledger">
+  <div>
+    <h3 class="sub" style="margin-top:6px">You own</h3>
+    <ul class="ledger-list">{rows(own_lines, with_dots=True, note=re_note)}
+      <li class="ledger-total"><div class="ledger-row"><span>Total you own</span><span class="grow"></span><strong>{_money(own_total)}</strong></div></li>
+    </ul>
+  </div>
+  <div>
+    <h3 class="sub" style="margin-top:6px">You owe</h3>
+    <ul class="ledger-list">{rows(owe_lines, with_dots=False)}
+      <li class="ledger-total"><div class="ledger-row"><span>Total you owe</span><span class="grow"></span><strong>{_money(owe_total)}</strong></div></li>
+    </ul>
+  </div>
+</div>
+<div class="ledger-net"><span>Net worth = what you own &minus; what you owe</span><span class="grow"></span><strong>{_money(net)}</strong></div>
+<p class="muted small" style="margin-bottom:0">Property is shown at full market value here and its mortgage on the owe side; your plan uses the equity. Details are on the <a href="/asset.html">Asset</a> tab.</p>
 </div>
 """
 

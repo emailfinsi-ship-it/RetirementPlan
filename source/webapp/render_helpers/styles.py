@@ -68,7 +68,10 @@ THEME_INIT_SCRIPT = """<script>
   document.addEventListener('DOMContentLoaded', function () { tagMoney(); window.rpHideSync(); });
   window.rpHideSync = function () {
     var b = document.getElementById('hide-toggle');
-    if (b) b.textContent = hidden() ? 'Show balances' : 'Hide balances';
+    if (!b) return;
+    var label = hidden() ? 'Show balances' : 'Hide balances';
+    b.title = label + (hidden() ? '' : ' -- blur every dollar amount, handy for demos and screenshots');
+    b.setAttribute('aria-label', label);
   };
   window.rpToggleHide = function () {
     var next = !hidden();
@@ -92,9 +95,22 @@ THEME_INIT_SCRIPT = """<script>
 })();
 </script>"""
 
+_EYE_SVG = (
+    '<svg class="eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>'
+    '<circle cx="12" cy="12" r="3"/></svg>'
+    '<svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.9 10.9 0 0 1 12 19C5.6 19 2 12 2 12a18.5 18.5 0 0 1 5.1-5.9"/>'
+    '<path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.4 0 10 7 10 7a18.6 18.6 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/>'
+    '<line x1="2" y1="2" x2="22" y2="22"/></svg>'
+)
+
 THEME_TOGGLE_HTML = (
-    '<button type="button" id="hide-toggle" onclick="rpToggleHide()" '
-    'title="Blur every dollar amount -- handy for demos and screenshots">Hide balances</button>'
+    '<a href="/report.html" target="_blank" rel="noopener" id="report-link" '
+    'title="Open a clean, printable report of this plan -- save it as a PDF"><button type="button" class="primary" '
+    'id="report-btn">Download plan report</button></a>'
+    '<button type="button" id="hide-toggle" onclick="rpToggleHide()" aria-label="Hide balances" '
+    f'title="Hide balances -- blur every dollar amount, handy for demos and screenshots">{_EYE_SVG}</button>'
     '<button type="button" id="theme-toggle" onclick="rpCycleTheme()" '
     'title="Switch between Auto (follow your Mac), Light and Dark">Theme: Auto</button>'
     "<script>rpThemeSync();</script>"
@@ -179,6 +195,16 @@ PAGE_CSS = """
   .whatif-table td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
   .whatif-table th { padding: 4px; text-align: left; font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
   .whatif-table th.num { text-align: right; }
+  .ledger { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; margin-top: 6px; }
+  @media (max-width: 640px) { .ledger { grid-template-columns: 1fr; } }
+  .ledger-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 14px; }
+  .ledger-list li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .ledger-row { display: flex; align-items: center; gap: 8px; }
+  .ledger-row .grow, .ledger-net .grow { flex: 1; }
+  .ledger-note { margin: 2px 0 0 18px; }
+  .ledger-total { font-weight: 600; border-bottom: 0 !important; }
+  .ledger-net { display: flex; align-items: center; gap: 10px; margin: 10px 0 8px; padding: 10px 14px; border-radius: 10px; background: var(--surface-alt); border: 1px solid var(--border); font-size: 15px; }
+  .ledger-net strong { font-size: 18px; }
   .legend-inline li.legend-btn { cursor: pointer; user-select: none; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; }
   .legend-inline li.legend-btn:hover { border-color: var(--border); }
   .legend-inline li.legend-btn.on { border-color: var(--ink-muted); font-weight: 600; }
@@ -199,12 +225,14 @@ PAGE_CSS = """
   .badge-whatif { display: inline-block; font-size: 11px; font-weight: 600; color: #7a5af8; background: rgba(122,90,248,.12); border-radius: 99px; padding: 1px 8px; }
   .acct-num { filter: blur(5px); transition: filter .15s; }
   .acct-num:hover, html.show-acct .acct-num { filter: none; }
-  .report-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .demo-banner { background: #fff4d6; color: #5c4400; border: 1px solid #f0d58a; border-radius: 10px; padding: 8px 14px; margin: 10px 0; font-size: 13px; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; } }
   :root[data-theme="dark"] .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; }
   html.hide-money .mny, html.hide-money input[data-money] { filter: blur(7px); user-select: none; }
-  #hide-toggle, #theme-toggle { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  #hide-toggle, #theme-toggle, #report-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
+  #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
+  #report-link { text-decoration: none; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
     max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);
