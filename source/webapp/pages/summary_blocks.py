@@ -383,7 +383,11 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
 """
 
 
-def next_steps_html(items: list[dict], can_vary_retirement: bool, growth_pct: float = 6.0) -> str:
+def next_steps_html(items: list[dict], can_vary_retirement: bool = True, growth_pct: float = 6.0) -> str:
+    """The Summary's closing "What should I do next?" card: just the
+    missing-input checks. The interactive what-if lives with the
+    Assumptions on the Monte Carlo tab (see whatif_form_html), so the
+    two ways of changing the plan sit in one place."""
     if items:
         rows = "".join(
             f'<li class="{"status-warn" if i["level"] == "warn" else "muted"}">{html.escape(i["text"])} '
@@ -395,18 +399,30 @@ def next_steps_html(items: list[dict], can_vary_retirement: bool, growth_pct: fl
     else:
         checks = '<p class="status-line status-ok">Nothing missing &mdash; every input the plan relies on is filled in.</p>'
         heading = "Things to check"
-    retire_attr = "" if can_vary_retirement else " disabled"
-    retire_hint = (
-        "" if can_vary_retirement
-        else '<span class="muted small">(set a retirement year first to try this)</span>'
-    )
     return f"""
 <div class="card">
 <h2 style="margin-top:0">What should I do next?</h2>
 <h3 class="sub">{heading}</h3>
 {checks}
-<h3 class="sub">Try a what-if</h3>
-<p class="muted small" style="margin-top:0">Change any of the boxes and press Compare. Your plan is re-simulated with your change and set next to the plan as it is today -- nothing is saved.</p>
+<p class="muted small" style="margin:10px 0 0">Want to test a change before committing to it? Try a what-if next to your
+<a href="/monte-carlo.html#assumptions">Assumptions</a>.</p>
+</div>
+"""
+
+
+def whatif_form_html(can_vary_retirement: bool, growth_pct: float = 6.0) -> str:
+    """The interactive "Try a what-if" block (spending / retire later /
+    growth, plus quick-try chips and a result area filled by runWhatIf in
+    the page shell JS). Nothing is saved. Rendered inside the Monte Carlo
+    tab's combined Assumptions & what-if panel."""
+    retire_attr = "" if can_vary_retirement else " disabled"
+    retire_hint = (
+        "" if can_vary_retirement
+        else '<span class="muted small">(set a retirement year below first to try this)</span>'
+    )
+    return f"""
+<h3 class="sub" style="margin-top:0">Try a what-if <span class="badge-whatif">nothing is saved</span></h3>
+<p class="muted small" style="margin-top:0">Change any of the boxes and press Compare. Your plan is re-simulated with your change and set next to the plan as it is today.</p>
 <div class="whatif-form">
   <label>Spending change (%)<input id="wi-spend" type="number" step="1" min="-90" max="200" value="-10" title="Negative = spend less, positive = spend more"></label>
   <label>Retire later by (years)<input id="wi-retire" type="number" step="1" min="-20" max="30" value="0"{retire_attr} title="Negative = retire earlier"></label>
@@ -420,7 +436,6 @@ def next_steps_html(items: list[dict], can_vary_retirement: bool, growth_pct: fl
   <button type="button" class="chip" onclick="wiPreset(-10, 2)"{retire_attr}>Both</button> {retire_hint}
 </p>
 <div id="whatif-result"></div>
-</div>
 """
 
 

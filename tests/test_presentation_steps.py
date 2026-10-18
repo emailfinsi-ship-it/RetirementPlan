@@ -174,7 +174,9 @@ class TestInteractiveWhatIf(DashboardTestCase):
         demo_data.remove_sample_data()
 
     def test_form_has_editable_boxes_and_quick_tries(self):
-        body = self._get("/summary.html").read().decode("utf-8")
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("Assumptions &amp; what-if", body)
+        self.assertNotIn('id="wi-spend"', self._get("/summary.html").read().decode("utf-8"))
         for needle in ('id="wi-spend"', 'id="wi-retire"', 'id="wi-growth"', "Compare", "Spend 10% less", "runWhatIf"):
             self.assertIn(needle, body)
 

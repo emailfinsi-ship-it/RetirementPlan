@@ -227,8 +227,12 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("/monte-carlo.html#assumptions", body)
         self.assertIn("Chance your money lasts", body)
         self.assertIn("Typical case", body)
-        self.assertIn("Try a what-if", body)
-        self.assertIn('id="wi-spend"', body)
+        # The interactive what-if moved to the Monte Carlo tab, next to the Assumptions.
+        self.assertNotIn('id="wi-spend"', body)
+        mc = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("Try a what-if", mc)
+        self.assertIn('id="wi-spend"', mc)
+        self.assertLess(mc.index('id="wi-spend"'), mc.index('name="expected_return_pct"'))
 
     def test_nav_has_eight_tabs_and_paired_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
@@ -3533,7 +3537,7 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         body = resp.read().decode("utf-8")
         stress_idx = body.index("Historical recession stress test")
         sensitivity_idx = body.index("Sensitivity: what moves the needle")
-        assumptions_idx = body.index('<h2 id="assumptions">Assumptions</h2>')
+        assumptions_idx = body.index('id="assumptions"')
         self.assertLess(stress_idx, sensitivity_idx)
         self.assertLess(sensitivity_idx, assumptions_idx)
 

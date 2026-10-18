@@ -196,7 +196,11 @@ def _render_monte_carlo_page() -> str:
 {stress_html}
 {sensitivity_html}
 {saved_scenarios_card_html(db.list_scenarios(), assumptions)}
-<h2 id="assumptions">Assumptions</h2>
+<div class="card" id="assumptions">
+<h2 style="margin-top:0">Assumptions &amp; what-if</h2>
+<p class="muted">Two ways to change the plan in one place: test an idea first (nothing is saved), then enter the numbers you want to keep.</p>
+{blocks.whatif_form_html(can_vary_retirement=_resolve_retirement_year(assumptions) is not None, growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0)}
+<h3 class="sub" style="margin-top:18px">Your assumptions <span class="muted small">(saved &mdash; used everywhere)</span></h3>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
   new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});
@@ -216,6 +220,7 @@ def _render_monte_carlo_page() -> str:
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
 <p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
+</div>
 """
     return _shell(title="Monte Carlo Simulation", active="monte-carlo.html", body=body)
 

@@ -91,9 +91,7 @@ def _render_summary_page() -> str:
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
         )
     next_steps = "" if v["empty_plan"] else blocks.next_steps_html(
-        plan_health_items(s), can_vary_retirement=retirement_year is not None,
-        growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0,
-    )
+        plan_health_items(s))
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
     history_html = _line_chart_html(
