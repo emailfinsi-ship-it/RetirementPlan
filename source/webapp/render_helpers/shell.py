@@ -23,7 +23,7 @@ NAV_ITEMS = (
     ("linked-accounts.html", "Linked Accounts"),
     ("expense.html", "Income/Expense"),
     ("real-expenditure.html", "Spending"),
-    ("monte-carlo.html", "Monte Carlo Simulation"),
+    ("monte-carlo.html", "Will my money last?"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
     ("setup.html", "Setup"),
 )
@@ -1136,9 +1136,8 @@ _NAV_ICONS = {
     "real-expenditure.html": ("#ff8296", "#d71c47",
         '<rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M3 10h18M7 15h4"/>'),
     "monte-carlo.html": ("#c993ff", "#7132d6",
-        '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1" fill="#fff"/>'
-        '<circle cx="15" cy="9" r="1" fill="#fff"/><circle cx="9" cy="15" r="1" fill="#fff"/>'
-        '<circle cx="15" cy="15" r="1" fill="#fff"/><circle cx="12" cy="12" r="1" fill="#fff"/>'),
+        '<path d="M5 12c5 0 9-6 15-7"/><path d="M5 12h15"/><path d="M5 12c5 0 9 6 15 7"/>'
+        '<circle cx="5" cy="12" r="1.6" fill="#fff"/>'),
     "drawdown-planning.html": ("#8a96ff", "#3338c0",
         '<path d="M3 7l6 6 4-4 8 8"/><path d="M21 17v-5M21 17h-5"/>'),
     "setup.html": ("#bcc1ca", "#646a76",

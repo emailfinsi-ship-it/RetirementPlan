@@ -241,7 +241,7 @@ def _render_monte_carlo_page() -> str:
 <p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
 </div>
 """
-    return _shell(title="Monte Carlo Simulation", active="monte-carlo.html", body=body)
+    return _shell(title="Will my money last?", active="monte-carlo.html", body=body)
 
 def _stress_test_label_short(label: str) -> str:
     """"Great Depression (1929)" -> "Great Depression" -- the parenthetical
