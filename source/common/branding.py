@@ -12,7 +12,7 @@ and the Application Support folder. NEVER change it: doing so would
 orphan every existing install's saved secrets and data.
 """
 
-PRODUCT_NAME = "FinSI"
+PRODUCT_NAME = "FINSi"
 PRODUCT_TAGLINE = "Financial Super Intelligence"
 PRODUCT_HEADLINE = "Your financial future, intelligently planned."
 PRODUCT_MOTTO = "See your future. Shape your retirement and Legacy."
