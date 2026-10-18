@@ -100,6 +100,8 @@ def clear_auth_cache() -> None:
 
 
 def is_password_set() -> bool:
+    if os.environ.get("FINSI_DEMO") == "1":
+        return False   # demo mode: throwaway data, no login screen
     return bool(_load_vault().get("password_hash"))
 
 

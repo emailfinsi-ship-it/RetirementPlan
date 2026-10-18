@@ -39,6 +39,43 @@ THEME_INIT_SCRIPT = """<script>
     else document.documentElement.removeAttribute('data-theme');
   }
   apply(stored());
+  // "Hide balances": blurs every dollar figure (for demos and screenshots).
+  // The choice lives in localStorage; dollar amounts in the page text are
+  // tagged with class "mny" once the DOM is ready (see tagMoney).
+  function hidden() { try { return localStorage.getItem('rp-hide') === '1'; } catch (e) { return false; } }
+  if (hidden()) document.documentElement.classList.add('hide-money');
+  var MONEY = /-?\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[KMB]?/g;
+  function tagMoney() {
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var nodes = [], n;
+    while ((n = walker.nextNode())) { nodes.push(n); }
+    nodes.forEach(function (node) {
+      var parent = node.parentNode;
+      if (!parent || /^(SCRIPT|STYLE|TEXTAREA|OPTION|TITLE)$/i.test(parent.nodeName)) return;
+      if (!MONEY.test(node.nodeValue)) { MONEY.lastIndex = 0; return; }
+      MONEY.lastIndex = 0;
+      if (parent.namespaceURI === 'http://www.w3.org/2000/svg') { parent.classList.add('mny'); return; }
+      var frag = document.createDocumentFragment(), text = node.nodeValue, last = 0, m;
+      while ((m = MONEY.exec(text))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        var span = document.createElement('span'); span.className = 'mny'; span.textContent = m[0];
+        frag.appendChild(span); last = m.index + m[0].length;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      parent.replaceChild(frag, node);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () { tagMoney(); window.rpHideSync(); });
+  window.rpHideSync = function () {
+    var b = document.getElementById('hide-toggle');
+    if (b) b.textContent = hidden() ? 'Show balances' : 'Hide balances';
+  };
+  window.rpToggleHide = function () {
+    var next = !hidden();
+    try { if (next) localStorage.setItem('rp-hide', '1'); else localStorage.removeItem('rp-hide'); } catch (e) {}
+    document.documentElement.classList.toggle('hide-money', next);
+    window.rpHideSync();
+  };
   window.rpThemeSync = function () {
     var b = document.getElementById('theme-toggle');
     if (!b) return;
@@ -56,6 +93,8 @@ THEME_INIT_SCRIPT = """<script>
 </script>"""
 
 THEME_TOGGLE_HTML = (
+    '<button type="button" id="hide-toggle" onclick="rpToggleHide()" '
+    'title="Blur every dollar amount -- handy for demos and screenshots">Hide balances</button>'
     '<button type="button" id="theme-toggle" onclick="rpCycleTheme()" '
     'title="Switch between Auto (follow your Mac), Light and Dark">Theme: Auto</button>'
     "<script>rpThemeSync();</script>"
@@ -104,8 +143,52 @@ PAGE_CSS = """
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
     --shadow-md: 0 16px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
   }
+  /* Summary: hero verdict, status badge, own/owe bar, segmented control */
+  .small { font-size: 12.5px; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .hero { padding: 22px 24px; }
+  .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hero-title { font-size: 26px; letter-spacing: -0.02em; margin: 10px 0 4px; }
+  .hero-verdict { font-size: 16px; color: var(--ink-soft); margin: 0 0 14px; max-width: 760px; }
+  .hero.tone-ok { border-top: 4px solid var(--success); }
+  .hero.tone-warn { border-top: 4px solid var(--warn); }
+  .hero.tone-bad { border-top: 4px solid var(--danger); }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 700; letter-spacing: .01em; }
+  .badge-ok { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
+  .badge-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .badge-bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .hero-tile .value { font-size: 26px; }
+  .segbar { display: flex; height: 18px; border-radius: 9px; overflow: hidden; background: var(--surface-alt); margin: 8px 0 12px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.12); gap: 2px; }
+  .segbar-part { display: block; height: 100%; }
+  .legend-list { list-style: none; margin: 0 0 12px; padding: 0; font-size: 13px; }
+  .legend-list li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .legend-list .grow { flex: 1; }
+  .legend-inline { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0; margin: 8px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+  .legend-inline li { display: flex; align-items: center; gap: 6px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .dash { display: inline-block; width: 18px; border-top: 2px dashed var(--ink); }
+  .sub { font-size: 13px; margin: 14px 0 4px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; }
+  .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+  .seg-group .seg { border: 0; border-radius: 0; background: transparent; color: var(--ink-soft); font-size: 12px; padding: 5px 12px; box-shadow: none; }
+  .seg-group .seg.on { background: var(--brand); color: #fff; }
+  .note-box { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+    border-radius: 12px; padding: 10px 14px; font-size: 13px; margin: 6px 0 12px; }
+  .trust-footer { margin: 18px 2px 30px; line-height: 1.55; }
+  .whatif-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0 12px; }
+  .whatif-table td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
+  .whatif-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .up { color: var(--success); } .down { color: var(--danger); }
   .brand-tagline { color: var(--navy); font-weight: 600; letter-spacing: .02em; }
-  #theme-toggle { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  .tiles.tiles-five { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+  .acct-num { filter: blur(5px); transition: filter .15s; }
+  .acct-num:hover, html.show-acct .acct-num { filter: none; }
+  .report-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .demo-banner { background: #fff4d6; color: #5c4400; border: 1px solid #f0d58a; border-radius: 10px; padding: 8px 14px; margin: 10px 0; font-size: 13px; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; } }
+  :root[data-theme="dark"] .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; }
+  html.hide-money .mny, html.hide-money input[data-money] { filter: blur(7px); user-select: none; }
+  #hide-toggle, #theme-toggle { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
     max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);

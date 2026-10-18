@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from source.common import app_settings, branding
@@ -43,14 +44,25 @@ BASE_DIR = resolve_base_dir(
     frozen=bool(getattr(sys, "frozen", False)), executable=sys.executable, module_file=__file__,
 )
 
-_data_override = app_settings.get_data_dir()
-DATA_DIR = Path(_data_override) if _data_override else BASE_DIR / "data"
+# Demo mode (FINSI_DEMO=1, see scripts/run_demo.sh): everything lives in a
+# throwaway folder, so a demo can never touch or show the real database.
+DEMO = os.environ.get("FINSI_DEMO") == "1"
+_DEMO_ROOT = Path(tempfile.gettempdir()) / "finsi-demo"
 
-_output_override = app_settings.get_output_dir()
-OUTPUT_DIR = Path(_output_override) if _output_override else BASE_DIR / "output"
+if DEMO:
+    DATA_DIR = _DEMO_ROOT / "data"
+    OUTPUT_DIR = _DEMO_ROOT / "output"
+    LOG_DIR = _DEMO_ROOT / "logs"
+    CONFIG_DIR = _DEMO_ROOT / "config"
+else:
+    _data_override = app_settings.get_data_dir()
+    DATA_DIR = Path(_data_override) if _data_override else BASE_DIR / "data"
 
-LOG_DIR = BASE_DIR / "logs"
-CONFIG_DIR = BASE_DIR / "config"
+    _output_override = app_settings.get_output_dir()
+    OUTPUT_DIR = Path(_output_override) if _output_override else BASE_DIR / "output"
+
+    LOG_DIR = BASE_DIR / "logs"
+    CONFIG_DIR = BASE_DIR / "config"
 
 DB_PATH = DATA_DIR / "retirement_plan.db"
 APP_LOG_PATH = LOG_DIR / "app.log"
@@ -62,7 +74,7 @@ APP_LOG_PATH = LOG_DIR / "app.log"
 # page's Network access card) don't have to import dashboard.py itself
 # and risk a circular import (dashboard.py already imports the Setup
 # page module).
-DASHBOARD_PORT = 8898
+DASHBOARD_PORT = int(os.environ.get("FINSI_PORT") or (8897 if DEMO else 8898))
 
 # The user's own hand-built retirement/asset workbook -- used only for the
 # ONE-TIME import into this program's own database (see

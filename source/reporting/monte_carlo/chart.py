@@ -27,7 +27,14 @@ def _money_short(value: float) -> str:
 
 
 
-def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: str = _BAND_COLOR) -> str:
+def render_fan_svg(
+    result: dict, *, width: int = 720, height: int = 320, color: str = _BAND_COLOR,
+    plain: bool = False, responsive: bool = False, retirement_year: int | None = None, birth_year: int | None = None,
+) -> str:
+    """plain=True swaps the statistician's labels (90th pct / Median / 10th
+    pct) for plain words (Strong case / Typical / Cautious); responsive=True
+    lets the SVG scale to its container's width; retirement_year draws a
+    dashed "Retire" marker; birth_year adds an age under each year label."""
     band = result.get("band") or []
     if not band:
         return (
@@ -36,7 +43,7 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
             "No simulation data yet.</text></svg>"
         )
 
-    margin_left, margin_right, margin_top, margin_bottom = 64, 62, 16, 28
+    margin_left, margin_right, margin_top, margin_bottom = 64, 78 if plain else 62, 22, 44 if birth_year else 28
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
 
@@ -79,9 +86,9 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
     p10_points = " ".join(f"{x_for(i):.1f},{y_for(row['p10']):.1f}" for i, row in enumerate(band))
     last = band[-1]
     end_labels = [
-        ["90th pct", y_for(last["p90"]), 400],
-        ["Median", y_for(last["median"]), 600],
-        ["10th pct", y_for(last["p10"]), 400],
+        ["Strong case" if plain else "90th pct", y_for(last["p90"]), 400],
+        ["Typical" if plain else "Median", y_for(last["median"]), 600],
+        ["Cautious" if plain else "10th pct", y_for(last["p10"]), 400],
     ]
     # Lines can end close together -- push labels apart (top to bottom)
     # so they never overprint one another.
@@ -104,6 +111,9 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
             continue
         cx, cy = x_for(i), y_for(row["median"])
         tip = (
+            f"{row['year']}: typical {_money_short(row['median'])} "
+            f"(cautious {_money_short(row['p10'])} - strong {_money_short(row['p90'])})"
+            if plain else
             f"{row['year']}: median {_money_short(row['median'])} "
             f"(p10 {_money_short(row['p10'])} - p90 {_money_short(row['p90'])})"
         )
@@ -121,14 +131,35 @@ def render_fan_svg(result: dict, *, width: int = 720, height: int = 320, color: 
         if i % label_stride != 0 and i != n - 1:
             continue
         x_labels.append(
-            f'<text x="{x_for(i):.1f}" y="{height - 8}" text-anchor="middle" font-size="11" style="fill:var(--ink-muted,#777);">'
-            f"{row['year']}</text>"
+            f'<text x="{x_for(i):.1f}" y="{height - (26 if birth_year else 8)}" text-anchor="middle" font-size="11" '
+            f'style="fill:var(--ink-muted,#777);">{row["year"]}</text>'
         )
+        if birth_year:
+            x_labels.append(
+                f'<text x="{x_for(i):.1f}" y="{height - 10}" text-anchor="middle" font-size="10" '
+                f'style="fill:var(--ink-muted,#777);">age {int(row["year"]) - int(birth_year)}</text>'
+            )
 
+    marker = ""
+    if retirement_year is not None:
+        for i, row in enumerate(band):
+            if int(row["year"]) == int(retirement_year):
+                mx = x_for(i)
+                marker = (
+                    f'<line x1="{mx:.1f}" y1="{margin_top}" x2="{mx:.1f}" y2="{margin_top + plot_h}" '
+                    f'style="stroke:var(--ink-muted,#777);" stroke-width="1" stroke-dasharray="3 3" />'
+                    f'<text x="{mx + 4:.1f}" y="{margin_top + 10}" font-size="10" style="fill:var(--ink-muted,#777);">'
+                    f"Retire {int(retirement_year)}</text>"
+                )
+                break
+    size_attrs = (
+        f'width="100%" style="max-width:{width}px; height:auto;"' if responsive else f'width="{width}" height="{height}"'
+    )
     return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'<svg {size_attrs} viewBox="0 0 {width} {height}" '
         f'font-family="-apple-system, sans-serif">'
         + "".join(gridlines)
+        + marker
         + f'<path d="{band_path}" fill="{color}" fill-opacity="0.15" stroke="none" />'
         + f'<polyline points="{p90_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-dasharray="5 3" />'
         + f'<polyline points="{p10_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-dasharray="5 3" />'

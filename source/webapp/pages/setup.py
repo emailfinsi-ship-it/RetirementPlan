@@ -91,9 +91,11 @@ def _render_setup_page() -> str:
     )
 
     household_html = _household_card_html()
+    sample_html = _sample_data_card_html()
     body = f"""
 <p class="muted">New here? <a href="/setup-wizard.html">Run the setup wizard</a> for a guided walk through the basics.</p>
 {household_html}
+{sample_html}
 <details class="card" style="padding:12px 16px;">
 <summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
 <h2 style="margin-top:8px">One-time workbook import</h2>
@@ -144,6 +146,10 @@ def _render_setup_page() -> str:
 <p class="muted">"Sync now" (pulls current balances/holdings/transactions from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, <a href="/linked-positions.html">Linked Positions</a>, and <a href="/real-expenditure.html">Real Expenditure</a> pages now, next to the data it actually refreshes. An Item's "Enable Transactions" button above (shown until its Products column already includes "transactions") opens Plaid Link once more so it can start syncing spend history for <a href="/real-expenditure.html">Real Expenditure</a> -- no need to unlink and relink it from scratch.</p>
 </details>
 
+{security_html}
+
+<details class="advanced-group" id="advanced-settings" style="margin:16px 0;">
+<summary style="font-weight:650; font-size:15px; cursor:pointer;">Advanced settings <span class="muted">(data locations, category rules, automatic sync, property values, network access)</span></summary>
 <h2>Data &amp; output locations</h2>
 <p class="status-line">Data (retirement_plan.db): {html.escape(data_status['current'])}</p>
 <p class="status-line">Output (Excel exports): {html.escape(output_status['current'])}</p>
@@ -183,8 +189,8 @@ def _render_setup_page() -> str:
 </details>
 {auto_sync_html}
 {rentcast_html}
-{security_html}
 {network_html}
+</details>
 {quit_html}
 """
     return _shell(title="Setup", active="setup.html", body=body)
@@ -198,6 +204,22 @@ def _quit_card_html() -> str:
 <h2 style="margin-top:0">Quit {html.escape(branding.PRODUCT_NAME)}</h2>
 <p class="muted">Stops the program running on this computer. Open the app again any time to start it; your data is kept.</p>
 <button type="button" onclick="if (confirm('Quit {html.escape(branding.PRODUCT_NAME)}?')) {{ postJSON('/api/quit', {{}}).then(function() {{ document.body.innerHTML = '<p style=&quot;font-family:sans-serif;padding:40px&quot;>{html.escape(branding.PRODUCT_NAME)} has quit. You can close this tab.</p>'; }}); }}">Quit {html.escape(branding.PRODUCT_NAME)}</button>
+</div>
+"""
+
+
+def _sample_data_card_html() -> str:
+    """Offered only while sample rows exist: one click removes every row the
+    "Load sample household" button added, and nothing you typed yourself."""
+    from source.common import demo_data
+
+    if not demo_data.has_sample_data():
+        return ""
+    return """
+<div class="card" id="sample-data">
+<h2 style="margin-top:0">Sample data</h2>
+<p class="muted">The example household (Alex and Sam) is loaded so you can look around. Remove it before entering your own numbers -- only the sample rows are deleted, anything you typed stays. Names and assumptions it set can be changed above and on the Monte Carlo page.</p>
+<button type="button" onclick="if (confirm('Remove the sample household rows?')) { postJSON('/api/sample-data', {action: 'remove'}).then(function() { location.reload(); }).catch(function(e) { alert(e.message); }); }">Remove sample data</button>
 </div>
 """
 

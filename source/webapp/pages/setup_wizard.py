@@ -40,6 +40,13 @@ def _wizard_card_html() -> str:
         intro = "Setup is finished. You can walk through the wizard again any time -- your answers are pre-filled."
     else:
         intro = "Walk through the basics step by step."
+    sample_block = ""
+    if needed:
+        sample_block = (
+            '<p><strong>Just looking around?</strong> Load an example household to see what a finished plan looks like. '
+            'You can remove it in one click from the Setup page.</p>'
+            '<p><button type="button" id="wz-sample" onclick="wizardLoadSample()">Load sample household</button></p>'
+        )
     return f"""
 <div class="card" id="wizard">
 <h2 style="margin-top:0">Setup wizard</h2>
@@ -90,6 +97,7 @@ def _wizard_card_html() -> str:
   <p><button type="button" onclick="location.href='/setup.html#plaid-keys'">Take me to Plaid setup</button></p>
   <p><strong>Type it in yourself.</strong> Add accounts, real estate, income and expenses by hand -- no bank connection needed.</p>
   <p><a href="/asset.html"><button type="button">Open the Assets page</button></a> <a href="/expense.html"><button type="button">Open Income/Expense</button></a></p>
+  {sample_block}
 </div>
 
 <div class="wz-step" data-step="4">
@@ -145,6 +153,11 @@ def _wizard_card_html() -> str:
     if (dir > 0 && cur === last) {{ window.wizardFinish(true); return; }}
     if (dir < 0) {{ show(cur - 1); return; }}
     saveStep(cur).then(function() {{ show(cur + 1); }}).catch(function(e) {{ alert(e.message); }});
+  }};
+  window.wizardLoadSample = function() {{
+    postJSON('/api/sample-data', {{}}).then(function() {{
+      return postJSON('/api/setup-complete', {{}});
+    }}).then(function() {{ location.href = '/summary.html'; }}).catch(function(e) {{ alert(e.message); }});
   }};
   window.wizardFinish = function(goSummary) {{
     postJSON('/api/setup-complete', {{}}).then(function() {{

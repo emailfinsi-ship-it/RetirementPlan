@@ -167,7 +167,7 @@ def _render_linked_accounts_page() -> str:
         f'data-balance="{r["balance"] or 0}">'
         f'<td>{html.escape(r["institution"])}</td><td>{html.escape(r["item_key"])}</td>'
         f'<td>{html.escape(r["account_type"])}</td>'
-        f'<td>{html.escape(_account_number_display(r["last4"], r.get("account_number"), r.get("is_tokenized_account_number", False)))}</td>'
+        f'<td><span class="acct-num">{html.escape(_account_number_display(r["last4"], r.get("account_number"), r.get("is_tokenized_account_number", False)))}</span></td>'
         f'<td class="num">{_money(r["balance"])}</td>'
         f'<td>{html.escape(r["last_update"])}</td><td>{_linked_to_cell(r)}</td></tr>'
         for r in linked_accounts
@@ -208,6 +208,7 @@ def _render_linked_accounts_page() -> str:
 {investment_history_chart_html}
 </div>
 </details>
+<p class="muted small" style="margin:6px 0;">Account numbers are blurred by default. Hover one to read it, or <button type="button" onclick="document.documentElement.classList.toggle('show-acct')" style="font-size:12px; padding:2px 8px;">show / hide all</button>.</p>
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
 <table id="linked-accounts-table" class="sortable">

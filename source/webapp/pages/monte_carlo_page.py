@@ -12,6 +12,7 @@ import html
 import random
 
 from source.common import db
+from source.reporting import presentation as pres
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import (
     _resolve_retirement_year,
@@ -23,6 +24,7 @@ from source.reporting.monte_carlo import (
     stable_simulation_seed,
 )
 from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
+from source.webapp.pages import summary_blocks as blocks
 from source.webapp.pages.scenarios_card import saved_scenarios_card_html
 from source.webapp.render_helpers import _money, _pct, _shell
 from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
@@ -48,7 +50,16 @@ def _render_monte_carlo_page() -> str:
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
         pools=pools, rng=random.Random(seed),
     )
-    chart = render_fan_svg(result)
+    mode = db.dollars_mode()
+    display = pres.convert_result(result, assumptions, s["this_year"], mode)
+    try:
+        birth = int(float(assumptions.get("birth_year")))
+    except (TypeError, ValueError):
+        birth = None
+    chart = render_fan_svg(
+        display, width=980, height=340, plain=True, responsive=True,
+        retirement_year=_resolve_retirement_year(assumptions), birth_year=birth,
+    )
     # A different-but-still-deterministic seed than the Gaussian run above
     # -- reproducible across reloads (same reasoning as that one), but not
     # reusing the exact same random.Random stream for a differently
@@ -57,6 +68,7 @@ def _render_monte_carlo_page() -> str:
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
         pools=pools, rng=random.Random(seed ^ 0x5DEECE66D),
     )
+    sp_display = pres.convert_result(sp500_result, assumptions, s["this_year"], mode)
     stress_result = run_historical_stress_test(
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions, pools=pools,
     )
@@ -158,24 +170,26 @@ def _render_monte_carlo_page() -> str:
         f'step="1" placeholder="e.g. 1962" value="{html.escape(str(assumptions.get("spouse_birth_year") or ""))}"></label>'
     ) if db.has_spouse() else ""
     body = f"""
-<h2 style="margin-top:0">Monte Carlo simulation</h2>
+<div class="card-head"><h2 style="margin:0">Monte Carlo simulation</h2>{blocks.dollars_toggle_html(mode)}</div>
+<p class="muted small">Thousands of possible market futures for your plan. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In Monte Carlo?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p></details>
 <div class="tiles">{pool_tiles}</div>
 <div class="tiles">
-  <div class="tile"><div class="label">Success rate</div><div class="value">{result['success_rate'] * 100:.0f}%</div></div>
-  <div class="tile"><div class="label">10th percentile ending balance</div><div class="value">{_money(result['p10_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">Median ending balance</div><div class="value">{_money(result['median_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">90th percentile ending balance</div><div class="value">{_money(result['p90_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">{pres.LABEL_CHANCE}</div><div class="value">{pres.percent_display(result['success_rate'])}</div></div>
+  <div class="tile"><div class="label">{pres.LABEL_CAUTIOUS}</div><div class="value">{_money(display['p10_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">{pres.LABEL_TYPICAL}</div><div class="value">{_money(display['median_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">{pres.LABEL_STRONG}</div><div class="value">{_money(display['p90_ending_balance'])}</div></div>
   <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
 {tax_tiles}</div>
 {chart}
 <h2>S&amp;P 500 historical-returns simulation</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p></details>
+<p class="note-box"><strong>Read this as a cross-check, not a forecast.</strong> It replays the real S&amp;P 500&#x27;s past years, which were one unusually strong stretch for one country&#x27;s stocks and never include a future shock. A very high result here is a best-case reference; the simulation above (and the stress test below) are the better guide to planning.</p>
 <div class="tiles">
-  <div class="tile"><div class="label">S&amp;P 500 success rate</div><div class="value">{sp500_result['success_rate'] * 100:.0f}%</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 10th percentile ending balance</div><div class="value">{_money(sp500_result['p10_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 median ending balance</div><div class="value">{_money(sp500_result['median_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 90th percentile ending balance</div><div class="value">{_money(sp500_result['p90_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 chance your money lasts</div><div class="value">{pres.percent_display(sp500_result['success_rate'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 cautious case</div><div class="value">{_money(sp_display['p10_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 typical case</div><div class="value">{_money(sp_display['median_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 strong case</div><div class="value">{_money(sp_display['p90_ending_balance'])}</div></div>
 </div>
 {sale_card}
 {stress_html}
@@ -375,7 +389,7 @@ def _historical_stress_test_html(result: dict) -> str:
         if hidden_year_count else ""
     )
     return f"""
-<h2>Historical recession stress test</h2>
+<h2>What if markets fall? Historical recession stress test</h2>
 <p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. The last two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption, and the S&amp;P 500's compound average over every year on record.</p>
 <div style="overflow-x:auto">
 <table class="sortable">

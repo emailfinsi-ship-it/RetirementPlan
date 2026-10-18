@@ -9,8 +9,11 @@ import random
 
 from source.common import db
 from source.reporting.aggregate import build_summary
-from source.reporting.plan_health import plan_health_card_html, plan_health_items
-from source.reporting.monte_carlo import _resolve_retirement_year, render_fan_svg, run_simulation, stable_simulation_seed
+from source.reporting.plan_health import plan_health_items
+from source.reporting import presentation as pres
+from source.reporting.monte_carlo import _resolve_retirement_year, run_simulation, stable_simulation_seed
+from source.reporting.monte_carlo.drawdown_schedule import deterministic_drawdown_schedule
+from source.webapp.pages import summary_blocks as blocks
 from source.webapp.pages.asset import _liquid_and_total_points
 from source.webapp.render_helpers import (
     _bar_chart_html,
@@ -24,38 +27,17 @@ from source.webapp.render_helpers import (
 )
 
 
-def _render_summary_page() -> str:
+def build_plan_views() -> dict:
+    """Everything the Summary page and the printable plan report both show,
+    computed once so the two can never disagree."""
     s = build_summary()
     assumptions = s["assumptions"]
-    # "Manual asset total" used to be its own separate figure here and
-    # didn't line up with what the Asset tab itself shows (it folded in
-    # live-linked balances but was still labeled "manual"). Net Liquid
-    # Asset and Total Asset below are the same real, Asset-tab-sourced
-    # totals as the "Assets by category" tables further down the page --
-    # see aggregate.build_summary()'s asset_category_subtotals.
-    tiles = [
-        ("Net worth", _money(s["net_worth"])),
-        ("Net Liquid Asset", _money(s["net_liquid_asset"])),
-        ("Total Asset", _money(s["total_asset"])),
-        ("Real estate equity", _money(s["real_estate_equity_total"])),
-        ("Liabilities", _money(-s["liability_total"])),
-        (f"{s['next_year']} expense need", _money(s["next_year_expense_need"])),
-        ("Expected rate of return", f"{_pct(assumptions, 'expected_return', 0.06)}%"),
-    ]
-    tiles_html = "".join(
-        f'<div class="tile"><div class="label">{html.escape(label)}</div>'
-        f'<div class="value">{value}</div></div>'
-        for label, value in tiles
-    )
-    linked = s["linked_status"]
+    mode = db.dollars_mode()
     starting_balance = s["net_liquid_asset"]
     # Seeded deterministically (see stable_simulation_seed's own
-    # docstring) so this "What if" card's Success rate/Median ending
-    # balance always match the Monte Carlo tab's own top simulation --
-    # both call run_simulation with identical starting_balance/pools/
-    # assumptions/expenses/income, so an unseeded call here would run an
-    # independent random 1000-path simulation and land on a different
-    # (if similarly plausible) number purely by chance.
+    # docstring) so the chance-your-money-lasts figures here always match
+    # the Monte Carlo tab's own top simulation -- both call run_simulation
+    # with identical starting_balance/pools/assumptions/expenses/income.
     mc_seed = stable_simulation_seed(
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
         pools=s["retirement_pools"],
@@ -64,33 +46,7 @@ def _render_summary_page() -> str:
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
         pools=s["retirement_pools"], rng=random.Random(mc_seed),
     )
-    mc_chart = render_fan_svg(mc_result)
-    # Real estate opted in on the Real Estate Analysis tab is a 4th pool
-    # run_simulation actually draws from (it ignores `starting_balance`
-    # entirely once `pools` is passed -- see monte_carlo_page.py's own
-    # comment on this) -- so the true money this card simulates is
-    # starting_balance + re_pool, not just starting_balance.
-    re_pool = s["retirement_pools"].get("real_estate", 0.0)
-    total_simulated_balance = starting_balance + re_pool
-    real_estate_pool_clause = (
-        f' Plus {_money(re_pool)} of real estate equity opted in on the Real Estate Analysis tab -- '
-        f'{_money(total_simulated_balance)} simulated in total.'
-    ) if re_pool else ""
-    excluded_from_net_liquid = (
-        "insurance cash value and any other unchecked Asset-tab row" if re_pool
-        else "real estate equity, insurance cash value, and any unchecked Asset-tab row"
-    )
-    insight_html = _summary_insight_html(s)
-    linked_summary = (
-        "No Plaid accounts linked yet." if not linked["configured"]
-        else f"{linked['item_count']} linked Plaid account(s)"
-        + (f", last synced {html.escape(linked['last_synced_at'])}." if linked["last_synced_at"] else ", not synced yet.")
-    ) + ' Workbook import and Excel export are on the <a href="/setup.html">Setup</a> tab.'
-    sync_html = (
-        _sync_now_button_html(note='Pulls current balances (and holdings, for accounts that requested "investments") from Plaid.')
-        if linked["configured"] else ""
-    )
-
+    display_result = pres.convert_result(mc_result, assumptions, s["this_year"], mode)
     retirement_year = _resolve_retirement_year(assumptions)
     if retirement_year is None:
         retirement_text = "Retirement year not set"
@@ -100,6 +56,48 @@ def _render_summary_page() -> str:
             f"{years_away} year{'s' if years_away != 1 else ''} away" if years_away > 0
             else "this year" if years_away == 0 else f"{-years_away} year{'s' if years_away != -1 else ''} into retirement"
         ) + ")"
+    empty_plan = not s["assets"] and not s["real_estate"] and not s["expenses"]
+    schedule = None
+    if not empty_plan:
+        schedule_assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
+        schedule = deterministic_drawdown_schedule(
+            pools=s["drawdown_pools"], expenses=s["expenses"], income=s["income_for_simulation"],
+            assumptions=schedule_assumptions,
+        )
+    return {
+        "s": s, "mode": mode, "display_result": display_result, "retirement_year": retirement_year,
+        "retirement_text": retirement_text, "empty_plan": empty_plan, "schedule": schedule,
+    }
+
+
+def _render_summary_page() -> str:
+    v = build_plan_views()
+    s, mode, display_result = v["s"], v["mode"], v["display_result"]
+    assumptions = s["assumptions"]
+    retirement_year, retirement_text = v["retirement_year"], v["retirement_text"]
+    linked = s["linked_status"]
+
+    linked_summary = (
+        "No Plaid accounts linked yet." if not linked["configured"]
+        else f"{linked['item_count']} linked Plaid account(s)"
+        + (f", last synced {html.escape(linked['last_synced_at'])}." if linked["last_synced_at"] else ", not synced yet.")
+    )
+    sync_html = (
+        _sync_now_button_html(note='Pulls current balances (and holdings, for accounts that requested "investments") from Plaid.')
+        if linked["configured"] else ""
+    )
+
+    if v["empty_plan"]:
+        top_html = blocks.welcome_card_html()
+    else:
+        top_html = (
+            blocks.hero_html(s, display_result, retirement_text, mode)
+            + blocks.own_owe_html(s)
+            + blocks.projection_card_html(s, display_result, mode, retirement_year)
+            + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
+            + blocks.next_steps_html(plan_health_items(s), can_vary_retirement=retirement_year is not None)
+            + (_report_link_html())
+        )
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
     history_html = _line_chart_html(
@@ -109,25 +107,22 @@ def _render_summary_page() -> str:
     )
 
     body = f"""
-<div class="tiles">{tiles_html}</div>
-<div class="card">
-<h2 style="margin-top:0">Plan outlook</h2>
-<div class="tiles">
-  <div class="tile"><div class="label">Starting balance</div><div class="value">{_money(total_simulated_balance)}</div></div>
-  <div class="tile"><div class="label">Success rate</div><div class="value">{mc_result['success_rate'] * 100:.0f}%</div></div>
-  <div class="tile"><div class="label">Median ending balance</div><div class="value">{_money(mc_result['median_ending_balance'])}</div></div>
-</div>
-<p class="muted" style="margin-bottom:0;">{html.escape(retirement_text)}, expected return {_pct(assumptions, 'expected_return', 0.06)}%.
-Change these (and the other assumptions) under <a href="/monte-carlo.html#assumptions">Monte Carlo &rarr; Assumptions</a>;
-the full simulation chart is on that tab. Balances by category are on the <a href="/asset.html">Asset</a> tab.</p>
-</div>
-{plan_health_card_html(plan_health_items(s))}
+{top_html}
 {history_html}
-{insight_html}
-<p class="muted">{linked_summary}</p>
+{_summary_insight_html(s)}
 {sync_html}
+{blocks.footer_html(s, linked_summary, mode)}
 """
     return _shell(title="Summary", active="summary.html", body=body)
+
+
+def _report_link_html() -> str:
+    return (
+        '<div class="card report-card"><div><h2 style="margin:0">Plan report</h2>'
+        '<p class="muted small" style="margin:4px 0 0">A clean, printable summary of this plan -- save it as a PDF to share '
+        'with a spouse, advisor or family.</p></div>'
+        '<a href="/report.html" target="_blank" rel="noopener"><button type="button" class="primary">Download plan report (PDF)</button></a></div>'
+    )
 
 def _safe_pct(numerator: float, denominator: float) -> str:
     """Formats numerator/denominator as a whole-number percent, "--" when

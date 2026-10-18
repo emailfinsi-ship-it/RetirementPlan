@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from source.common import auth_store, branding, db
+from source.common import auth_store, branding, config, db
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
 
 
@@ -150,6 +150,22 @@ function postJSON(url, body) {{
         return data;
       }});
     }});
+}}
+function setDollarsMode(mode) {{
+  postJSON('/api/dollars-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
+}}
+function runWhatIf(btn) {{
+  var out = document.getElementById('whatif-result');
+  btn.disabled = true; btn.textContent = 'Running 4 simulations...';
+  postJSON('/api/what-if', {{}}).then(function(d) {{
+    var rows = d.results.map(function(r) {{
+      var cls = r.change > 0 ? 'up' : (r.change < 0 ? 'down' : 'muted');
+      var delta = r.key === 'now' ? '' : ((r.change > 0 ? '+' : '') + r.change.toFixed(1) + ' pts');
+      return '<tr><td>' + r.label + '</td><td class="num"><strong>' + Math.round(r.success_rate * 100) + '%</strong></td><td class="num ' + cls + '">' + delta + '</td></tr>';
+    }}).join('');
+    out.innerHTML = '<table class="whatif-table"><tbody>' + rows + '</tbody></table>';
+    btn.disabled = false; btn.textContent = 'Run again';
+  }}).catch(function(e) {{ alert(e.message); btn.disabled = false; btn.textContent = 'Run what-if check'; }});
 }}
 function deleteCategoryRule(id) {{
   if (!confirm('Delete this category rule?')) return;
@@ -1183,6 +1199,15 @@ def _motto_html(active: str) -> str:
     )
 
 
+def _demo_banner_html() -> str:
+    if not config.DEMO:
+        return ""
+    return (
+        '<div class="demo-banner"><strong>Demo mode</strong> &mdash; example household only. Nothing here is real, '
+        'nothing is saved to your own plan, and no login is needed.</div>'
+    )
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1190,7 +1215,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_subnav_html(active) + _motto_html(active) + body, current_year=current_year,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_demo_banner_html() + _subnav_html(active) + _motto_html(active) + body, current_year=current_year,
         product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
     )
 

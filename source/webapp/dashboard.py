@@ -34,9 +34,9 @@ from source.collector import link_item as plaid_link_item
 from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
-from source.common import app_settings, auth_store, backup, branding, config, db, linked_data, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, linked_data, secrets_store
 from source.importer import xlsx_import
-from source.reporting import benefits, excel_export, scenarios as scenarios_module
+from source.reporting import benefits, excel_export, scenarios as scenarios_module, what_if
 from source.reporting.aggregate import (
     build_summary,
     capture_daily_snapshots_if_new_day,
@@ -79,6 +79,7 @@ from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
 from source.webapp.pages.real_estate import _render_real_estate_page
 from source.webapp.pages.real_expenditure import _render_real_expenditure_page
 from source.webapp.pages.setup import _render_setup_page
+from source.webapp.pages.report import _render_report_page
 from source.webapp.pages.setup_wizard import _render_wizard_page
 from source.webapp.pages.summary import _render_summary_page
 
@@ -369,6 +370,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_setup_page())
             elif path == "/setup-wizard.html":
                 self._send_html(_render_wizard_page())
+            elif path == "/report.html":
+                self._send_html(_render_report_page())
             elif path == "/account-balances.html":
                 self._send_export_html(config.account_balances_html_path())
             elif path == "/portfolio-positions.html":
@@ -582,6 +585,19 @@ class Handler(BaseHTTPRequestHandler):
                 app_settings.set_backup_keep(keep)
                 backup.prune_backups()
                 self._send_json({"ok": True, "keep": backup.keep_count()})
+            elif path == "/api/sample-data":
+                if payload.get("action") == "remove":
+                    self._send_json({"ok": True, "removed": demo_data.remove_sample_data()})
+                else:
+                    if db.setup_needed() is False and not demo_data.has_sample_data():
+                        raise ValueError("Sample data can only be loaded into an empty plan.")
+                    demo_data.seed_sample_household()
+                    self._send_json({"ok": True})
+            elif path == "/api/dollars-mode":
+                db.set_dollars_mode(str(payload.get("mode") or ""))
+                self._send_json({"ok": True, "mode": db.dollars_mode()})
+            elif path == "/api/what-if":
+                self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)
                 self._send_json({"ok": True})
@@ -962,6 +978,9 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
 def run(*, open_browser: bool = True) -> None:
     config.ensure_directories()
     db.init_db()
+    if config.DEMO and not db.list_line_items("assets"):
+        demo_data.seed_sample_household(with_history=True)
+        db.set_setup_complete(True)
     # First time the app is opened today, today gets a backup -- see
     # source.common.backup's module docstring for why this (rather than
     # a cron job or background thread) is the "automatic" mechanism.
@@ -1014,7 +1033,7 @@ def run(*, open_browser: bool = True) -> None:
 
     threading.Thread(target=_run_auto_sync_in_background, daemon=True).start()
 
-    bind_host = app_settings.get_bind_host()
+    bind_host = "127.0.0.1" if config.DEMO else app_settings.get_bind_host()
     if bind_host != "127.0.0.1" and not auth_store.is_password_set():
         # Refuse to listen on anything but localhost until a login
         # password exists -- a misconfigured bind_host (Setup page's

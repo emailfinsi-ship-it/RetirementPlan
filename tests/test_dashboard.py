@@ -217,12 +217,17 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("Great Depression (1929)", body)
 
     def test_summary_page_has_what_if_return_card(self):
-        resp = self._get("/summary.html")
-        body = resp.read().decode("utf-8")
-        self.assertIn("Plan outlook", body)
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 60_000})
+        try:
+            resp = self._get("/summary.html")
+            body = resp.read().decode("utf-8")
+        finally:
+            db.clear_section("expenses")
+        self.assertIn("Will your money last?", body)
         self.assertIn("/monte-carlo.html#assumptions", body)
-        self.assertIn("Success rate", body)
-        self.assertIn("Median ending balance", body)
+        self.assertIn("Chance your money lasts", body)
+        self.assertIn("Typical case", body)
+        self.assertIn("Run what-if check", body)
 
     def test_nav_has_eight_tabs_and_paired_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
@@ -384,8 +389,12 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
                 db.delete_scenario(sc["id"])
 
     def test_summary_shows_the_plan_health_card(self):
-        body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Plan health", body)
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 60_000})
+        try:
+            body = self._get("/summary.html").read().decode("utf-8")
+        finally:
+            db.clear_section("expenses")
+        self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
@@ -2834,7 +2843,7 @@ class TestAssumptionsEndpoint(DashboardTestCase):
 
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("expected return 9.00%", body)
+        self.assertIn("9.00% average yearly growth", body)
 
 
 class TestMonteCarloStartingBalance(DashboardTestCase):
@@ -2949,19 +2958,20 @@ class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
     def tearDown(self):
         db.clear_section("assets")
         db.clear_section("expenses")
+        db.set_assumption("expected_return", 0.06)
 
     def test_median_ending_balance_matches_between_the_two_tabs(self):
         mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
         summary_body = self._get("/summary.html").read().decode("utf-8")
-        mc_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", mc_body).group(1)
-        summary_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", summary_body).group(1)
+        mc_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", mc_body).group(1)
+        summary_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", summary_body).group(1)
         self.assertEqual(mc_value, summary_value)
 
     def test_success_rate_matches_between_the_two_tabs(self):
         mc_body = self._get("/monte-carlo.html").read().decode("utf-8")
         summary_body = self._get("/summary.html").read().decode("utf-8")
-        mc_value = re.search(r"Success rate</div><div class=\"value\">([\d]+%)</div>", mc_body).group(1)
-        summary_value = re.search(r"Success rate</div><div class=\"value\">([\d]+%)</div>", summary_body).group(1)
+        mc_value = re.search(r"Chance your money lasts</div><div class=\"value\">((?:&gt;|>)?\d+%)</div>", mc_body).group(1)
+        summary_value = re.search(r"Chance your money lasts</div><div class=\"value\">((?:&gt;|>)?\d+%)</div>", summary_body).group(1)
         self.assertEqual(mc_value, summary_value)
 
     def test_reloading_either_tab_repeatedly_gives_the_same_number(self):
@@ -2970,8 +2980,8 @@ class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
         # every page load too.
         first = self._get("/monte-carlo.html").read().decode("utf-8")
         second = self._get("/monte-carlo.html").read().decode("utf-8")
-        first_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", first).group(1)
-        second_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", second).group(1)
+        first_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", first).group(1)
+        second_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", second).group(1)
         self.assertEqual(first_value, second_value)
 
     def test_changing_an_assumption_changes_the_result(self):
@@ -2979,10 +2989,10 @@ class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
         # the plan gets ignored -- a different expected return should
         # (almost certainly) produce a different median ending balance.
         before = self._get("/monte-carlo.html").read().decode("utf-8")
-        before_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", before).group(1)
+        before_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", before).group(1)
         db.set_assumption("expected_return", 0.15)
         after = self._get("/monte-carlo.html").read().decode("utf-8")
-        after_value = re.search(r"Median ending balance</div><div class=\"value\">(\$[\d,.]+)</div>", after).group(1)
+        after_value = re.search(r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>", after).group(1)
         self.assertNotEqual(before_value, after_value)
 
 
@@ -3022,22 +3032,23 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         body = self._get("/summary.html").read().decode("utf-8")
         # Shows 2027 (next year), not 2026 (this year) -- and does not
         # also show a stale "2026 expense need" tile.
-        self.assertIn('<div class="label">2027 expense need</div><div class="value">$300,000</div>', body)
-        self.assertNotIn("2026 expense need", body)
+        self.assertIn('<div class="label">Yearly spending in 2027</div><div class="value">$300,000</div>', body)
+        self.assertNotIn("Yearly spending in 2026", body)
 
     def test_net_liquid_asset_and_total_asset_tiles_are_present(self):
         self._seed()
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$145,000</div>', body)
+        self.assertIn('<div class="label">Investable savings</div><div class="value">$145,000</div>', body)
         # Net Liquid Asset (145,000) + RE equity (200,000) = 345,000.
-        self.assertIn('<div class="label">Total Asset</div><div class="value">$345,000</div>', body)
+        self.assertIn('<div class="label">Everything you own</div><div class="value">$345,000</div>', body)
 
     def test_expected_rate_of_return_tile_shows_the_assumption_as_a_percent(self):
+        db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000})
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
         # No assumptions saved yet -- falls back to the same 6.00% default
-        # the "What if" card's own input field uses.
-        self.assertIn('<div class="label">Expected rate of return</div><div class="value">6.00%</div>', body)
+        # the Monte Carlo Assumptions form uses.
+        self.assertIn("6.00% average yearly growth", body)
 
     def test_summary_points_to_the_asset_tab_instead_of_repeating_the_category_table(self):
         # The per-category table lives only on the Asset tab; Summary keeps
@@ -3059,8 +3070,10 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
     def test_empty_state_shows_zero_totals_not_an_error(self):
         resp = self._get("/summary.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<div class="label">Net Liquid Asset</div><div class="value">$0</div>', body)
-        self.assertIn('<div class="label">Total Asset</div><div class="value">$0</div>', body)
+        # A brand-new plan shows the welcome card rather than a wall of $0s.
+        self.assertIn("let&#x27;s build your plan", body)
+        self.assertIn("/setup-wizard.html", body)
+        self.assertNotIn("Investable savings", body)
 
     def test_rollup_table_renders_above_the_category_summary_table(self):
         self._seed()
@@ -3084,11 +3097,11 @@ class TestGaussianSimulationTiles(DashboardTestCase):
     def test_tiles_include_10th_median_and_90th_percentile_ending_balance(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Success rate", body)
+        self.assertIn("Chance your money lasts", body)
         self.assertIn("Iterations", body)
-        self.assertRegex(body, r"10th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
-        self.assertRegex(body, r"Median ending balance</div><div class=\"value\">\$[\d,]+</div>")
-        self.assertRegex(body, r"90th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"Cautious case \(1 in 10 do worse\)</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"Typical case</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"Strong case \(1 in 10 do better\)</div><div class=\"value\">\$[\d,]+</div>")
 
     def test_tile_values_match_a_freshly_run_gaussian_simulation(self):
         from source.reporting.aggregate import build_summary
@@ -3128,10 +3141,10 @@ class TestSp500HistoricalBootstrapSection(DashboardTestCase):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         self.assertIn("S&amp;P 500 historical-returns simulation", body)
-        self.assertIn("S&amp;P 500 success rate", body)
-        self.assertIn("S&amp;P 500 10th percentile ending balance", body)
-        self.assertIn("S&amp;P 500 90th percentile ending balance", body)
-        self.assertIn("S&amp;P 500 median ending balance", body)
+        self.assertIn("S&amp;P 500 chance your money lasts", body)
+        self.assertIn("S&amp;P 500 cautious case", body)
+        self.assertIn("S&amp;P 500 strong case", body)
+        self.assertIn("S&amp;P 500 typical case", body)
 
     def test_section_has_no_chart_of_its_own_just_the_gaussian_fan_chart_above(self):
         # Per user feedback, this section reports its own tiles (success
@@ -3160,8 +3173,8 @@ class TestSp500HistoricalBootstrapSection(DashboardTestCase):
         # from this one-off run -- just confirm the section reports
         # sane, present values in the expected dollar format rather than
         # erroring or being blank.
-        self.assertRegex(body, r"S&amp;P 500 10th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
-        self.assertRegex(body, r"S&amp;P 500 90th percentile ending balance</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"S&amp;P 500 cautious case</div><div class=\"value\">\$[\d,]+</div>")
+        self.assertRegex(body, r"S&amp;P 500 strong case</div><div class=\"value\">\$[\d,]+</div>")
         self.assertIsNotNone(result)  # sanity: the function itself doesn't error on real plan data
 
 
@@ -5835,8 +5848,13 @@ class TestSummaryRetirementYearCard(DashboardTestCase):
     """The Summary tab's "Plan outlook" card states the retirement year
     (read-only -- it is entered on the Monte Carlo tab's Assumptions form)."""
 
+    def setUp(self):
+        # A plan with nothing in it shows the welcome card instead.
+        db.add_line_item("expenses", {"name": "Baseline", "category": "Fixed", "annual_amount": 60_000})
+
     def tearDown(self):
         db.set_assumptions({"retirement_year": "", "current_year": ""})
+        db.clear_section("expenses")
 
     def test_not_set_shows_the_not_set_note(self):
         body = self._get("/summary.html").read().decode("utf-8")

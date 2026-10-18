@@ -48,3 +48,18 @@ def setup_needed() -> bool:
     if list_plaid_items():
         return False
     return not any(list_line_items(section) for section in ("assets", "real_estate", "expenses", "income"))
+
+
+_META_DOLLARS_MODE = "dollars_mode"
+
+
+def dollars_mode() -> str:
+    """"today" (default: future amounts shown in today's purchasing power)
+    or "future" (nominal, inflated dollars)."""
+    return "future" if get_meta(_META_DOLLARS_MODE) == "future" else "today"
+
+
+def set_dollars_mode(mode: str) -> None:
+    if mode not in ("today", "future"):
+        raise ValueError("Dollars mode must be 'today' or 'future'.")
+    set_meta(_META_DOLLARS_MODE, mode)

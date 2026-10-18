@@ -146,6 +146,12 @@ def _line_item_section_html(
             section, e["id"], "base_year", e["base_year"], width="70px", step="1", blank_if_none=True,
         )
         notes_cell = _editable_text_cell(section, e["id"], "notes", e["notes"], width="110px")
+        # Both ends blank means "applies every year" -- say so rather than
+        # leaving two empty boxes that read as missing data.
+        every_year_note = (
+            '<div class="muted" style="font-size:11px;">every year</div>'
+            if e["start_year"] in (None, "") and e["end_year"] in (None, "") else ""
+        )
         mc_td = (
             f'<td>{_editable_checkbox_cell(section, e["id"], "include_in_monte_carlo", e.get("include_in_monte_carlo"))}</td>'
             if show_include_in_monte_carlo else ""
@@ -155,7 +161,7 @@ def _line_item_section_html(
             f'data-section="{section}" data-id="{e["id"]}"></td>'
             f'<td>{name_cell}</td><td>{category_cell}</td>'
             f'<td class="num">{amount_cell}</td>'
-            f'<td class="num">{start_cell}&ndash;{end_cell}</td>'
+            f'<td class="num">{start_cell}&ndash;{end_cell}{every_year_note}</td>'
             f'<td class="num">{base_year_cell}</td>'
             f'<td>{_editable_checkbox_cell(section, e["id"], "inflates", e["inflates"])}</td>'
             f'{mc_td}'
