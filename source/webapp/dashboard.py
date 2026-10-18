@@ -607,7 +607,10 @@ class Handler(BaseHTTPRequestHandler):
                 db.set_dollars_mode(str(payload.get("mode") or ""))
                 self._send_json({"ok": True, "mode": db.dollars_mode()})
             elif path == "/api/what-if":
-                self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
+                if payload.get("custom"):
+                    self._send_json({"ok": True, **what_if.run_custom_what_if(build_summary(), payload, db.dollars_mode())})
+                else:
+                    self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)
                 self._send_json({"ok": True})

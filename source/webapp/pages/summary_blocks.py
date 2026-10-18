@@ -154,6 +154,91 @@ def _trim_reinvested(r: dict) -> dict:
     return r
 
 
+_SRC_JS = r"""
+(function () {
+  var el = document.getElementById('src-data');
+  if (!el) return;
+  var D = JSON.parse(el.textContent);
+  var svg = document.getElementById('src-svg'), panel = document.getElementById('src-detail'), hl = document.getElementById('src-hl');
+  var pinned = null, focus = null;
+  function money(v) { return '$' + Math.round(v).toLocaleString('en-US'); }
+  function short(v) { return v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + Math.round(v / 1e3) + 'K'; }
+  function dot(k) { return '<span class="dot" style="background:' + D.colors[k] + '"></span>'; }
+  function showYear(i) {
+    var r = D.rows[i], parts = [], total = 0;
+    D.names.forEach(function (n, k) {
+      if (r.v[k] > 0.5) {
+        total += r.v[k];
+        parts.push('<span class="src-chip' + (focus === k ? ' on' : '') + '">' + dot(k) + n + ': <strong>' + money(r.v[k]) + '</strong></span>');
+      }
+    });
+    panel.innerHTML = '<strong>' + r.year + (r.age != null ? ' &middot; age ' + r.age : '') + '</strong> &mdash; ' + parts.join(' ') +
+      ' <span class="src-chip">Spending + taxes: <strong>' + money(r.spend) + '</strong></span>';
+  }
+  function showDefault() {
+    if (focus === null) {
+      panel.innerHTML = '<span class="muted">Hover or tap a year to see exactly where that year\'s money comes from. Click a source in the key to focus on it.</span>';
+      return;
+    }
+    var yrs = 0, tot = 0, peak = 0, peakYear = null, first = null;
+    D.rows.forEach(function (r) {
+      var v = r.v[focus];
+      if (v > 0.5) { yrs++; tot += v; if (first === null) first = r.year; if (v > peak) { peak = v; peakYear = r.year; } }
+    });
+    panel.innerHTML = dot(focus) + '<strong>' + D.names[focus] + '</strong>: used in ' + yrs + ' of ' + D.rows.length + ' years' +
+      (first !== null ? ', starting ' + first : '') + '; total <strong>' + money(tot) + '</strong>; biggest year <strong>' + money(peak) + '</strong> (' + peakYear + '). Hover a year for the exact amount.';
+  }
+  function place(i) {
+    hl.setAttribute('x', D.x0 + i * D.slot); hl.setAttribute('width', D.slot); hl.style.display = '';
+  }
+  function clearLabels() {
+    Array.prototype.slice.call(svg.querySelectorAll('.vlabel')).forEach(function (t) { t.parentNode.removeChild(t); });
+  }
+  function applyFocus() {
+    clearLabels();
+    svg.classList.toggle('focusing', focus !== null);
+    Array.prototype.forEach.call(svg.querySelectorAll('rect.seg'), function (r) {
+      r.classList.toggle('on', focus !== null && +r.getAttribute('data-s') === focus);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.legend-btn'), function (li) {
+      li.classList.toggle('on', focus !== null && +li.getAttribute('data-s') === focus);
+    });
+    if (focus !== null) {
+      Array.prototype.forEach.call(svg.querySelectorAll('rect.seg.on'), function (r) {
+        var h = parseFloat(r.getAttribute('height'));
+        if (h < 26) return;
+        var i = +r.getAttribute('data-i'), cx = parseFloat(r.getAttribute('x')) + parseFloat(r.getAttribute('width')) / 2;
+        var cy = parseFloat(r.getAttribute('y')) + h / 2;
+        var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('class', 'vlabel'); t.setAttribute('x', cx); t.setAttribute('y', cy);
+        t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'middle');
+        t.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
+        t.setAttribute('font-size', '9'); t.setAttribute('fill', '#fff'); t.style.pointerEvents = 'none';
+        t.textContent = short(D.rows[i].v[focus]);
+        svg.insertBefore(t, svg.querySelector('.yr-hit'));
+      });
+    }
+    if (pinned !== null) showYear(pinned); else showDefault();
+  }
+  Array.prototype.forEach.call(svg.querySelectorAll('.yr-hit'), function (h) {
+    var i = +h.getAttribute('data-i');
+    h.addEventListener('mouseenter', function () { if (pinned === null) { showYear(i); place(i); } });
+    h.addEventListener('mouseleave', function () { if (pinned === null) { hl.style.display = 'none'; showDefault(); } });
+    h.addEventListener('click', function () {
+      pinned = pinned === i ? null : i;
+      if (pinned === null) { hl.style.display = 'none'; showDefault(); } else { showYear(i); place(i); }
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.legend-btn'), function (li) {
+    function toggle() { var k = +li.getAttribute('data-s'); focus = focus === k ? null : k; applyFocus(); }
+    li.addEventListener('click', toggle);
+    li.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
+  showDefault();
+})();
+"""
+
+
 def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_year: int) -> str:
     rows = schedule.get("rows") or []
     start = schedule.get("retirement_year")
@@ -198,20 +283,32 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
         f'style="fill:var(--ink-muted,#777);">{short(top * k / 4)}</text>'
         for k in range(5)
     )
-    bars, labels, pts = [], [], []
+    bars, labels, pts, hits, data_rows = [], [], [], [], []
     stride = max(1, n // 8)
+    # Only series that are ever non-zero get a legend entry / table column;
+    # index them so the page script can refer to a series by number.
+    used_series = [(name, f, color) for name, f, color in series if any(conv(f(r), r["year"]) > 0.5 for r in rows)]
+    index_of = {name: k for k, (name, _f, _c) in enumerate(used_series)}
     for i, r in enumerate(rows):
         x = ml + slot * i + (slot - bar_w) / 2
         y_cursor = mt + ph
-        tip_lines = [f"{r['year']}"]
+        year_vals = [0.0] * len(used_series)
         for name, f, color in series:
             v = conv(f(r), r["year"])
             if v <= 0.5:
                 continue
             h = v / top * ph
             y_cursor -= h
-            bars.append(f'<rect x="{x:.1f}" y="{y_cursor:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="{color}"><title>{html.escape(name)} {r["year"]}: {short(v)}</title></rect>')
-            tip_lines.append(f"{name}: {short(v)}")
+            year_vals[index_of[name]] = v
+            bars.append(
+                f'<rect class="seg" data-s="{index_of[name]}" data-i="{i}" x="{x:.1f}" y="{y_cursor:.1f}" width="{bar_w:.1f}" '
+                f'height="{h:.1f}" fill="{color}"><title>{html.escape(name)} {r["year"]}: {short(v)}</title></rect>'
+            )
+        data_rows.append({"year": r["year"], "age": r.get("age"), "v": year_vals, "spend": spend[i]})
+        hits.append(
+            f'<rect class="yr-hit" data-i="{i}" x="{ml + slot * i:.1f}" y="{mt}" width="{slot:.1f}" height="{ph}" '
+            f'fill="transparent"><title>{r["year"]}</title></rect>'
+        )
         pts.append(f"{x + bar_w / 2:.1f},{y_for(spend[i]):.1f}")
         if i % stride == 0 or (i == n - 1 and (n - 1) % stride >= max(2, stride // 2)):
             age = f"<tspan x=\"{x + bar_w / 2:.1f}\" dy=\"11\" font-size=\"9\">age {r['age']}</tspan>" if r.get("age") is not None else ""
@@ -221,24 +318,48 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
             )
     line = f'<polyline points="{" ".join(pts)}" fill="none" stroke="var(--ink,#111)" stroke-width="1.8" stroke-dasharray="4 3"/>'
     svg = (
-        f'<svg width="100%" style="max-width:{width}px; height:auto;" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
-        + grid + "".join(bars) + line + "".join(labels) + "</svg>"
+        f'<svg id="src-svg" width="100%" style="max-width:{width}px; height:auto;" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
+        + grid + '<rect id="src-hl" style="display:none; fill:var(--ink,#111);" fill-opacity="0.07" y="' + str(mt) + '" height="' + str(ph) + '"/>'
+        + "".join(bars) + line + "".join(labels) + "".join(hits) + "</svg>"
     )
-    used = [(name, color) for name, f, color in series if any(conv(f(r), r["year"]) > 0.5 for r in rows)]
     legend = "".join(
-        f'<li><span class="dot" style="background:{c}"></span>{html.escape(n)}</li>' for n, c in used
+        f'<li class="legend-btn" role="button" tabindex="0" data-s="{k}" title="Click to focus on this source">'
+        f'<span class="dot" style="background:{c}"></span>{html.escape(n)}</li>'
+        for k, (n, _f, c) in enumerate(used_series)
     ) + '<li><span class="dash"></span>Spending + taxes</li>'
+    import json as _json
+
+    payload = _json.dumps({
+        "names": [n for n, _f, _c in used_series], "colors": [c for _n, _f, c in used_series],
+        "rows": data_rows, "x0": ml, "slot": slot, "mt": mt, "ph": ph,
+    }).replace("</", "<\\/")
+    table_head = "".join(f"<th class=\"num\">{html.escape(n)}</th>" for n, _f, _c in used_series)
+    table_rows = "".join(
+        f"<tr><td>{d['year']}</td><td>{d['age'] if d['age'] is not None else '--'}</td>"
+        + "".join(f'<td class="num">{_money(v) if v > 0.5 else "--"}</td>' for v in d["v"])
+        + f'<td class="num">{_money(d["spend"])}</td></tr>'
+        for d in data_rows
+    )
+    table_html = (
+        '<details class="how-it-works" style="margin-top:8px"><summary>Show the numbers as a table</summary>'
+        '<div style="overflow-x:auto"><table class="whatif-table"><thead><tr><th>Year</th><th>Age</th>'
+        f'{table_head}<th class="num">Spending + taxes</th></tr></thead><tbody>{table_rows}</tbody></table></div></details>'
+    )
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Where your retirement spending comes from</h2>
-<p class="muted small">Each bar is one year. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. In {html.escape("today's" if mode == "today" else "future")} dollars. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
+<p class="muted small">Each bar is one year. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. Hover or tap a year for the exact amounts; click a source in the key to focus on it. In {html.escape("today's" if mode == "today" else "future")} dollars. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
 {svg}
 <ul class="legend-inline">{legend}</ul>
+<div id="src-detail" class="src-detail small"></div>
+{table_html}
+<script type="application/json" id="src-data">{payload}</script>
+<script>{_SRC_JS}</script>
 </div>
 """
 
 
-def next_steps_html(items: list[dict], can_vary_retirement: bool) -> str:
+def next_steps_html(items: list[dict], can_vary_retirement: bool, growth_pct: float = 6.0) -> str:
     if items:
         rows = "".join(
             f'<li class="{"status-warn" if i["level"] == "warn" else "muted"}">{html.escape(i["text"])} '
@@ -250,16 +371,31 @@ def next_steps_html(items: list[dict], can_vary_retirement: bool) -> str:
     else:
         checks = '<p class="status-line status-ok">Nothing missing &mdash; every input the plan relies on is filled in.</p>'
         heading = "Things to check"
-    hint = "" if can_vary_retirement else " Set a retirement year to also try retiring later."
+    retire_attr = "" if can_vary_retirement else " disabled"
+    retire_hint = (
+        "" if can_vary_retirement
+        else '<span class="muted small">(set a retirement year first to try this)</span>'
+    )
     return f"""
 <div class="card">
 <h2 style="margin-top:0">What should I do next?</h2>
 <h3 class="sub">{heading}</h3>
 {checks}
 <h3 class="sub">Try a what-if</h3>
-<p class="muted small" style="margin-top:0">See how a change would move the chance your money lasts.{hint}</p>
+<p class="muted small" style="margin-top:0">Change any of the boxes and press Compare. Your plan is re-simulated with your change and set next to the plan as it is today -- nothing is saved.</p>
+<div class="whatif-form">
+  <label>Spending change (%)<input id="wi-spend" type="number" step="1" min="-90" max="200" value="-10" title="Negative = spend less, positive = spend more"></label>
+  <label>Retire later by (years)<input id="wi-retire" type="number" step="1" min="-20" max="30" value="0"{retire_attr} title="Negative = retire earlier"></label>
+  <label>Average yearly growth (%)<input id="wi-growth" type="number" step="0.1" min="-5" max="20" value="{growth_pct:g}"></label>
+  <button type="button" class="primary" id="whatif-btn" onclick="runWhatIf(this)">Compare</button>
+</div>
+<p class="small muted" style="margin:6px 0 0">Quick tries:
+  <button type="button" class="chip" onclick="wiPreset(-10, 0)">Spend 10% less</button>
+  <button type="button" class="chip" onclick="wiPreset(10, 0)">Spend 10% more</button>
+  <button type="button" class="chip" onclick="wiPreset(0, 2)"{retire_attr}>Retire 2 years later</button>
+  <button type="button" class="chip" onclick="wiPreset(-10, 2)"{retire_attr}>Both</button> {retire_hint}
+</p>
 <div id="whatif-result"></div>
-<button type="button" class="primary" id="whatif-btn" onclick="runWhatIf(this)">Run what-if check</button>
 </div>
 """
 

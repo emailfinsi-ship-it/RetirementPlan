@@ -177,6 +177,21 @@ PAGE_CSS = """
   .trust-footer { margin: 18px 2px 30px; line-height: 1.55; }
   .whatif-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0 12px; }
   .whatif-table td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
+  .whatif-table th { padding: 4px; text-align: left; font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  .whatif-table th.num { text-align: right; }
+  .legend-inline li.legend-btn { cursor: pointer; user-select: none; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; }
+  .legend-inline li.legend-btn:hover { border-color: var(--border); }
+  .legend-inline li.legend-btn.on { border-color: var(--ink-muted); font-weight: 600; }
+  svg.focusing rect.seg { opacity: .18; } svg.focusing rect.seg.on { opacity: 1; }
+  .yr-hit { cursor: pointer; }
+  .src-detail { min-height: 38px; margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: var(--surface-alt); border: 1px solid var(--border); line-height: 1.7; }
+  .src-chip .dot { margin-right: 5px; }
+  .src-chip { display: inline-block; margin-right: 10px; white-space: nowrap; } .src-chip.on { text-decoration: underline; }
+  .whatif-form { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin: 8px 0 0; }
+  .whatif-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-muted); }
+  .whatif-form input { width: 130px; }
+  .whatif-form input:disabled { opacity: .5; }
+  button.chip { font-size: 12px; padding: 3px 10px; border-radius: 99px; margin: 0 2px; }
   .whatif-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .up { color: var(--success); } .down { color: var(--danger); }
   .brand-tagline { color: var(--navy); font-weight: 600; letter-spacing: .02em; }

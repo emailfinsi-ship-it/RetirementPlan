@@ -154,18 +154,44 @@ function postJSON(url, body) {{
 function setDollarsMode(mode) {{
   postJSON('/api/dollars-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
 }}
+function wiPct(rate) {{ return rate >= 0.995 ? '>99%' : Math.round(rate * 100) + '%'; }}
+function wiMoney(v) {{ return '$' + Math.round(v).toLocaleString('en-US'); }}
+function wiDelta(a, b) {{
+  var d = b - a;
+  if (Math.abs(d) < 0.5) {{ return '<span class="muted">no change</span>'; }}
+  return '<span class="' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '+' : '-') + '$' + Math.abs(Math.round(d)).toLocaleString('en-US') + '</span>';
+}}
+function wiPreset(spend, retire) {{
+  document.getElementById('wi-spend').value = spend;
+  var r = document.getElementById('wi-retire');
+  if (r && !r.disabled) {{ r.value = retire; }}
+  else if (retire) {{ return; }}
+  runWhatIf(document.getElementById('whatif-btn'));
+}}
 function runWhatIf(btn) {{
   var out = document.getElementById('whatif-result');
-  btn.disabled = true; btn.textContent = 'Running 4 simulations...';
-  postJSON('/api/what-if', {{}}).then(function(d) {{
-    var rows = d.results.map(function(r) {{
-      var cls = r.change > 0 ? 'up' : (r.change < 0 ? 'down' : 'muted');
-      var delta = r.key === 'now' ? '' : ((r.change > 0 ? '+' : '') + r.change.toFixed(1) + ' pts');
-      return '<tr><td>' + r.label + '</td><td class="num"><strong>' + Math.round(r.success_rate * 100) + '%</strong></td><td class="num ' + cls + '">' + delta + '</td></tr>';
-    }}).join('');
-    out.innerHTML = '<table class="whatif-table"><tbody>' + rows + '</tbody></table>';
-    btn.disabled = false; btn.textContent = 'Run again';
-  }}).catch(function(e) {{ alert(e.message); btn.disabled = false; btn.textContent = 'Run what-if check'; }});
+  var r = document.getElementById('wi-retire');
+  var payload = {{
+    custom: true,
+    spend_change_pct: document.getElementById('wi-spend').value,
+    retire_shift_years: r && !r.disabled ? r.value : 0,
+    expected_return_pct: document.getElementById('wi-growth').value
+  }};
+  btn.disabled = true; btn.textContent = 'Running...';
+  postJSON('/api/what-if', payload).then(function(d) {{
+    var b = d.base, w = d.whatif;
+    var pts = Math.round((w.success_rate - b.success_rate) * 1000) / 10;
+    var ptsHtml = Math.abs(pts) < 0.05 ? '<span class="muted">no change</span>'
+      : '<span class="' + (pts > 0 ? 'up' : 'down') + '">' + (pts > 0 ? '+' : '') + pts.toFixed(1) + ' pts</span>';
+    out.innerHTML = '<p class="small" style="margin:10px 0 4px"><strong>' + d.label + '</strong></p>' +
+      '<table class="whatif-table"><thead><tr><th></th><th class="num">Plan as it is today</th><th class="num">Your what-if</th><th class="num">Change</th></tr></thead><tbody>' +
+      '<tr><td>Chance your money lasts</td><td class="num">' + wiPct(b.success_rate) + '</td><td class="num"><strong>' + wiPct(w.success_rate) + '</strong></td><td class="num">' + ptsHtml + '</td></tr>' +
+      '<tr><td>Cautious case (1 in 10 do worse)</td><td class="num">' + wiMoney(b.p10) + '</td><td class="num"><strong>' + wiMoney(w.p10) + '</strong></td><td class="num">' + wiDelta(b.p10, w.p10) + '</td></tr>' +
+      '<tr><td>Typical case</td><td class="num">' + wiMoney(b.median) + '</td><td class="num"><strong>' + wiMoney(w.median) + '</strong></td><td class="num">' + wiDelta(b.median, w.median) + '</td></tr>' +
+      '<tr><td>Strong case (1 in 10 do better)</td><td class="num">' + wiMoney(b.p90) + '</td><td class="num"><strong>' + wiMoney(w.p90) + '</strong></td><td class="num">' + wiDelta(b.p90, w.p90) + '</td></tr>' +
+      '</tbody></table><p class="muted small" style="margin-top:0">Ending balances at the end of your plan horizon. Nothing is saved; this only compares.</p>';
+    btn.disabled = false; btn.textContent = 'Compare';
+  }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = 'Compare'; }});
 }}
 function deleteCategoryRule(id) {{
   if (!confirm('Delete this category rule?')) return;

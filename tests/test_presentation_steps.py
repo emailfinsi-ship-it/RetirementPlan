@@ -102,7 +102,7 @@ class TestPlanReport(DashboardTestCase):
         self.assertIn("@media print", body)
         # Nothing interactive that makes no sense on paper.
         self.assertNotIn("Change assumptions", body)
-        self.assertNotIn("Run what-if check", body)
+        self.assertNotIn("Compare</button>", body)
 
     def test_report_numbers_match_the_summary(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "K", "balance": 900_000, "include_in_monte_carlo": 1})
@@ -151,3 +151,70 @@ class TestTabPolish(DashboardTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestInteractiveWhatIf(DashboardTestCase):
+    def setUp(self):
+        demo_data.seed_sample_household()
+
+    def tearDown(self):
+        demo_data.remove_sample_data()
+
+    def test_form_has_editable_boxes_and_quick_tries(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        for needle in ('id="wi-spend"', 'id="wi-retire"', 'id="wi-growth"', "Compare", "Spend 10% less", "runWhatIf"):
+            self.assertIn(needle, body)
+
+    def test_custom_what_if_returns_base_and_changed_results(self):
+        status, d = self._post("/api/what-if", {"custom": True, "spend_change_pct": "-15", "retire_shift_years": "2"})
+        self.assertEqual(status, 200)
+        self.assertIn("spend 15% less", d["label"])
+        for side in ("base", "whatif"):
+            self.assertEqual(set(d[side]), {"success_rate", "p10", "median", "p90"})
+        self.assertGreaterEqual(d["whatif"]["median"], d["base"]["median"])
+
+    def test_baseline_matches_the_summary_headline(self):
+        _, d = self._post("/api/what-if", {"custom": True, "spend_change_pct": "-10"})
+        body = self._get("/summary.html").read().decode("utf-8")
+        pat = r"Chance your money lasts</div><div class=\"value\">((?:&gt;|>)?\d+%)</div>"
+        shown = re.search(pat, body).group(1).replace("&gt;", ">")
+        rate = d["base"]["success_rate"]
+        self.assertEqual(shown, ">99%" if rate >= 0.995 else f"{rate * 100:.0f}%")
+
+    def test_no_change_and_out_of_range_values_are_refused(self):
+        for bad in ({"custom": True}, {"custom": True, "spend_change_pct": "0"},
+                    {"custom": True, "spend_change_pct": "500"}, {"custom": True, "spend_change_pct": "abc"}):
+            status, _ = self._post("/api/what-if", bad)
+            self.assertNotEqual(status, 200, bad)
+
+    def test_retiring_later_needs_a_retirement_year(self):
+        db.set_assumptions({"retirement_year": ""})
+        status, _ = self._post("/api/what-if", {"custom": True, "retire_shift_years": "2"})
+        self.assertNotEqual(status, 200)
+
+
+class TestSpendingChartInteractivity(DashboardTestCase):
+    def setUp(self):
+        demo_data.seed_sample_household()
+
+    def tearDown(self):
+        demo_data.remove_sample_data()
+
+    def test_chart_carries_hover_focus_and_table_hooks(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        for needle in ('class="yr-hit"', 'legend-btn', 'id="src-detail"', 'id="src-data"',
+                       "Show the numbers as a table", 'class="seg"'):
+            self.assertIn(needle, body)
+
+    def test_embedded_data_matches_the_table_and_is_valid_json(self):
+        import json
+
+        body = self._get("/summary.html").read().decode("utf-8")
+        raw = re.search(r'<script type="application/json" id="src-data">(.*?)</script>', body, flags=re.S).group(1)
+        data = json.loads(raw.replace("<\\/", "</"))
+        self.assertEqual(len(data["names"]), len(data["colors"]))
+        self.assertTrue(data["rows"])
+        for row in data["rows"]:
+            self.assertEqual(len(row["v"]), len(data["names"]))
+        first = data["rows"][0]
+        self.assertIn(f"<td>{first['year']}</td>", body)

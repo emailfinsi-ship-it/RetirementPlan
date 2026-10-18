@@ -95,7 +95,10 @@ def _render_summary_page() -> str:
             + blocks.own_owe_html(s)
             + blocks.projection_card_html(s, display_result, mode, retirement_year)
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
-            + blocks.next_steps_html(plan_health_items(s), can_vary_retirement=retirement_year is not None)
+            + blocks.next_steps_html(
+                plan_health_items(s), can_vary_retirement=retirement_year is not None,
+                growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0,
+            )
             + (_report_link_html())
         )
 

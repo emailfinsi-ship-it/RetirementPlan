@@ -227,7 +227,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("/monte-carlo.html#assumptions", body)
         self.assertIn("Chance your money lasts", body)
         self.assertIn("Typical case", body)
-        self.assertIn("Run what-if check", body)
+        self.assertIn("Try a what-if", body)
+        self.assertIn('id="wi-spend"', body)
 
     def test_nav_has_eight_tabs_and_paired_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
