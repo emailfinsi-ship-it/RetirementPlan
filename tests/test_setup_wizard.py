@@ -91,3 +91,12 @@ class TestSetupPageSections(DashboardTestCase):
             self.assertIn('name="keep"', self._setup())
         finally:
             app_settings._write({k: v for k, v in app_settings._read().items() if k != "backup_keep"})
+
+
+class TestDrawdownCollapsedByDefault(DashboardTestCase):
+    def test_chart_and_sources_table_start_collapsed(self):
+        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        for needle in ("Show chart: resources by tax bucket", "Show table: resources by source"):
+            i = body.index(needle)
+            tag = body[body.rfind("<details", 0, i):i]
+            self.assertNotIn(" open", tag, needle)

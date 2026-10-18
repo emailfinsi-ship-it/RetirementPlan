@@ -534,8 +534,8 @@ subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never force
 opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
 <div class="tiles">{tiles}</div>
 <details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
-<h3 style="font-size:13px; margin:20px 0 4px 0;">Resources by source</h3>
-{_sources_table_html(sources)}
+<details class="how-it-works" id="resources-by-source"><summary>Show table: resources by source ({len(sources)})</summary>
+{_sources_table_html(sources)}</details>
 {_rmd_by_person_card_html(s, assumptions)}
 {_account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
