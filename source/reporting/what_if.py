@@ -114,3 +114,46 @@ def run_custom_what_if(summary: dict, payload: dict, mode: str = "today") -> dic
     if not parts:
         raise ValueError("Change at least one of spending, retirement year or growth to compare.")
     return {"label": "If you " + ", ".join(parts), "base": run(assumptions, expenses), "whatif": run(changed_a, changed_e)}
+
+
+def find_safe_spending(summary: dict, target: float = 0.90, iterations: int = 400) -> dict:
+    """The highest yearly spending that still keeps the chance your money
+    lasts at or above `target`. Scales every Expense line by one factor and
+    bisects on it; every probe re-uses the SAME random market paths (one
+    fixed seed) so the answer moves smoothly with the factor instead of
+    jittering. Returns {"target", "current_spending", "safe_spending",
+    "factor", "limit"} where `limit` is "max" when even a 3x budget clears
+    the target, "min" when even a 20% budget cannot, else None."""
+    assumptions = dict(summary["assumptions"])
+    assumptions["iterations"] = iterations
+    expenses, income = summary["expenses"], summary["income_for_simulation"]
+    pools, balance = summary["retirement_pools"], summary["net_liquid_asset"]
+    seed = stable_simulation_seed(
+        starting_balance=balance, expenses=expenses, income=income, assumptions=assumptions, pools=pools,
+    )
+
+    def rate(factor: float) -> float:
+        scaled = expenses if abs(factor - 1.0) < 1e-9 else _scale_line_items(expenses, factor)
+        return run_simulation(
+            starting_balance=balance, expenses=scaled, income=income, assumptions=assumptions, pools=pools,
+            rng=random.Random(seed),
+        )["success_rate"]
+
+    current = float(summary.get("next_year_expense_need") or 0.0)
+    low, high, limit = 0.2, 3.0, None
+    if rate(high) >= target:
+        factor, limit = high, "max"
+    elif rate(low) < target:
+        factor, limit = low, "min"
+    else:
+        for _ in range(7):
+            mid = (low + high) / 2.0
+            if rate(mid) >= target:
+                low = mid
+            else:
+                high = mid
+        factor = low
+    return {
+        "target": target, "current_spending": current, "safe_spending": current * factor,
+        "factor": factor, "limit": limit,
+    }

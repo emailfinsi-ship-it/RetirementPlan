@@ -3218,7 +3218,7 @@ class TestHistoricalStressTestTable(DashboardTestCase):
         # "sortable" table, which would otherwise get counted as part of
         # the stress-test section by tests that count sortable tables in
         # this slice.
-        end = body.index("<h2>What moves your plan most</h2>")
+        end = body.index("<h2 id=\"levers\">What moves your plan most</h2>")
         return body[start:end]
 
     def test_section_and_both_tables_are_present(self):
@@ -3390,7 +3390,7 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
         # "sortable" table, which would otherwise get counted as part of
         # the stress-test section by tests that count sortable tables in
         # this slice.
-        end = body.index("<h2>What moves your plan most</h2>")
+        end = body.index("<h2 id=\"levers\">What moves your plan most</h2>")
         return body[start:end]
 
     def test_checkbox_is_checked_by_default(self):

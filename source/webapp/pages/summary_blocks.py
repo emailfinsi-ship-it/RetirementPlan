@@ -383,6 +383,74 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
 """
 
 
+def safe_spending_html(selector: bool = False) -> str:
+    """"How much can I safely spend?" -- filled in by loadSafeSpending() in
+    the page shell JS (it calls /api/safe-spending, a few seconds the first
+    time). With `selector`, the reader can pick the confidence level."""
+    sel = (
+        '<label class="small muted" style="display:inline-flex; gap:6px; align-items:center; margin-bottom:6px;">Keep my chance of lasting at '
+        '<select id="ss-target" onchange="loadSafeSpending(parseFloat(this.value))">'
+        '<option value="0.8">80%</option><option value="0.9" selected>90%</option><option value="0.95">95%</option></select></label>'
+        if selector else ""
+    )
+    return f"""{sel}
+<p id="ss-text" style="margin:2px 0 0">Calculating...</p>"""
+
+
+def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float) -> str:
+    """Three plain "where you stand" boxes: progress toward financial
+    independence, the most you could safely spend, and what changed since
+    about a month ago."""
+    from source.reporting import progress
+
+    fi = progress.independence_progress(s)
+    if fi:
+        shown = min(fi["pct"], 100.0)
+        if fi["reached"]:
+            line = "You have reached this number."
+        elif fi["year"]:
+            line = f"At your assumed growth and adding nothing new, about <strong>{fi['year']}</strong>."
+        else:
+            line = "Add to savings or raise growth to see a date."
+        fi_box = f"""<div class="box"><h3>Financial independence</h3>
+<div class="big">{fi['pct']:.0f}%</div>
+<div class="fi-bar" role="img" aria-label="{shown:.0f}% of the way"><i style="width:{shown:.1f}%"></i></div>
+<p class="small muted" style="margin:0">Savings of {_money(fi['savings'])} toward about {_money(fi['target'])} &mdash; 25 times a year of spending, a common rule of thumb. {line}</p></div>"""
+    else:
+        fi_box = ""
+    ss_box = f"""<div class="box"><h3>How much can I safely spend?</h3>
+{safe_spending_html()}
+<p class="small muted" style="margin:6px 0 0">Based on your simulation. <a href="/monte-carlo.html#safe-spending">Change the confidence level</a>.</p></div>"""
+    change = progress.since_then(snapshots, s, history)
+    if change:
+        d = change["net_change"]
+        word = "up" if d >= 0 else "down"
+        since = change["since"].strftime("%b %d").replace(" 0", " ")
+        items = "".join(
+            f'<li>{html.escape(name)}: {"+" if v >= 0 else "&minus;"}{_money(abs(v))}</li>' for name, v in change["parts"]
+        )
+        rate_line = ""
+        rate_then = change["rate_then"]
+        if rate_then is not None:
+            rate_line = (
+                f'<p class="small" style="margin:6px 0 0">Chance your money lasts: {pres.percent_display(rate_then)} &rarr; '
+                f'<strong>{pres.percent_display(plan_rate)}</strong></p>'
+            )
+        change_box = f"""<div class="box"><h3>Since {since}</h3>
+<div class="big">{"+" if d >= 0 else "&minus;"}{_money(abs(d))}</div>
+<p class="small muted" style="margin:0">Net worth is {word} {_money(abs(d))}.</p>
+<ul>{items}</ul>{rate_line}</div>"""
+    else:
+        change_box = """<div class="box"><h3>Since last month</h3>
+<p class="small muted" style="margin:0">Your history builds up automatically, one point a day. Check back in a couple of days to see what changed.</p></div>"""
+    return f"""
+<div class="card">
+<h2 style="margin-top:0">Where you stand</h2>
+<div class="standing">{fi_box}{ss_box}{change_box}</div>
+</div>
+"""
+
+
 def next_steps_html(items: list[dict], can_vary_retirement: bool = True, growth_pct: float = 6.0) -> str:
     """The Summary's closing "What should I do next?" card: just the
     missing-input checks. The interactive what-if lives with the

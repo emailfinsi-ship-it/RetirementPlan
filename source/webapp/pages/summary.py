@@ -10,7 +10,7 @@ import random
 from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.plan_health import plan_health_items
-from source.reporting import presentation as pres
+from source.reporting import presentation as pres, progress
 from source.reporting.monte_carlo import _resolve_retirement_year, run_simulation, stable_simulation_seed
 from source.reporting.monte_carlo.drawdown_schedule import deterministic_drawdown_schedule
 from source.webapp.pages import summary_blocks as blocks
@@ -86,12 +86,16 @@ def _render_summary_page() -> str:
     else:
         top_html = (
             blocks.hero_html(s, display_result, retirement_text, mode)
+            + blocks.standing_card_html(s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
             + blocks.own_owe_html(s)
             + blocks.projection_card_html(s, display_result, mode, retirement_year)
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
         )
     next_steps = "" if v["empty_plan"] else blocks.next_steps_html(
         plan_health_items(s))
+
+    if not v["empty_plan"]:
+        progress.record_plan_check(display_result["success_rate"])
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
     history_html = _line_chart_html(

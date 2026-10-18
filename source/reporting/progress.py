@@ -1,0 +1,97 @@
+"""Small, plain-language "where you stand" facts for the Summary: how far
+along the savings are toward a rule-of-thumb independence number, and what
+changed since a month ago (net worth plus the chance your money lasts).
+Pure functions over data build_summary() / the snapshot table already hold,
+plus a tiny JSON history of the plan-check percentage kept in `meta`."""
+
+from __future__ import annotations
+
+import json
+import math
+from datetime import date, datetime
+
+from source.common import db
+
+_HISTORY_KEY = "plan_check_history"
+_HISTORY_LIMIT = 200
+FI_MULTIPLE = 25.0  # the "4% rule": savings of about 25x yearly spending
+
+
+def plan_check_history() -> dict:
+    raw = db.get_meta(_HISTORY_KEY)
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_plan_check(rate: float, today: date | None = None) -> None:
+    """Remember today's chance-your-money-lasts, one value per day (the
+    latest of the day wins), so the Summary can show how it moved."""
+    history = plan_check_history()
+    history[(today or date.today()).isoformat()] = round(float(rate), 4)
+    for old in sorted(history)[:-_HISTORY_LIMIT]:
+        history.pop(old, None)
+    db.set_meta(_HISTORY_KEY, json.dumps(history))
+
+
+def independence_progress(s: dict) -> dict | None:
+    """Savings versus ~25x yearly spending. None when there is no spending
+    to measure against."""
+    spending = float(s.get("next_year_expense_need") or 0.0)
+    savings = max(float(s.get("net_liquid_asset") or 0.0), 0.0)
+    if spending <= 0:
+        return None
+    target = spending * FI_MULTIPLE
+    pct = savings / target * 100.0
+    assumptions = s.get("assumptions") or {}
+    growth = float(assumptions.get("expected_return") or 0.06)
+    inflation = float(assumptions.get("inflation_rate") or 0.03)
+    real = (1.0 + growth) / (1.0 + inflation) - 1.0
+    year = None
+    if savings < target and savings > 0 and real > 0.0005:
+        years = math.log(target / savings) / math.log(1.0 + real)
+        if years < 80:
+            year = int(s.get("this_year") or date.today().year) + math.ceil(years)
+    return {"target": target, "savings": savings, "pct": pct, "reached": savings >= target, "year": year}
+
+
+def _parse(day: str) -> date | None:
+    try:
+        return datetime.strptime(day, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def since_then(snapshots: list[dict], current: dict, history: dict, today: date | None = None, days: int = 30) -> dict | None:
+    """Compare now against the snapshot nearest to `days` ago (the oldest
+    one if the history is shorter, as long as it is at least 2 days old).
+    `current` is today's build_summary(). Returns None when there is no
+    earlier point to compare with."""
+    today = today or date.today()
+    earlier = [(d, row) for row in snapshots if (d := _parse(row["snapshot_date"])) and (today - d).days >= 2]
+    if not earlier:
+        return None
+    cutoff = [(d, r) for d, r in earlier if (today - d).days >= days]
+    base_date, base = (max(cutoff, key=lambda x: x[0]) if cutoff else min(earlier, key=lambda x: x[0]))
+    net_now = float(current["net_worth"])
+    d_net = net_now - float(base["net_worth"])
+    d_invest = float(current["retirement_liquid_total"]) - float(base["retirement_liquid_total"] or 0)
+    d_equity = float(current["real_estate_equity_total"]) - float(base["real_estate_equity_total"] or 0)
+    d_debt = -(float(current["liability_total"]) - float(base["liability_total"] or 0))  # paying debt down is positive
+    d_other = d_net - d_invest - d_equity - d_debt
+    parts = [
+        ("Investments & savings", d_invest), ("Home equity", d_equity),
+        ("Debts (paid down)" if d_debt >= 0 else "Debts (grew)", d_debt), ("Other assets", d_other),
+    ]
+    parts = sorted((p for p in parts if abs(p[1]) >= 1.0), key=lambda p: -abs(p[1]))[:3]
+    rate_then = None
+    prior = [(d, v) for d, v in ((_parse(k), v) for k, v in history.items()) if d and d <= base_date]
+    if prior:
+        rate_then = max(prior, key=lambda x: x[0])[1]
+    elif history:
+        first = min((d, v) for d, v in ((_parse(k), v) for k, v in history.items()) if d)
+        if (today - first[0]).days >= 2:
+            rate_then = first[1]
+    return {"since": base_date, "net_change": d_net, "parts": parts, "rate_then": rate_then}

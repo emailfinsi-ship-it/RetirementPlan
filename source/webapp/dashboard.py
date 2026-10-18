@@ -194,6 +194,25 @@ def _linked_institution_fields(account_id: str) -> dict:
     }
 
 
+
+_SAFE_SPENDING_CACHE: dict = {}
+
+
+def _safe_spending_cached(summary: dict, target: float) -> dict:
+    """find_safe_spending takes a few seconds, so repeat page views reuse the
+    last answer for an unchanged plan (keyed on every input it reads)."""
+    import hashlib
+
+    key = hashlib.md5(repr((
+        round(target, 4), summary["assumptions"], summary["expenses"], summary["income_for_simulation"],
+        summary["retirement_pools"], summary["net_liquid_asset"], summary.get("next_year_expense_need"),
+    )).encode("utf-8")).hexdigest()
+    if key not in _SAFE_SPENDING_CACHE:
+        if len(_SAFE_SPENDING_CACHE) >= 16:
+            _SAFE_SPENDING_CACHE.clear()
+        _SAFE_SPENDING_CACHE[key] = what_if.find_safe_spending(summary, target)
+    return _SAFE_SPENDING_CACHE[key]
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "PlanDashboard/1.0"
 
@@ -611,6 +630,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True, **what_if.run_custom_what_if(build_summary(), payload, db.dollars_mode())})
                 else:
                     self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
+            elif path == "/api/safe-spending":
+                try:
+                    target = float(payload.get("target") or 0.9)
+                except (TypeError, ValueError):
+                    target = 0.9
+                if not 0.5 <= target <= 0.99:
+                    raise ValueError("Target must be between 50% and 99%.")
+                self._send_json({"ok": True, **_safe_spending_cached(build_summary(), target)})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)
                 self._send_json({"ok": True})

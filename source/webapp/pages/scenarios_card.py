@@ -57,19 +57,26 @@ function compareScenarios() {{
   var money = function(v) {{ return '$' + Math.round(v).toLocaleString('en-US'); }};
   var esc = function(t) {{ var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }};
   postJSON('/api/scenarios/compare', {{}}).then(function(d) {{
-    var rows = d.results.map(function(r) {{
-      return '<tr' + (r.current ? ' style="font-weight:600;"' : '') + '><td>' + esc(r.name) + '</td>' +
-        '<td class="num">' + Math.round(r.success_rate * 100) + '%</td>' +
-        '<td class="num">' + money(r.median_ending_balance) + '</td>' +
-        '<td class="num">' + money(r.p10_ending_balance) + '</td>' +
-        '<td class="num">' + money(r.tax_total) + '</td>' +
-        '<td class="num">' + money(r.drawdown_ending_total) + '</td>' +
-        '<td class="num">' + (r.drawdown_depleted_year || 'Never') + '</td></tr>';
+    var cur = null; d.results.forEach(function(r) {{ if (r.current) {{ cur = r; }} }});
+    var bestRate = Math.max.apply(null, d.results.map(function(r) {{ return r.success_rate; }}));
+    var pts = function(r) {{
+      if (!cur || r.current) {{ return ''; }}
+      var x = Math.round((r.success_rate - cur.success_rate) * 1000) / 10;
+      return Math.abs(x) < 0.05 ? ' <span class="muted small">same as now</span>'
+        : ' <span class="small ' + (x > 0 ? 'up' : 'down') + '">' + (x > 0 ? '+' : '') + x.toFixed(1) + ' pts vs now</span>';
+    }};
+    var cards = d.results.map(function(r) {{
+      var best = d.results.length > 1 && r.success_rate >= bestRate - 1e-9;
+      return '<div class="compare-card' + (best ? ' best' : '') + '">' +
+        '<div class="nm">' + esc(r.name) + (r.current ? ' <span class="muted small">(your plan now)</span>' : '') + (best ? ' <span class="small" style="color:var(--success)">best odds</span>' : '') + '</div>' +
+        '<div class="pct">' + Math.round(r.success_rate * 100) + '%</div><div class="muted small" style="margin-top:-2px">chance your money lasts' + pts(r) + '</div>' +
+        '<div class="fi-bar"><i style="width:' + Math.round(r.success_rate * 100) + '%"></i></div>' +
+        '<dl><dt>Typical case</dt><dd>' + money(r.median_ending_balance) + '</dd>' +
+        '<dt>Cautious case</dt><dd>' + money(r.p10_ending_balance) + '</dd>' +
+        '<dt>Tax (typical path)</dt><dd>' + money(r.tax_total) + '</dd>' +
+        '<dt>Money runs out</dt><dd>' + (r.drawdown_depleted_year || 'Never') + '</dd></dl></div>';
     }}).join('');
-    document.getElementById('scenario-compare-result').innerHTML =
-      '<table><thead><tr><th>Scenario</th><th class="num">Success rate</th><th class="num">Median ending balance</th>' +
-      '<th class="num">10th percentile ending</th><th class="num">Tax (median path)</th>' +
-      '<th class="num">Drawdown ending total</th><th class="num">Drawdown runs out</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    document.getElementById('scenario-compare-result').innerHTML = '<div class="compare-grid">' + cards + '</div>';
     btn.disabled = false; btn.textContent = 'Compare all scenarios';
   }}).catch(function(e) {{ alert(e.message); btn.disabled = false; btn.textContent = 'Compare all scenarios'; }});
 }}

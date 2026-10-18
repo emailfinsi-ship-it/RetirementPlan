@@ -193,6 +193,79 @@ function runWhatIf(btn) {{
     btn.disabled = false; btn.textContent = 'Compare';
   }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = 'Compare'; }});
 }}
+function loadSafeSpending(target) {{
+  var el = document.getElementById('ss-text'); if (!el) {{ return; }}
+  el.textContent = 'Calculating...';
+  postJSON('/api/safe-spending', {{target: target}}).then(function(d) {{
+    var pct = Math.round(d.target * 100);
+    if (d.limit === 'max') {{ el.innerHTML = 'Even spending <strong>3 times</strong> your plan keeps a ' + pct + '% chance your money lasts.'; return; }}
+    if (d.limit === 'min') {{ el.innerHTML = 'Even a much leaner budget does not reach a ' + pct + '% chance. See <a href="/monte-carlo.html#levers">what moves your plan most</a>.'; return; }}
+    var safe = Math.round(d.safe_spending / 100) * 100, diff = safe - Math.round(d.current_spending);
+    var rel = Math.abs(diff) < d.current_spending * 0.02 ? 'right about what you plan to spend'
+      : wiMoney(Math.abs(diff)) + ' ' + (diff > 0 ? 'more' : 'less') + ' than the ' + wiMoney(d.current_spending) + ' you plan to spend';
+    el.innerHTML = 'You could spend up to about <strong>' + wiMoney(safe) + ' a year</strong> and still have a ' + pct + '% chance your money lasts. That is ' + rel + '.';
+  }}).catch(function(e) {{ el.textContent = e.message; }});
+}}
+document.addEventListener('DOMContentLoaded', function() {{
+  var sel = document.getElementById('ss-target');
+  loadSafeSpending(sel ? parseFloat(sel.value) : 0.9);
+}});
+var RP_GLOSSARY = {{
+  'required minimum distributions': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',
+  'required minimum distribution': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',
+  'rmds': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',
+  'rmd': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',
+  'roth conversion': 'Moving money from a tax-deferred account (traditional IRA/401k) into a Roth. You pay income tax on it now, and it then grows and can be withdrawn tax-free later.',
+  'roth conversions': 'Moving money from a tax-deferred account (traditional IRA/401k) into a Roth. You pay income tax on it now, and it then grows and can be withdrawn tax-free later.',
+  'tax-deferred': 'Accounts like a 401k or traditional IRA: you skipped tax when you put money in, and you pay ordinary income tax when you take it out.',
+  'monte carlo': 'A method that runs your plan through thousands of randomly generated market futures to see how often the money lasts. The name comes from the casino.',
+  'plan horizon': 'How many years the plan looks ahead, usually to an age you are unlikely to outlive.',
+  'expected return': 'The average yearly growth you assume for your investments. Real years vary a lot around it.',
+  'return volatility': 'How bumpy yearly returns are. Higher means wider swings between good and bad years.',
+  'drawdown': 'Taking money out of savings to live on, instead of adding to it.',
+  'irmaa': 'Extra Medicare premiums charged to higher earners. A large Roth conversion can push you into a higher bracket.',
+  'cost basis': 'What you originally paid for an investment. Only the gain above it is taxed when you sell.',
+  'net liquid asset': 'Savings you could actually spend in retirement: investments and cash, minus debts. It leaves out your home and other things you would not sell.',
+  'taxable gains': 'The share of a brokerage withdrawal that is profit rather than your original money. Only the profit is taxed.',
+  'iterations': 'How many random market futures are simulated. More is smoother but slower.'
+}};
+function rpApplyGlossary() {{
+  var terms = Object.keys(RP_GLOSSARY).sort(function(a, b) {{ return b.length - a.length; }});
+  var re = new RegExp('(^|[^A-Za-z0-9-])(' + terms.join('|') + ')(?![A-Za-z0-9-])', 'i');
+  var used = {{}};
+  var skip = 'nav,.subnav,h1,h2,h3,button,a,input,select,textarea,option,script,style,label,summary,th,.help,svg,.bulk-bar,.tile,.label,.value';
+  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  var hits = [], n;
+  while ((n = walker.nextNode())) {{
+    var el = n.parentElement;
+    if (!el || el.closest(skip)) {{ continue; }}
+    hits.push(n);
+  }}
+  hits.forEach(function(node) {{
+    var m = re.exec(node.nodeValue);
+    while (m) {{
+      var key = m[2].toLowerCase(), base = RP_GLOSSARY[key];
+      if (!used[base]) {{
+        used[base] = true;
+        var start = m.index + m[1].length, word = m[2];
+        var after = node.splitText(start);
+        var rest = after.splitText(word.length);
+        var span = document.createElement('span');
+        span.className = 'help'; span.tabIndex = 0; span.setAttribute('data-tip', RP_GLOSSARY[key]);
+        span.textContent = word;
+        after.parentNode.replaceChild(span, after);
+        node = rest;
+        m = re.exec(node.nodeValue);
+      }} else {{
+        var tail = node.nodeValue.slice(m.index + m[0].length);
+        if (!tail) {{ break; }}
+        node = node.splitText(m.index + m[0].length);
+        m = re.exec(node.nodeValue);
+      }}
+    }}
+  }});
+}}
+document.addEventListener('DOMContentLoaded', rpApplyGlossary);
 function deleteCategoryRule(id) {{
   if (!confirm('Delete this category rule?')) return;
   postJSON('/api/category-rule/delete', {{id: id}})

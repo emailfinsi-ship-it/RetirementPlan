@@ -194,6 +194,11 @@ def _render_monte_carlo_page() -> str:
 </div>
 {chart}
 {explorer_html}
+<div class="card" id="safe-spending">
+<h3 class="sub" style="margin-top:0">How much can I safely spend?</h3>
+{blocks.safe_spending_html(selector=True)}
+<p class="muted small" style="margin:8px 0 0">The most you could spend each year, starting next year, while keeping your chance of lasting at the level you pick. Higher confidence means a smaller number.</p>
+</div>
 <details class="how-it-works"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
 <div class="tiles">{pool_tiles}
   <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
@@ -490,7 +495,7 @@ def _sensitivity_html(sensitivity: dict) -> str:
     )
     lead_html = _sensitivity_lead_html(sensitivity)
     return f"""
-<h2>What moves your plan most</h2>
+<h2 id="levers">What moves your plan most</h2>
 {lead_html}
 <p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every Expense/Income-tab line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
 <div style="overflow-x:auto">

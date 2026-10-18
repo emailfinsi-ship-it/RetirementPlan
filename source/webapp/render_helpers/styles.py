@@ -233,6 +233,23 @@ PAGE_CSS = """
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }
+  .standing { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 8px; }
+  .standing .box { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .standing h3 { margin: 0 0 6px; font-size: 13px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  .standing .big { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 2px 0 6px; }
+  .fi-bar { height: 10px; border-radius: 99px; background: var(--border); overflow: hidden; margin: 8px 0; }
+  .fi-bar > i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
+  .standing ul { margin: 6px 0 0 18px; padding: 0; font-size: 13px; }
+  .compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 12px; }
+  .compare-card { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .compare-card.best { border-color: var(--success); box-shadow: 0 0 0 1px var(--success) inset; }
+  .compare-card .nm { font-weight: 650; font-size: 14px; margin-bottom: 4px; }
+  .compare-card .pct { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  .compare-card dl { margin: 8px 0 0; font-size: 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+  .compare-card dt { color: var(--ink-muted); } .compare-card dd { margin: 0; text-align: right; font-weight: 550; }
+  .help { border-bottom: 1px dotted var(--ink-muted); cursor: help; position: relative; }
+  .help:hover::after, .help:focus::after { content: attr(data-tip); position: absolute; left: 0; top: 1.5em; z-index: 50; width: 240px; background: var(--ink); color: var(--surface);
+    font-size: 12px; font-weight: 400; line-height: 1.35; padding: 8px 10px; border-radius: 8px; box-shadow: var(--shadow-md); text-transform: none; letter-spacing: 0; white-space: normal; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
     max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);
