@@ -114,6 +114,7 @@ from source.reporting.monte_carlo.stress_test import (
     _historical_return,
     run_historical_stress_test,
     sp500_average_return,
+    sp500_lookback,
     stress_scenarios,
 )
 from source.reporting.monte_carlo.chart import (
@@ -174,6 +175,7 @@ __all__ = [
     "_SP500_ANNUAL_RETURNS",
     "_historical_return",
     "sp500_average_return",
+    "sp500_lookback",
     "stress_scenarios",
     "run_historical_stress_test",
     "_BAND_COLOR",

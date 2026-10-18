@@ -67,28 +67,52 @@ HISTORICAL_STRESS_SCENARIOS: tuple[tuple[str, int | None], ...] = (
 )
 
 
-def sp500_average_return() -> float:
+def sp500_average_return(years: int | None = None) -> float:
     """The S&P 500's compound (geometric) average annual total return over
-    every year on record in _SP500_ANNUAL_RETURNS."""
+    the most recent `years` recorded years (None = every year on record in
+    _SP500_ANNUAL_RETURNS)."""
+    recorded = sorted(_SP500_ANNUAL_RETURNS)
+    if years is not None:
+        recorded = recorded[-max(1, int(years)):]
     growth = 1.0
-    for r in _SP500_ANNUAL_RETURNS.values():
-        growth *= 1.0 + r
-    return growth ** (1.0 / len(_SP500_ANNUAL_RETURNS)) - 1.0
+    for year in recorded:
+        growth *= 1.0 + _SP500_ANNUAL_RETURNS[year]
+    return growth ** (1.0 / len(recorded)) - 1.0
+
+
+def sp500_lookback(assumptions: dict) -> dict:
+    """The S&P 500 average the stress test's flat reference line uses: the
+    compound average over the most recent N recorded years, where N is the
+    plan's own planning horizon (the "Plan horizon (years)" assumption) --
+    so a 40-year plan is compared with what the market actually did over
+    the last 40 years, not an all-time figure. Capped at the years on
+    record. Returns {"years", "first_year", "last_year", "rate"}."""
+    try:
+        horizon = int(float(assumptions.get("plan_horizon_years") or 40))
+    except (TypeError, ValueError):
+        horizon = 40
+    n = max(1, min(horizon, len(_SP500_ANNUAL_RETURNS)))
+    recorded = sorted(_SP500_ANNUAL_RETURNS)[-n:]
+    return {"years": n, "first_year": recorded[0], "last_year": recorded[-1], "rate": sp500_average_return(n)}
 
 
 def stress_scenarios(assumptions: dict) -> list[tuple[str, int | None, float | None]]:
     """Every scenario the stress test runs, as (label, start_year,
-    flat_rate): the four named crashes (a start_year to replay, no flat
-    rate), then two flat-return reference lines -- the plan's own Expected
-    return assumption, and the S&P 500's historical average -- so the
-    crashes can be read against both "what the plan assumes" and "what the
-    market has actually averaged"."""
+    flat_rate): the plan's own Expected return assumption first (the
+    reference the others are read against), then the four named crashes
+    (a start_year to replay, no flat rate), then a flat line at the
+    S&P 500's actual average over the last N years, N being the plan
+    horizon (see sp500_lookback) -- so the crashes can be read against
+    both "what the plan assumes" and "what the market has recently
+    averaged over a period as long as the plan"."""
     expected = float(assumptions.get("expected_return") or 0.06)
-    sp500 = sp500_average_return()
-    return [(label, start_year, None) for label, start_year in HISTORICAL_STRESS_SCENARIOS] + [
-        (f"Expected return ({expected * 100:.1f}%/yr)", None, expected),
-        (f"S&P 500 historical average ({sp500 * 100:.1f}%/yr)", None, sp500),
-    ]
+    look = sp500_lookback(assumptions)
+    span = f"{look['first_year']}-{look['last_year']}"
+    return (
+        [(f"Expected return ({expected * 100:.1f}%/yr)", None, expected)]
+        + [(label, start_year, None) for label, start_year in HISTORICAL_STRESS_SCENARIOS]
+        + [(f"S&P 500 last {look['years']} years average ({span}, {look['rate'] * 100:.1f}%/yr)", None, look["rate"])]
+    )
 
 
 def _historical_return(start_year: int | None, offset: int, flat_rate: float | None = None) -> float:
@@ -269,6 +293,7 @@ def run_historical_stress_test(
         "scenarios": scenarios,
         "starting_balance": starting_balance,
         "last_recorded_year": _LAST_RECORDED_YEAR,
+        "sp500_lookback": sp500_lookback(assumptions),
         "apply_drawdown_tax": apply_drawdown_tax,
         "per_scenario_tax": pools is not None,
     }

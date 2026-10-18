@@ -21,6 +21,7 @@ from source.reporting.monte_carlo import (
     run_historical_stress_test,
     run_sensitivity_analysis,
     run_simulation,
+    sp500_lookback,
     stable_simulation_seed,
 )
 from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
@@ -388,9 +389,10 @@ def _historical_stress_test_html(result: dict) -> str:
         f"{retirement_year_for_table} on still reflect those years' own returns.</p>"
         if hidden_year_count else ""
     )
+    sp500_look = result.get("sp500_lookback") or sp500_lookback({})
     return f"""
 <h2>What if markets fall? Historical recession stress test</h2>
-<p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. The last two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption, and the S&amp;P 500's compound average over every year on record.</p>
+<p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. Two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption (listed first, so every other column reads against it), and the S&amp;P 500's actual compound average over the most recent {sp500_look['years']} years ({sp500_look['first_year']}-{sp500_look['last_year']}) -- as many years as your plan horizon, instead of an all-time average.</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Scenario</th><th>Depleted?</th><th>Year depleted</th><th class="num">Ending balance</th></tr></thead>

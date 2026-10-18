@@ -3215,7 +3215,9 @@ class TestHistoricalStressTestTable(DashboardTestCase):
         self.assertIn("Stagflation (1973)", section)
         self.assertNotIn("No-crash baseline", section)
         self.assertIn("Expected return (6.0%/yr)", section)
-        self.assertIn("S&amp;P 500 historical average (", section)
+        self.assertRegex(section, r"S&amp;P 500 last \d+ years average \(\d{4}-\d{4}, ")
+        # Expected return is the first scenario column/row.
+        self.assertLess(section.index("Expected return (6.0%/yr)"), section.index("Great Depression (1929)"))
 
     def test_detail_table_has_a_yearly_drawdown_column_shared_across_scenarios(self):
         db.add_line_item("expenses", {"name": "Baseline", "annual_amount": 60_000, "start_year": None, "end_year": None})
