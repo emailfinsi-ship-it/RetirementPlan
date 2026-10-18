@@ -92,6 +92,70 @@ EARLY_TAX_DEFERRED_SPENDING_STRATEGIES: tuple[tuple[str, str, int], ...] = (
 
 _HEIR_TYPES = ("non_spouse", "spouse")
 
+# The "Try your own" what-if row on the Legacy Planning page. The federal
+# brackets that exist (there is no 25% bracket -- 24% is the nearest) plus
+# "none", meaning no bracket ceiling at all so only the yearly dollar cap
+# (and the Taxable pool's ability to pay the tax) limits each conversion.
+CUSTOM_BRACKET_CHOICES: tuple[float, ...] = tuple(rate for _upper, rate in FEDERAL_TAX_BRACKETS_MFJ_2026)
+CUSTOM_STRATEGY_KEY = "custom"
+
+
+def normalize_custom_strategy(raw: dict | None) -> dict | None:
+    """Validates a what-if spec ({"bracket": 0.24 | "none", "annual_cap":
+    dollars/yr in today's money | None, "stop_age": int | None}) and
+    returns it in canonical form, or None for an empty/cleared spec.
+    Raises ValueError with a message fit to show the user."""
+    if not raw:
+        return None
+    bracket_raw = raw.get("bracket")
+    if bracket_raw in (None, ""):
+        bracket_raw = "none"
+    if bracket_raw == "none":
+        bracket = "none"
+    else:
+        try:
+            value = float(bracket_raw)
+        except (TypeError, ValueError):
+            raise ValueError("Pick a federal bracket from the list.") from None
+        if value > 1.0:
+            value /= 100.0
+        match = next((r for r in CUSTOM_BRACKET_CHOICES if abs(r - value) < 1e-6), None)
+        if match is None:
+            options = ", ".join(f"{r * 100:g}%" for r in CUSTOM_BRACKET_CHOICES)
+            raise ValueError(f"{value * 100:g}% is not a federal bracket. The brackets are {options}.")
+        bracket = match
+
+    def number(key: str, label: str) -> float | None:
+        value = raw.get(key)
+        if value in (None, ""):
+            return None
+        try:
+            parsed = float(str(value).replace(",", "").replace("$", ""))
+        except ValueError:
+            raise ValueError(f"{label} must be a number.") from None
+        return parsed
+
+    cap = number("annual_cap", "Yearly cap")
+    if cap is not None and cap <= 0:
+        raise ValueError("Yearly cap must be more than $0 (leave it blank for no cap).")
+    stop = number("stop_age", "Stop age")
+    if stop is not None and not 30 <= stop <= 120:
+        raise ValueError("Stop age must be between 30 and 120 (leave it blank for no stop age).")
+    return {"bracket": bracket, "annual_cap": cap, "stop_age": int(stop) if stop is not None else None}
+
+
+def custom_strategy_label(spec: dict) -> str:
+    bracket = spec["bracket"]
+    if bracket == "none":
+        text = "Your what-if: convert as much as the Taxable pool can afford the tax on each year"
+    else:
+        text = f"Your what-if: convert up to the {bracket * 100:g}% federal bracket each year"
+    if spec.get("annual_cap"):
+        text += f", at most ${spec['annual_cap']:,.0f} a year (today's dollars)"
+    if spec.get("stop_age"):
+        text += f", stopping after age {spec['stop_age']}"
+    return text
+
 
 def _current_year(assumptions: dict) -> int:
     raw = assumptions.get("current_year")
@@ -275,7 +339,7 @@ def _cap_conversion_by_affordability(
 
 def _run_conversion_schedule(
     *, pools: dict, expenses: list, income: list, assumptions: dict, target_rate: float | str | None,
-    early_spend_from_age: int | None = None,
+    early_spend_from_age: int | None = None, annual_cap: float | None = None, stop_age: int | None = None,
 ) -> dict:
     """Walks one Roth-conversion strategy forward year by year, exactly
     like drawdown_schedule.deterministic_drawdown_schedule, with one
@@ -298,6 +362,11 @@ def _run_conversion_schedule(
     can in principle combine (an early-spend row can still receive a
     conversion), though EARLY_TAX_DEFERRED_SPENDING_STRATEGIES's own
     entries currently only ever set one or the other.
+
+    `annual_cap` (dollars per year in today's money, grown by inflation)
+    and `stop_age` (no conversions after the owner passes it) only ever
+    tighten a strategy -- they are what the "Try your own" what-if row
+    uses; every named strategy leaves both None, unchanged.
 
     Returns {"years", "rows", "total_lifetime_tax", "total_converted",
     "ending_taxable", "ending_tax_deferred", "ending_roth",
@@ -357,7 +426,8 @@ def _run_conversion_schedule(
 
         conversion = 0.0
         conversion_tax = 0.0
-        if target_rate is not None and path_pools["tax_deferred"] > 0:
+        conversions_allowed = stop_age is None or age is None or age <= stop_age
+        if target_rate is not None and conversions_allowed and path_pools["tax_deferred"] > 0:
             if target_rate == "aggressive":
                 candidate = path_pools["tax_deferred"]
             else:
@@ -365,6 +435,8 @@ def _run_conversion_schedule(
                 fed_deduction = FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * ((1.0 + inflation_rate) ** (year - _TAX_BRACKET_BASE_YEAR))
                 room = ceiling - fed_deduction - other_ordinary_income
                 candidate = max(0.0, min(room, path_pools["tax_deferred"]))
+            if annual_cap is not None:
+                candidate = min(candidate, annual_cap * ((1.0 + inflation_rate) ** (year - current_year)))
             conversion = _cap_conversion_by_affordability(
                 candidate, other_ordinary_income, max(0.0, path_pools["taxable"]), year, inflation_rate,
             )
@@ -415,7 +487,9 @@ def _run_conversion_schedule(
     }
 
 
-def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptions: dict, income: list | None = None) -> dict:
+def compare_roth_conversion_strategies(
+    *, pools: dict, expenses: list, assumptions: dict, income: list | None = None, custom: dict | None = None,
+) -> dict:
     """Top-level entry point for the Legacy Planning page: runs every
     strategy in ROTH_CONVERSION_STRATEGIES (including the "no_conversions"
     baseline, so every other strategy can be compared against today's
@@ -431,8 +505,12 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
     net_after_tax_legacy) first, each entry carrying
     "legacy_gain_vs_baseline" (positive means this strategy leaves more
     after-tax money to the heir than doing nothing does) alongside its
-    own lifetime-tax and ending-balance figures."""
+    own lifetime-tax and ending-balance figures.
+
+    `custom` (see normalize_custom_strategy) adds one extra "Your what-if"
+    row, ranked alongside the others and eligible to be recommended."""
     income = income or []
+    custom = normalize_custom_strategy(custom)
     heir_type = _resolve_heir_type(assumptions)
     heir_base_income = _resolve_heir_base_income(assumptions, expenses, income)
     heir_spread_years = _resolve_heir_spread_years(assumptions, heir_type)
@@ -453,6 +531,12 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         for key, label, early_spend_from_age in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES
         if early_spend_from_age != plan_early_age
     ]
+    if custom is not None:
+        strategy_configs.append({
+            "key": CUSTOM_STRATEGY_KEY, "label": custom_strategy_label(custom),
+            "target_rate": "aggressive" if custom["bracket"] == "none" else custom["bracket"],
+            "early_spend_from_age": plan_early_age, "annual_cap": custom["annual_cap"], "stop_age": custom["stop_age"],
+        })
     if plan_early_age is not None:
         for config in strategy_configs:
             if config["key"] == "no_conversions":
@@ -466,6 +550,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         schedule = _run_conversion_schedule(
             pools=pools, expenses=expenses, income=income, assumptions=assumptions,
             target_rate=config["target_rate"], early_spend_from_age=config["early_spend_from_age"],
+            annual_cap=config.get("annual_cap"), stop_age=config.get("stop_age"),
         )
         death_year = schedule["years"][-1] if schedule["years"] else _current_year(assumptions)
         heir_tax = estimate_heir_tax_on_tax_deferred(
@@ -488,6 +573,11 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
             "ending_real_estate": schedule["ending_real_estate"],
             "ending_total": schedule["ending_total"],
             "estimated_heir_tax": heir_tax,
+            # Tax-deferred left over once the heir's own tax is taken out
+            # (the one component of net_after_tax_legacy that isn't a plain
+            # ending balance) -- shown in the "how we arrived" sum.
+            "tax_deferred_after_heir_tax": max(0.0, schedule["ending_tax_deferred"] - heir_tax),
+            "is_custom": key == CUSTOM_STRATEGY_KEY,
             "net_after_tax_legacy": net_legacy,
             "depletes": schedule["depletes"],
             "rows": schedule["rows"],
@@ -510,6 +600,7 @@ def compare_roth_conversion_strategies(*, pools: dict, expenses: list, assumptio
         "heir_spread_years": heir_spread_years,
         "baseline_key": "no_conversions",
         "plan_early_tax_deferred_age": plan_early_age,
+        "custom": custom,
         "death_year": results[0]["rows"][-1]["year"] if results and results[0]["rows"] else _current_year(assumptions),
         "strategies": results,
     }

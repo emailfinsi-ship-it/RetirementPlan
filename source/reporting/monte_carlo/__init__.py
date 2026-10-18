@@ -126,9 +126,11 @@ from source.reporting.monte_carlo.drawdown_schedule import (
     deterministic_drawdown_schedule,
 )
 from source.reporting.monte_carlo.legacy_planning import (
+    CUSTOM_BRACKET_CHOICES,
     EARLY_TAX_DEFERRED_SPENDING_STRATEGIES,
     ROTH_CONVERSION_STRATEGIES,
     compare_roth_conversion_strategies,
+    normalize_custom_strategy,
     estimate_default_heir_base_income,
     estimate_heir_tax_on_tax_deferred,
 )
@@ -182,6 +184,8 @@ __all__ = [
     "ROTH_CONVERSION_STRATEGIES",
     "EARLY_TAX_DEFERRED_SPENDING_STRATEGIES",
     "compare_roth_conversion_strategies",
+    "normalize_custom_strategy",
+    "CUSTOM_BRACKET_CHOICES",
     "estimate_default_heir_base_income",
     "estimate_heir_tax_on_tax_deferred",
 ]

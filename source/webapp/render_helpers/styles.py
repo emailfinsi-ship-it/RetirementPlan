@@ -181,6 +181,7 @@ PAGE_CSS = """
   .up { color: var(--success); } .down { color: var(--danger); }
   .brand-tagline { color: var(--navy); font-weight: 600; letter-spacing: .02em; }
   .tiles.tiles-five { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+  .badge-whatif { display: inline-block; font-size: 11px; font-weight: 600; color: #7a5af8; background: rgba(122,90,248,.12); border-radius: 99px; padding: 1px 8px; }
   .acct-num { filter: blur(5px); transition: filter .15s; }
   .acct-num:hover, html.show-acct .acct-num { filter: none; }
   .report-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

@@ -24,8 +24,14 @@ from __future__ import annotations
 
 import html
 
+from source.common import db
 from source.reporting.aggregate import build_summary
-from source.reporting.monte_carlo import _resolve_retirement_year, compare_roth_conversion_strategies
+from source.reporting.monte_carlo import (
+    CUSTOM_BRACKET_CHOICES,
+    _resolve_retirement_year,
+    compare_roth_conversion_strategies,
+    normalize_custom_strategy,
+)
 from source.reporting.monte_carlo.real_estate_sale_compare import legacy_sale_comparison
 from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
@@ -164,15 +170,194 @@ def _early_age_note_html(result: dict) -> str:
     )
 
 
+_CLOSE_CALL_PCT = 2.0
+
+
+def _gap_pct(strategies: list[dict]) -> float | None:
+    """How far ahead #1 is of #2, as a percent of #1's net after-tax legacy."""
+    if len(strategies) < 2 or strategies[0]["net_after_tax_legacy"] <= 0:
+        return None
+    return (strategies[0]["net_after_tax_legacy"] - strategies[1]["net_after_tax_legacy"]) / strategies[0]["net_after_tax_legacy"] * 100.0
+
+
+def _is_close_call(strategies: list[dict]) -> bool:
+    gap = _gap_pct(strategies)
+    return gap is not None and gap < _CLOSE_CALL_PCT
+
+
+def _short_label(s: dict, result: dict) -> str:
+    if s["key"] == result["baseline_key"]:
+        return "Your current plan" if result.get("plan_early_tax_deferred_age") is not None else "No conversions"
+    if s.get("is_custom"):
+        return "Your what-if"
+    label = s["label"]
+    return label.replace("Convert up to the ", "Fill the ").replace(" federal bracket each year", " bracket")
+
+
+def _how_we_arrived_html(result: dict) -> str:
+    """The math behind the Recommended badge, with the plan's own numbers:
+    the ranking rule, the recommended strategy's net-legacy sum side by
+    side with the baseline's, the tax paid today versus legacy gained,
+    how close the call is, and what the model leaves out."""
+    strategies = result["strategies"]
+    if len(strategies) < 2:
+        return ""
+    top = strategies[0]
+    base = next(s for s in strategies if s["key"] == result["baseline_key"])
+    top_is_base = top["key"] == base["key"]
+    gap = _gap_pct(strategies)
+    second = strategies[1]
+
+    def row(label: str, a: float, b: float, *, strong: bool = False, sign: str = "") -> str:
+        fmt = (lambda v: f"<strong>{_money(v)}</strong>") if strong else _money
+        diff = a - b
+        diff_txt = f"{'+' if diff >= 0 else '-'}{_money(abs(diff))}"
+        return (
+            f'<tr><td>{label}</td><td class="num">{sign}{fmt(a)}</td>'
+            + ('' if top_is_base else f'<td class="num">{sign}{fmt(b)}</td><td class="num">{diff_txt}</td>')
+            + '</tr>'
+        )
+
+    head_cols = (
+        f'<th class="num">{html.escape(_short_label(top, result))} (recommended)</th>'
+        if top_is_base else
+        f'<th class="num">{html.escape(_short_label(top, result))} (recommended)</th>'
+        f'<th class="num">{html.escape(_short_label(base, result))}</th><th class="num">Difference</th>'
+    )
+    sum_rows = (
+        row("Ending Roth balance (tax-free to your heirs)", top["ending_roth"], base["ending_roth"])
+        + row("+ Ending Taxable balance", top["ending_taxable"], base["ending_taxable"])
+        + row("+ Ending real estate", top["ending_real_estate"], base["ending_real_estate"])
+        + row("+ Ending Tax-deferred (401k/IRA) balance", top["ending_tax_deferred"], base["ending_tax_deferred"])
+        + row("&minus; Tax your heirs would owe on that Tax-deferred balance", top["estimated_heir_tax"], base["estimated_heir_tax"])
+        + row("= Net after-tax legacy", top["net_after_tax_legacy"], base["net_after_tax_legacy"], strong=True)
+    )
+    price_html = ""
+    if not top_is_base:
+        extra_tax = top["total_lifetime_tax"] - base["total_lifetime_tax"]
+        gain = top["net_after_tax_legacy"] - base["net_after_tax_legacy"]
+        if extra_tax > 0:
+            ratio = f" -- about ${gain / extra_tax:,.1f} of extra legacy for every $1 of extra tax" if gain > 0 else ""
+            price_html = (
+                f"<p><strong>What it costs and what it buys.</strong> Over your lifetime you pay about "
+                f"{_money(extra_tax)} more tax than under {html.escape(_short_label(base, result)).lower()}, "
+                f"and your heirs end up with about {_money(gain)} more after their tax{ratio}.</p>"
+            )
+        else:
+            price_html = (
+                f"<p><strong>What it costs and what it buys.</strong> It also lowers your own lifetime tax, by about "
+                f"{_money(-extra_tax)}, while leaving your heirs about {_money(gain)} more after their tax.</p>"
+            )
+    if gap is None:
+        close_html = ""
+    elif gap < _CLOSE_CALL_PCT:
+        tied = [s for s in strategies if (top["net_after_tax_legacy"] - s["net_after_tax_legacy"]) / top["net_after_tax_legacy"] * 100.0 < _CLOSE_CALL_PCT]
+        names = ", ".join(html.escape(_short_label(s, result)) for s in tied)
+        close_html = (
+            f'<p><strong>How close is it?</strong> A close call. The winner is only {gap:.1f}% ahead of the runner-up '
+            f"({html.escape(_short_label(second, result))}, {_money(top['net_after_tax_legacy'] - second['net_after_tax_legacy'])} less). "
+            f"Treat these as roughly tied: {names}. A projection this far out can't separate them, so choose on the "
+            "things the model does not capture (below) and on how comfortable you are with the tax you'd pay now.</p>"
+        )
+    else:
+        close_html = (
+            f'<p><strong>How close is it?</strong> The winner is {gap:.1f}% ahead of the runner-up '
+            f"({html.escape(_short_label(second, result))}, {_money(top['net_after_tax_legacy'] - second['net_after_tax_legacy'])} less) "
+            "-- a clear but not overwhelming lead. Small changes to the assumptions can still move it.</p>"
+        )
+    spread = result["heir_spread_years"]
+    heir_html = (
+        f"<p><strong>Heir assumptions used.</strong> {_HEIR_TYPE_LABELS.get(result['heir_type'], result['heir_type'])}, "
+        f"withdrawing the inherited Tax-deferred balance evenly over {spread} years on top of an assumed "
+        f"{_money(result['heir_base_income'])} of their own income (about a {result['heir_marginal_rate'] * 100:.1f}% "
+        "combined federal + California marginal rate). You can change all three in the Heir assumptions card above.</p>"
+    )
+    return f"""
+<details class="card" id="how-we-arrived" style="padding:12px 16px;">
+<summary style="font-weight:600; cursor:pointer;">How we arrived at this recommendation</summary>
+<p style="margin-top:10px;"><strong>The rule.</strong> Every strategy replays your plan year by year with the same engine as the Drawdown
+Planning tab, then is scored on one number: <em>net after-tax legacy</em> -- what is left for your heirs after their own tax.
+Roth and Taxable money counts in full (Roth is tax-free; Taxable gets a stepped-up cost basis at death), and Tax-deferred money
+counts after the income tax your heirs would owe on it. The highest score is marked Recommended; a tie goes to the strategy
+that costs you less tax.</p>
+<div style="overflow-x:auto"><table class="sortable">
+<thead><tr><th>Net legacy, added up</th>{head_cols}</tr></thead>
+<tbody>{sum_rows}</tbody>
+</table></div>
+{price_html}
+{close_html}
+{heir_html}
+<p><strong>What this does not model.</strong> One steady average return (no market ups and downs), 2026 federal and California
+married-filing-jointly brackets grown with inflation (no law changes), Medicare premium surcharges (IRMAA) and ACA subsidy effects
+that a big conversion can trigger, state moves, and your heir's actual circumstances. Treat it as a way to compare strategies
+against each other, not as a forecast of exact dollars -- and check with a tax professional before converting.</p>
+</details>
+"""
+
+
+def _whatif_card_html(result: dict) -> str:
+    """The "Try your own" form: one extra strategy row, saved with the plan."""
+    custom = result.get("custom")
+    strategies = result["strategies"]
+    bracket = custom["bracket"] if custom else 0.24
+    options = "".join(
+        f'<option value="{rate}"{" selected" if custom and bracket == rate or (not custom and rate == 0.24) else ""}>'
+        f'{rate * 100:g}% bracket</option>'
+        for rate in CUSTOM_BRACKET_CHOICES
+    ) + f'<option value="none"{" selected" if custom and bracket == "none" else ""}>No bracket limit (use the yearly cap)</option>'
+    cap_value = f"{custom['annual_cap']:.0f}" if custom and custom.get("annual_cap") else ""
+    stop_value = str(custom["stop_age"]) if custom and custom.get("stop_age") else ""
+    status_html = ""
+    if custom:
+        mine = next((s for s in strategies if s.get("is_custom")), None)
+        base = next(s for s in strategies if s["key"] == result["baseline_key"])
+        if mine:
+            rank = strategies.index(mine) + 1
+            delta = mine["net_after_tax_legacy"] - base["net_after_tax_legacy"]
+            status_html = (
+                f'<p class="status-line" style="margin:10px 0 0;">Your what-if ranks <strong>#{rank} of {len(strategies)}</strong>: '
+                f"net after-tax legacy {_money(mine['net_after_tax_legacy'])} "
+                f"({'+' if delta >= 0 else '-'}{_money(abs(delta))} versus {html.escape(_short_label(base, result)).lower()}), "
+                f"converting {_money(mine['total_converted'])} in total and paying {_money(mine['total_lifetime_tax'])} in lifetime tax.</p>"
+            )
+    clear_btn = (
+        '<button type="button" onclick="postJSON(\'/api/legacy-whatif\', {clear: true}).then(function() { location.reload(); })'
+        '.catch(function(e) { alert(e.message); });">Remove my what-if</button>'
+        if custom else ""
+    )
+    return f"""
+<div class="card" id="legacy-whatif">
+<h3 style="margin:0 0 4px 0;">Try your own strategy</h3>
+<p class="muted">Adds one extra row to the table below, ranked against the others. Federal brackets are 10, 12, 22, 24, 32, 35
+and 37% (there is no 25% bracket -- 24% is the closest), so to land between two of the rows use the yearly cap: for example
+fill the 24% bracket but never convert more than $200,000 a year. The cap is in today's dollars and grows with inflation.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  var f = this;
+  postJSON('/api/legacy-whatif', {{bracket: f.bracket.value, annual_cap: f.annual_cap.value, stop_age: f.stop_age.value}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Convert up to<select name="bracket">{options}</select></label>
+  <label>Yearly cap (optional)<input name="annual_cap" type="number" min="1" step="1000" placeholder="no cap" value="{cap_value}"></label>
+  <label>Stop converting after age (optional)<input name="stop_age" type="number" min="30" max="120" step="1" placeholder="no stop" value="{stop_value}"></label>
+  <button type="submit" class="primary">Add to comparison</button>
+  {clear_btn}
+</form>
+{status_html}
+</div>
+"""
+
+
 def _comparison_table_html(result: dict) -> str:
     strategies = result["strategies"]
     baseline_key = result["baseline_key"]
     recommended_key = strategies[0]["key"] if strategies else None
     max_legacy = max((s["net_after_tax_legacy"] for s in strategies), default=0.0)
+    close_call = _is_close_call(strategies)
 
     rows_html = "".join(
         f'<tr><td>{html.escape(s["label"])}'
         + (' <span class="status-ok">Recommended</span>' if s["key"] == recommended_key else "")
+        + (' <span class="muted">(close call)</span>' if s["key"] == recommended_key and close_call else "")
+        + (' <span class="badge-whatif">Your what-if</span>' if s.get("is_custom") else "")
         + (f' <span class="muted">({_baseline_phrase(result)})</span>' if s["key"] == baseline_key else "")
         + (' <span class="status-warn">Depleted</span>' if s["depletes"] else "")
         + '</td>'
@@ -254,8 +439,12 @@ def _render_legacy_planning_page() -> str:
     # Tax-deferred pool applies -- see that page for why.
     assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
 
+    try:
+        custom = normalize_custom_strategy(db.legacy_whatif())
+    except ValueError:
+        custom = None
     result = compare_roth_conversion_strategies(
-        pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
+        pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions, custom=custom,
     )
     total_pool = sum(pools.values())
     sale = s["real_estate_sale"]
@@ -295,6 +484,7 @@ then, is compared below too, alongside the Roth-conversion strategies. The table
 plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the
 Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p></details>
 {_this_years_plan_html(result, retirement_year)}
+{_how_we_arrived_html(result)}
 {_heir_assumptions_card_html(result, assumptions)}
 {sale_card}
 <h2>Strategy comparison</h2>
@@ -306,6 +496,7 @@ Tax-deferred survives net of the Estimated heir tax column. A depleted strategy 
 lifetime) is flagged rather than hidden -- a smaller legacy from a strategy that never ran out beats a larger one on
 paper that only looks that way because the money ran out.</p></details>
 {_early_age_note_html(result)}
+{_whatif_card_html(result)}
 {_comparison_table_html(result)}
 {_recommended_year_by_year_html(result, retirement_year)}
 <p class="muted">This compares strategies against each other for legacy purposes. For your day-to-day plan under

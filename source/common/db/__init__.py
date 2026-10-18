@@ -103,7 +103,8 @@ from source.common.db.owners import (
     spouse_name,
 )
 from source.common.db.meta import (
-    dollars_mode, get_meta, set_dollars_mode, set_meta, set_setup_complete, setup_complete, setup_needed,
+    dollars_mode, get_meta, legacy_whatif, set_dollars_mode, set_legacy_whatif, set_meta, set_setup_complete,
+    setup_complete, setup_needed,
 )
 from source.common.db.plaid import (
     account_balances_from_payload,
@@ -181,6 +182,8 @@ __all__ = [
     "set_meta",
     "dollars_mode",
     "set_dollars_mode",
+    "legacy_whatif",
+    "set_legacy_whatif",
     "set_setup_complete",
     "setup_complete",
     "setup_needed",

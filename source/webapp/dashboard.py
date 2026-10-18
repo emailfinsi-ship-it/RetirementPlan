@@ -593,6 +593,16 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("Sample data can only be loaded into an empty plan.")
                     demo_data.seed_sample_household()
                     self._send_json({"ok": True})
+            elif path == "/api/legacy-whatif":
+                if payload.get("clear"):
+                    db.set_legacy_whatif(None)
+                    self._send_json({"ok": True, "whatif": None})
+                else:
+                    from source.reporting.monte_carlo import normalize_custom_strategy
+
+                    spec = normalize_custom_strategy(payload)
+                    db.set_legacy_whatif(spec)
+                    self._send_json({"ok": True, "whatif": spec})
             elif path == "/api/dollars-mode":
                 db.set_dollars_mode(str(payload.get("mode") or ""))
                 self._send_json({"ok": True, "mode": db.dollars_mode()})

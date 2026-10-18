@@ -63,3 +63,28 @@ def set_dollars_mode(mode: str) -> None:
     if mode not in ("today", "future"):
         raise ValueError("Dollars mode must be 'today' or 'future'.")
     set_meta(_META_DOLLARS_MODE, mode)
+
+
+_META_LEGACY_WHATIF = "legacy_whatif"
+
+
+def legacy_whatif() -> dict | None:
+    """The saved "Try your own" Roth-conversion what-if (see
+    reporting.monte_carlo.legacy_planning.normalize_custom_strategy), or
+    None when there isn't one."""
+    import json
+
+    raw = get_meta(_META_LEGACY_WHATIF)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def set_legacy_whatif(spec: dict | None) -> None:
+    import json
+
+    set_meta(_META_LEGACY_WHATIF, json.dumps(spec) if spec else "")
