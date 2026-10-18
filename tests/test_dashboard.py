@@ -397,6 +397,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("expenses")
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
+        # It closes the page: after the insight card, right before the footer.
+        self.assertGreater(body.index("What should I do next?"), body.index("Total Asset over time"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
@@ -3976,7 +3978,9 @@ class TestSyncNowButtonPlacement(DashboardTestCase):
     def test_setup_page_no_longer_has_the_sync_now_form(self):
         self._link_an_item()
         body = self._get("/setup.html").read().decode("utf-8")
-        self.assertNotIn(">Sync now<", body)
+        # The old inline form is gone; the only Sync now left is the compact header button.
+        self.assertNotIn('onsubmit="event.preventDefault();\n  var btn = this.querySelector(\'button\');\n  btn.disabled = true; btn.textContent = \'Syncing...\'', body)
+        self.assertEqual(body.count(">Sync now<"), 1)
         self.assertIn("<a href=\"/linked-accounts.html\">Linked Accounts</a>", body)
         self.assertIn("<a href=\"/linked-positions.html\">Linked Positions</a>", body)
 
@@ -3996,6 +4000,13 @@ class TestSyncNowButtonPlacement(DashboardTestCase):
         self._link_an_item()
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn(">Sync now<", body)
+
+    def test_header_sync_button_sits_before_the_report_button(self):
+        self._link_an_item()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('id="sync-btn"', body)
+        self.assertLess(body.index('id="sync-btn"'), body.index('id="report-btn"'))
+        self.assertEqual(body.count(">Sync now<"), 1)
 
     def test_summary_page_omits_sync_now_when_nothing_is_linked(self):
         body = self._get("/summary.html").read().decode("utf-8")

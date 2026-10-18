@@ -23,7 +23,6 @@ from source.webapp.render_helpers import (
     _money,
     _pct,
     _shell,
-    _sync_now_button_html,
 )
 
 
@@ -82,11 +81,6 @@ def _render_summary_page() -> str:
         else f"{linked['item_count']} linked Plaid account(s)"
         + (f", last synced {html.escape(linked['last_synced_at'])}." if linked["last_synced_at"] else ", not synced yet.")
     )
-    sync_html = (
-        _sync_now_button_html(note='Pulls current balances (and holdings, for accounts that requested "investments") from Plaid.')
-        if linked["configured"] else ""
-    )
-
     if v["empty_plan"]:
         top_html = blocks.welcome_card_html()
     else:
@@ -95,11 +89,11 @@ def _render_summary_page() -> str:
             + blocks.own_owe_html(s)
             + blocks.projection_card_html(s, display_result, mode, retirement_year)
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
-            + blocks.next_steps_html(
-                plan_health_items(s), can_vary_retirement=retirement_year is not None,
-                growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0,
-            )
         )
+    next_steps = "" if v["empty_plan"] else blocks.next_steps_html(
+        plan_health_items(s), can_vary_retirement=retirement_year is not None,
+        growth_pct=float(assumptions.get('expected_return') or 0.06) * 100.0,
+    )
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
     history_html = _line_chart_html(
@@ -112,7 +106,7 @@ def _render_summary_page() -> str:
 {top_html}
 {history_html}
 {_summary_insight_html(s)}
-{sync_html}
+{next_steps}
 {blocks.footer_html(s, linked_summary, mode)}
 """
     return _shell(title="Summary", active="summary.html", body=body)

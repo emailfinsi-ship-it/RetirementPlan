@@ -68,7 +68,7 @@ PAGE_SHELL = """<!doctype html>
       <p style="margin:3px 0 0; font-size:12px;"><strong>{product_headline}</strong></p>
     </div>
   </div>
-  <div style="display:flex; gap:8px; align-items:flex-start;">{theme_toggle_html}{logout_html}</div>
+  <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; max-width:100%;">{theme_toggle_html}{logout_html}</div>
 </div>
 <nav>{nav}</nav>
 <div id="bulk-bar" class="bulk-bar">
@@ -1234,6 +1234,31 @@ def _demo_banner_html() -> str:
     )
 
 
+def _header_sync_html() -> str:
+    """A compact "Sync now" button in the page header (left of "Download
+    plan report"), shown only once at least one Plaid item is linked.
+    Same /api/plaid-sync request as the form-style button on the linked
+    pages. Built as a plain string (not inside PAGE_SHELL) so its literal
+    braces need no doubling for PAGE_SHELL's .format()."""
+    try:
+        if not db.list_plaid_items():
+            return ""
+    except Exception:
+        return ""
+    js = (
+        "var b=this; b.disabled=true; b.textContent='Syncing...';"
+        "postJSON('/api/plaid-sync', {}).then(function(d){"
+        "alert('Synced '+d.summary.items_synced.length+' item(s): '+d.summary.accounts+' account(s), '"
+        "+d.summary.holdings+' holding(s).'+(d.summary.errors.length?' Errors: '+JSON.stringify(d.summary.errors):''));"
+        "location.reload();}).catch(function(e){alert(e.message); b.disabled=false; b.textContent='Sync now';});"
+    )
+    return (
+        '<button type="button" class="primary" id="sync-btn" '
+        'title="Pull the latest balances and holdings from your linked accounts (Plaid)" '
+        f'onclick="{html.escape(js, quote=True)}">Sync now</button>'
+    )
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1242,7 +1267,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_demo_banner_html() + _subnav_html(active) + _motto_html(active) + body, current_year=current_year,
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_header_sync_html() + THEME_TOGGLE_HTML,
     )
 
 

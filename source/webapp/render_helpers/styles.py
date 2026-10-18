@@ -229,7 +229,7 @@ PAGE_CSS = """
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; } }
   :root[data-theme="dark"] .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; }
   html.hide-money .mny, html.hide-money input[data-money] { filter: blur(7px); user-select: none; }
-  #hide-toggle, #theme-toggle, #report-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  #hide-toggle, #theme-toggle, #report-btn, #sync-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }
