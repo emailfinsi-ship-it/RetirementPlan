@@ -1,7 +1,7 @@
-"""The Rebalance tab (under Linked Accounts): for each linked investment
-account, say in plain words whether its mix of stocks, bonds and cash is
-where you want it and, if not, what to sell and buy *inside that account*.
-Suggestions only -- nothing places an order."""
+"""The Risk & Suggestions tab (under Linked Accounts): pick a risk appetite,
+see today's mix overall and by institution, and for each linked investment
+account get plain-words advice on what to sell and buy *inside that account*
+to reach the goal mix. Suggestions only -- nothing places an order."""
 
 from __future__ import annotations
 
@@ -93,9 +93,72 @@ def _goal_form(target: dict) -> str:
   var f = {{}}; new FormData(this).forEach(function(v, k) {{ f[k] = v; }});
   postJSON('/api/target-allocation', f).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   {fields}
-  <button type="submit" class="primary">Save my goal</button>
-  <button type="button" onclick="postJSON('/api/target-allocation', {{use_suggested: true}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">Pick a mix for my age</button>
+  <button type="submit" class="primary">Save my own mix</button>
 </form>"""
+
+
+def _risk_card(target: dict, risk: str, age: int | None, overall: dict, goal_src: str) -> str:
+    options = ""
+    for key, (label, _off, _cash, desc) in rebalance.RISK_LEVELS.items():
+        t = rebalance.risk_target(key, age)
+        on = " risk-on" if risk == key else ""
+        options += (
+            f'<button type="button" class="risk-opt{on}" onclick="postJSON(\'/api/risk-appetite\', {{level: \'{key}\'}})'
+            f'.then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">'
+            f'<strong>{label}</strong><span class="risk-mix">{t["Stocks"]:.0f}% stocks &middot; {t["Bonds"]:.0f}% bonds &middot; {t["Cash"]:.0f}% cash</span>'
+            f'<span class="muted small">{desc}</span></button>'
+        )
+    tiles = "".join(
+        f'<div class="tile"><div class="label"><span style="display:inline-block; width:10px; height:10px; border-radius:2px; '
+        f'background:{_COLORS[r["cls"]]}; margin-right:6px;"></span>{r["cls"]}</div>'
+        f'<div class="value">{r["pct"]:.0f}%</div>'
+        f'<div class="muted small">{_money(r["value"])} &middot; goal {r["target_pct"]:.0f}%</div></div>'
+        for r in overall["rows"]
+    )
+    loss = rebalance.worst_year_loss_pct(target)
+    if risk == "custom":
+        chosen = "You are using your own mix."
+    elif risk in rebalance.RISK_LEVELS:
+        chosen = f"You chose {rebalance.RISK_LEVELS[risk][0]}."
+    else:
+        chosen = "Not chosen yet, so Moderate is shown."
+    goal_text = ", ".join(f"{target[c]:.0f}% {c.lower()}" for c in rebalance.CLASSES)
+    return f"""<div class="card">
+<h3 class="sub" style="margin-top:0">How much risk are you comfortable with?</h3>
+<p class="muted small" style="margin:0 0 8px">Pick one. It sets your goal mix of stocks, bonds and cash. {chosen}</p>
+<div class="risk-grid">{options}</div>
+<p style="margin:12px 0 2px"><strong>Your goal:</strong> {goal_text}.</p>
+<p class="muted small" style="margin:0">In a very bad year (like 2008) a mix like this could lose roughly {loss:.0f}% of its value. {goal_src}</p>
+<details class="how-it-works" style="margin-top:8px"><summary>Or type my own mix</summary>{_goal_form(target)}</details>
+<h3 class="sub">Your mix today <span class="muted" style="font-weight:normal">&middot; all linked accounts, {_money(overall['total'])}</span></h3>
+{_bar(overall['rows'])}
+<div class="tiles" style="margin-top:10px">{tiles}</div>
+</div>"""
+
+
+def _institution_card(positions: list[dict], overrides: dict) -> str:
+    groups: dict[str, list[dict]] = {}
+    for p in positions:
+        groups.setdefault(p.get("institution") or "Other", []).append(p)
+    if len(groups) < 1:
+        return ""
+    rows = ""
+    for name in sorted(groups, key=lambda k: -sum(p["market_value"] for p in groups[k])):
+        plan = rebalance.build_plan(groups[name], {}, overrides)
+        text = " &middot; ".join(
+            f'<span style="white-space:nowrap"><span style="display:inline-block; width:8px; height:8px; border-radius:2px; background:{_COLORS[r["cls"]]}"></span> '
+            f'{r["cls"]} {r["pct"]:.0f}%</span>' for r in plan["rows"]
+        )
+        rows += (
+            f'<div class="inst-row"><div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">'
+            f'<strong>{html.escape(name)}</strong><span class="muted">{_money(plan["total"])}</span></div>'
+            f'{_bar(plan["rows"])}<div class="small muted">{text}</div></div>'
+        )
+    return f"""<div class="card">
+<h3 class="sub" style="margin-top:0">Your mix by institution</h3>
+{rows}
+</div>"""
+
 
 
 def _grouping_html(positions: list[dict], overrides: dict) -> str:
@@ -119,49 +182,48 @@ def _grouping_html(positions: list[dict], overrides: dict) -> str:
 def _render_rebalance_page() -> str:
     # Skip holdings worth under a dollar: an account that shows as $0 has nothing to rebalance.
     positions = [p for p in linked_data.read_linked_portfolio_positions() if (p.get("market_value") or 0) >= 1]
-    head = ('<h2 style="margin-top:0">Rebalance</h2>'
-            '<p class="muted">Keeping the right mix of stocks, bonds and cash helps protect your retirement. '
-            'Below, each account tells you what to do, if anything. These are suggestions only &mdash; '
-            'this app never buys or sells for you.</p>')
+    head = ('<h2 style="margin-top:0">Risk &amp; suggestions</h2>'
+            '<p class="muted">Pick how much risk you are comfortable with. Below, each account tells you what to do, '
+            'if anything, to match it. These are suggestions only &mdash; this app never buys or sells for you.</p>')
     if not positions:
         body = head + '<div class="card"><p class="muted" style="margin:0">No linked investment accounts yet. Connect one on the Setup tab and your suggestions will show up here.</p></div>'
-        return _shell(title="Rebalance", active="rebalance.html", body=body)
+        return _shell(title="Risk & suggestions", active="rebalance.html", body=body)
+    age = _age(db.get_assumptions())
     saved = rebalance.get_target()
-    target = saved or rebalance.suggested_target(_age(db.get_assumptions()))
+    risk = rebalance.get_risk() if saved else ""
+    target = saved or rebalance.risk_target("moderate", age)
     overrides = rebalance.get_overrides()
-    goal_src = ("the goal you saved" if saved else "a starting mix picked for your age &mdash; change it below if you like")
-    goal_text = ", ".join(f"{target[c]:.0f}% {c.lower()}" for c in rebalance.CLASSES)
+    goal_src = "" if saved else "This is a starting mix picked for your age."
     overall = rebalance.build_plan(positions, target, overrides)
-    tiles = "".join(
-        f'<div class="tile"><div class="label"><span style="display:inline-block; width:10px; height:10px; border-radius:2px; '
-        f'background:{_COLORS[r["cls"]]}; margin-right:6px;"></span>{r["cls"]}</div>'
-        f'<div class="value">{r["pct"]:.0f}%</div>'
-        f'<div class="muted small">{_money(r["value"])} &middot; goal {r["target_pct"]:.0f}%</div></div>'
-        for r in overall["rows"]
-    )
-    goal = f"""<div class="card">
-<h3 class="sub" style="margin-top:0">Your mix today <span class="muted" style="font-weight:normal">&middot; all linked accounts, {_money(overall['total'])}</span></h3>
-{_bar(overall['rows'])}
-<div class="tiles" style="margin-top:10px">{tiles}</div>
-<p class="muted small" style="margin:10px 0 8px">Your goal is {goal_text}. This is {goal_src}.</p>
-<details class="how-it-works"><summary>Change my goal</summary>{_goal_form(target)}</details>
-</div>"""
+    risk_card = _risk_card(target, risk, age, overall, goal_src)
+    inst_card = _institution_card(positions, overrides)
     accounts: dict[str, list[dict]] = {}
     labels: dict[str, str] = {}
     for p in positions:
         key = p.get("account_id") or p.get("account") or ""
         accounts.setdefault(key, []).append(p)
         labels.setdefault(key, " - ".join(x for x in (p.get("institution"), p.get("account")) if x) or "Account")
-    order = sorted(accounts, key=lambda k: -sum(p["market_value"] for p in accounts[k]))
+    order = sorted(accounts, key=lambda k: (labels[k].split(" - ")[0], -sum(p["market_value"] for p in accounts[k])))
     cards = "".join(_account_card(labels[k], accounts[k], target, overrides) for k in order if sum(p["market_value"] for p in accounts[k]) >= 1)
     legend = "".join(
         f'<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;"><span style="width:10px; height:10px; border-radius:2px; background:{_COLORS[c]}"></span>{c}</span>'
         for c in rebalance.CLASSES
     )
     body = f"""{head}
-{goal}
+<style>
+.risk-grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; }}
+.risk-opt {{ text-align:left; display:flex; flex-direction:column; gap:3px; padding:12px 14px; border:1px solid var(--border);
+  border-radius:12px; background:var(--surface); cursor:pointer; font:inherit; color:var(--ink); }}
+.risk-opt:hover {{ border-color:var(--brand); }}
+.risk-opt.risk-on {{ border-color:var(--brand); background:var(--brand-soft); box-shadow:0 0 0 1px var(--brand) inset; }}
+.risk-mix {{ font-size:12.5px; color:var(--ink-soft); }}
+.inst-row {{ padding:8px 0; border-bottom:1px solid var(--border); }} .inst-row:last-child {{ border-bottom:0; }}
+</style>
+{risk_card}
+{inst_card}
+<h3 class="sub">What to do in each account</h3>
 <div class="muted small" style="margin:4px 0 8px">{legend}</div>
 {cards}
 {_grouping_html(positions, overrides)}
 <p class="muted small">Taxable gains shown are estimates from your cost basis.</p>"""
-    return _shell(title="Rebalance", active="rebalance.html", body=body)
+    return _shell(title="Risk & suggestions", active="rebalance.html", body=body)

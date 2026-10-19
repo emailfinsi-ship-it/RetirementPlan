@@ -36,6 +36,11 @@ def _migrate_schema(conn) -> None:
         conn.execute("ALTER TABLE expenses ADD COLUMN base_year INTEGER")
     if "inflates" not in existing_exp:
         conn.execute("ALTER TABLE expenses ADD COLUMN inflates INTEGER NOT NULL DEFAULT 0")
+    if "linked_category" not in existing_exp:
+        conn.execute("ALTER TABLE expenses ADD COLUMN linked_category TEXT NOT NULL DEFAULT ''")
+    existing_inc = {row["name"] for row in conn.execute("PRAGMA table_info(income)").fetchall()}
+    if existing_inc and "linked_category" not in existing_inc:
+        conn.execute("ALTER TABLE income ADD COLUMN linked_category TEXT NOT NULL DEFAULT ''")
     existing_si = {row["name"] for row in conn.execute("PRAGMA table_info(security_industries)").fetchall()}
     if existing_si and "sector" not in existing_si:
         conn.execute("ALTER TABLE security_industries ADD COLUMN sector TEXT")

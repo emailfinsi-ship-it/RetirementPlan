@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     end_year INTEGER,
     base_year INTEGER,                            -- the year annual_amount is denominated in (e.g. 2026)
     inflates INTEGER NOT NULL DEFAULT 0,           -- 1 = grows from base_year by the inflation assumption each simulated year
+    linked_category TEXT NOT NULL DEFAULT '',      -- optional Real Expenditure category to compare this row with
     notes TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'manual',
     created_at TEXT NOT NULL,
@@ -134,6 +135,7 @@ CREATE TABLE IF NOT EXISTS income (
     end_year INTEGER,
     base_year INTEGER,
     inflates INTEGER NOT NULL DEFAULT 0,
+    linked_category TEXT NOT NULL DEFAULT '',      -- optional real-income category to compare this row with
     include_in_monte_carlo INTEGER NOT NULL DEFAULT 1, -- 1 = this income stream nets against the withdrawal
                                                     -- need in the Monte Carlo / historical stress test
                                                     -- simulations (see source.reporting.aggregate.

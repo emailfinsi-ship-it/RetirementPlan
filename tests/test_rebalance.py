@@ -55,6 +55,13 @@ class TestClassifyAndPlan(unittest.TestCase):
         self.assertEqual(plan["trades"], [])
         self.assertEqual(rb.build_plan([], {})["total"], 0.0)
 
+    def test_bond_funds_and_tags_are_recognised(self):
+        self.assertEqual(rb.classify(pos("v", 1, "Mutual Fund", name="Vg Tot Bd Mkt Idx")), "Bonds")
+        tagged = dict(pos("w", 1, "Mutual Fund", name="Some Fund"), industry="Bond")
+        self.assertEqual(rb.classify(tagged), "Bonds")
+        self.assertEqual(rb.classify(pos("l", 1, "Mutual Fund", name="Lifepath Idx 2050 A")), "Other")
+        self.assertEqual(rb.classify(pos("s", 1, "Mutual Fund", name="Vg Inst 500 Idx")), "Stocks")
+
     def test_suggested_target_adds_to_100(self):
         for age in (None, 25, 60, 90):
             self.assertAlmostEqual(sum(rb.suggested_target(age).values()), 100.0)
@@ -78,19 +85,21 @@ class TestRebalanceCard(DashboardTestCase):
 
     def test_page_shows_per_account_advice(self):
         body = self._get("/rebalance.html").read().decode("utf-8")
-        self.assertIn("<h2", body)
-        self.assertIn("Rebalance", body)
+        self.assertIn("Risk &amp; suggestions", body)
+        self.assertIn("How much risk are you comfortable with?", body)
         self.assertIn("Your mix today", body)
+        self.assertIn("Your mix by institution", body)
+        self.assertIn("Brokerage", body)
         for c in ("Stocks", "Bonds", "Cash", "Other"):
             self.assertIn(f"</span>{c}</div>", body)
-        self.assertIn("Your goal is", body)
-        self.assertIn("Pick a mix for my age", body)
+        self.assertIn("Your goal:", body)
         self.assertIn("Roth IRA", body)
         self.assertIn("starting mix picked for your age", body)
+        self.assertIn("Moderate is shown", body)
         status, _ = self._post("/api/target-allocation", {"Stocks": 60, "Bonds": 30, "Cash": 10, "Other": 0})
         self.assertEqual(status, 200)
         body = self._get("/rebalance.html").read().decode("utf-8")
-        self.assertIn("the goal you saved", body)
+        self.assertIn("You are using your own mix", body)
         self.assertIn("What to do", body)
         self.assertIn("<strong>Sell</strong>", body)
         self.assertIn("costs no tax", body)
@@ -137,6 +146,18 @@ class TestRebalanceCard(DashboardTestCase):
         body = self._get("/rebalance.html").read().decode("utf-8")
         self.assertNotIn("Empty Brokerage", body)
         self.assertIn("Roth IRA", body)
+
+    def test_risk_levels_set_the_goal(self):
+        status, d = self._post("/api/risk-appetite", {"level": "conservative"})
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(sum(d["target"].values()), 100.0)
+        self.assertEqual(rb.get_risk(), "conservative")
+        body = self._get("/rebalance.html").read().decode("utf-8")
+        self.assertIn("You chose Conservative.", body)
+        stocks = {k: rb.risk_target(k, 55)["Stocks"] for k in rb.RISK_LEVELS}
+        self.assertTrue(stocks["conservative"] < stocks["moderate"] < stocks["growth"] < stocks["aggressive"])
+        status, _ = self._post("/api/risk-appetite", {"level": "nope"})
+        self.assertEqual(status, 400)
 
     def test_endpoints(self):
         status, _ = self._post("/api/target-allocation", {"Stocks": 60, "Bonds": 30, "Cash": 5, "Other": 0})

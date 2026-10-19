@@ -239,7 +239,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertEqual(len(NAV_ITEMS), 8)
         pairs = {
             "/asset.html": ("/real-estate.html", "Real Estate"),
-            "/linked-accounts.html": ("/rebalance.html", "Rebalance"),
+            "/linked-accounts.html": ("/rebalance.html", "Risk &amp; Suggestions"),
             "/real-expenditure.html": ("/budget-vs-actual.html", "Budget vs Actual"),
             "/drawdown-planning.html": ("/legacy-planning.html", "Legacy"),
         }
@@ -796,7 +796,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         db.add_line_item("expenses", {"name": "Travel", "annual_amount": 10_000})
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertIn('<table class="sortable">', body)
+        self.assertIn('<table class="sortable li-table">', body)
         self.assertIn("50,000", body)  # total of the two rows
 
 
@@ -1031,8 +1031,8 @@ class TestIncomePageIncludeInMonteCarloCheckbox(DashboardTestCase):
         self.assertIn('value="2027"', body)
         self.assertIn('value="2040"', body)
         self.assertIn('value="weekly shop"', body)
-        # Source is deliberately still plain text, not an input.
-        self.assertIn("<td>manual</td>", body)
+        # Source is deliberately plain text (shown only for non-manual rows), not an input.
+        self.assertNotIn('data-field="source"', body)
 
     def test_a_never_set_start_end_and_base_year_render_as_blank_inputs_not_zero(self):
         db.add_line_item("expenses", {"name": "Groceries", "annual_amount": 12_000})

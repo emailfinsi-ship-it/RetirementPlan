@@ -17,7 +17,12 @@ CLASSES = ("Stocks", "Bonds", "Cash", "Other")
 DRIFT_THRESHOLD_PTS = 5.0
 _TARGET_KEY = "target_allocation"
 _OVERRIDES_KEY = "asset_class_overrides"
-_BOND_WORDS = re.compile(r"\b(bond|bonds|treasury|treasuries|tips|fixed income|t-bill|municipal|muni|aggregate|income fund)\b", re.I)
+_BOND_WORDS = re.compile(
+    r"\b(bond|bonds|bd|treasury|treasuries|tips|fixed income|t-bill|municipal|muni|aggregate|agg|income fund|"
+    r"govt|government|gov't|high yield|corporate|credit|mortgage|short term|intermediate term)\b", re.I)
+# Funds that hold a blend of stocks and bonds: counted as "Other" (mixed) rather than guessed.
+_MIXED_WORDS = re.compile(r"\b(lifepath|lifecycle|life cycle|target|target date|freedom|balanced|allocation|retirement 20\d\d|20[2-6]0)\b", re.I)
+_RISK_KEY = "risk_appetite"
 _STOCK_TYPES = {"equity", "stock", "etf", "mutual fund", "common stock"}
 # Least tax first: retirement accounts can be rebalanced for free.
 _TAX_ORDER = {"roth": 0, "tax_deferred": 0, "taxable": 2}
@@ -54,6 +59,7 @@ def set_target(values: dict) -> dict:
     if abs(sum(target.values()) - 100.0) > 0.5:
         raise ValueError(f"The four targets must add up to 100% (they add up to {sum(target.values()):g}%).")
     db.set_meta(_TARGET_KEY, json.dumps(target))
+    db.set_meta(_RISK_KEY, "custom")
     return target
 
 
@@ -74,6 +80,43 @@ def set_override(security_id: str, asset_class: str | None) -> None:
     db.set_meta(_OVERRIDES_KEY, json.dumps(overrides))
 
 
+# name -> (label, how far from the age rule of thumb, cash %, plain description)
+RISK_LEVELS = {
+    "conservative": ("Conservative", -25.0, 10.0, "Protect what you have. Smaller ups and downs, slower growth."),
+    "moderate": ("Moderate", 0.0, 5.0, "A balance of growth and safety. A common choice for your age."),
+    "growth": ("Growth", 10.0, 5.0, "More in stocks for long-term growth. Bigger ups and downs."),
+    "aggressive": ("Aggressive", 20.0, 3.0, "Mostly stocks. Highest growth potential and the biggest drops."),
+}
+
+
+def risk_target(level: str, age: int | None) -> dict:
+    """Stocks/bonds/cash/other mix for a risk level: the age rule of thumb
+    (110 minus age in stocks) shifted up or down, then clamped 20-95%."""
+    if level not in RISK_LEVELS:
+        raise ValueError("Unknown risk level.")
+    _, offset, cash, _ = RISK_LEVELS[level]
+    base = 60.0 if age is None else 110.0 - age
+    stocks = max(20.0, min(100.0 - cash, base + offset))
+    return {"Stocks": stocks, "Bonds": 100.0 - stocks - cash, "Cash": cash, "Other": 0.0}
+
+
+def get_risk() -> str:
+    """The saved risk level, 'custom' for a hand-typed mix, or '' if none."""
+    raw = db.get_meta(_RISK_KEY) or ""
+    return raw if raw in RISK_LEVELS or raw == "custom" else ""
+
+
+def set_risk(level: str, age: int | None) -> dict:
+    target = set_target(risk_target(level, age))
+    db.set_meta(_RISK_KEY, level)
+    return target
+
+
+def worst_year_loss_pct(target: dict) -> float:
+    """Rough size of a bad year (2008-style: stocks -37%, bonds +5%)."""
+    return max(0.0, 0.37 * target.get("Stocks", 0) - 0.05 * target.get("Bonds", 0))
+
+
 def suggested_target(age: int | None) -> dict:
     """A simple age-based starting point (110 minus age in stocks, 5% cash,
     the rest bonds) -- a rule of thumb to edit, not a recommendation."""
@@ -89,10 +132,19 @@ def classify(position: dict, overrides: dict | None = None) -> str:
     name = f"{position.get('security_name') or ''} {position.get('ticker') or ''}"
     if kind == "cash":
         return "Cash"
+    # A sector/industry tag you or Yahoo set (e.g. "Bond") is the best clue.
+    tag = f"{position.get('industry') or ''} {position.get('manual_sector') or ''} {position.get('sector') or ''}".lower()
+    if re.search(r"\bbonds?\b|fixed income", tag):
+        return "Bonds"
     if kind in ("fixed income", "bond"):
         return "Bonds"
     if kind in _STOCK_TYPES:
-        return "Bonds" if kind in ("etf", "mutual fund") and _BOND_WORDS.search(name) else "Stocks"
+        if kind in ("etf", "mutual fund"):
+            if _MIXED_WORDS.search(name):
+                return "Other"
+            if _BOND_WORDS.search(name):
+                return "Bonds"
+        return "Stocks"
     return "Other"
 
 

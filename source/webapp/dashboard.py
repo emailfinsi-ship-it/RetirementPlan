@@ -644,6 +644,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     target = rebalance.set_target(payload)
                 self._send_json({"ok": True, "target": target})
+            elif path == "/api/risk-appetite":
+                from source.reporting import rebalance
+                from source.webapp.pages.rebalance_page import _age
+
+                target = rebalance.set_risk(str(payload.get("level") or ""), _age(db.get_assumptions()))
+                self._send_json({"ok": True, "target": target})
             elif path == "/api/asset-class":
                 from source.reporting import rebalance
 

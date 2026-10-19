@@ -30,7 +30,7 @@ NAV_ITEMS = (
 
 NAV_GROUPS = (
     (("asset.html", "Assets"), ("real-estate.html", "Real Estate")),
-    (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Rebalance")),
+    (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Risk & Suggestions")),
     (("real-expenditure.html", "Real Expenditure"), ("budget-vs-actual.html", "Budget vs Actual")),
     (("drawdown-planning.html", "Drawdown"), ("legacy-planning.html", "Legacy")),
 )
