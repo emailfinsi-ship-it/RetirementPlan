@@ -598,7 +598,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
         self.assertIn('id="bulk-bar"', body)
-        self.assertIn("function deleteSelectedRows()", body)
+        self.assertIn("function deleteSelectedRows(section)", body)
         self.assertIn("function refreshBulkBar()", body)
         self.assertIn("/api/line-item/delete-bulk", body)
 

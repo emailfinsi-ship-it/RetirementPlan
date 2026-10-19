@@ -54,6 +54,17 @@ class TestIncomeExpensePage(DashboardTestCase):
         self.assertIn("Link to real expense", body)
         self.assertIn("<colgroup>", body)
 
+    def test_delete_button_sits_in_each_card_header(self):
+        db.add_line_item("income", {"name": "Salary", "annual_amount": 100_000})
+        db.add_line_item("expenses", {"name": "Rent", "annual_amount": 30_000})
+        body = self._get("/expense.html").read().decode("utf-8")
+        for section in ("income", "expenses"):
+            head = body[body.index(f'id="{section}-card"'):]
+            head = head[:head.index("<table")]
+            self.assertIn(f"deleteSelectedRows('{section}')", head)
+            self.assertIn("+ Add", head)
+        self.assertIn("function refreshCardDeleteButtons", body)
+
     def test_link_a_row_and_see_actual(self):
         db.upsert_plaid_item(item_key="rl", plaid_item_id="p", institution_id="i", institution_name="Bank",
                              products=["transactions"], environment="sandbox", linked_at="now")

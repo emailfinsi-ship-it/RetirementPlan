@@ -269,7 +269,10 @@ def _line_item_section_html(
       <span class="li-chip">{this_year} value <strong>{_money(this_year_total)}</strong></span>
     </div>
   </div>
-  <button type="button" class="primary" onclick="openAddModal('{section}')">+ Add {html.escape(add_label or title.lower())}</button>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <button type="button" class="danger li-del" data-section="{section}" onclick="deleteSelectedRows('{section}')">Delete selected (0)</button>
+    <button type="button" class="primary" onclick="openAddModal('{section}')">+ Add {html.escape(add_label or title.lower())}</button>
+  </div>
 </div>
 <div class="li-scroll">
 <table class="sortable li-table">

@@ -335,6 +335,7 @@ function addLineItem(section, formEl) {{
     .catch(function(err) {{ alert(err.message); }});
 }}
 function refreshBulkBar() {{
+  refreshCardDeleteButtons();
   var boxes = document.querySelectorAll('.row-check:checked');
   var bar = document.getElementById('bulk-bar');
   if (!bar) return;
@@ -342,6 +343,15 @@ function refreshBulkBar() {{
   bar.querySelector('.bulk-count').textContent = n + (n === 1 ? ' item selected' : ' items selected');
   bar.querySelector('button.danger').disabled = n === 0;
   bar.style.display = n > 0 ? 'flex' : 'none';
+}}
+// Per-table "Delete selected" buttons (Income/Expense cards): shown next to the
+// card's Add button as soon as one of its own rows is ticked.
+function refreshCardDeleteButtons() {{
+  document.querySelectorAll('.li-del').forEach(function(btn) {{
+    var n = document.querySelectorAll('.row-check[data-section="' + btn.dataset.section + '"]:checked').length;
+    btn.classList.toggle('on', n > 0);
+    btn.textContent = 'Delete selected (' + n + ')';
+  }});
 }}
 function toggleAllRowChecks(masterCheckbox, tableEl) {{
   var boxes = tableEl.querySelectorAll('tbody .row-check');
@@ -352,8 +362,9 @@ function clearSelection() {{
   document.querySelectorAll('.row-check, .select-all-check').forEach(function(cb) {{ cb.checked = false; }});
   refreshBulkBar();
 }}
-function deleteSelectedRows() {{
+function deleteSelectedRows(section) {{
   var boxes = Array.prototype.slice.call(document.querySelectorAll('.row-check:checked'));
+  if (section) boxes = boxes.filter(function(cb) {{ return cb.dataset.section === section; }});
   if (!boxes.length) return;
   if (!confirm('Delete ' + boxes.length + (boxes.length === 1 ? ' selected item? ' : ' selected items? ') + "This can't be undone.")) return;
   var items = boxes.map(function(cb) {{ return {{section: cb.dataset.section, id: parseInt(cb.dataset.id, 10)}}; }});

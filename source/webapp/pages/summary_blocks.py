@@ -412,10 +412,21 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
             line = f"At your assumed growth and adding nothing new, about <strong>{fi['year']}</strong>."
         else:
             line = "Add to savings or raise growth to see a date."
+        if fi["need"] <= 0:
+            what = (f"Your income of {_money(fi['income'])} a year already covers your spending of "
+                    f"{_money(fi['spending'])}, so your savings are not needed to pay the bills.")
+        else:
+            what = (f"Savings of {_money(fi['savings'])} toward about {_money(fi['target'])}: 25 times the "
+                    f"{_money(fi['need'])} a year your income does not cover "
+                    f"(spending {_money(fi['spending'])}, income {_money(fi['income'])}).")
+        cushion = ""
+        if fi["equity"] > 0:
+            cushion = (f'<p class="small" style="margin:6px 0 0">Not counted above: <strong>{_money(fi["equity"])}</strong> of home equity '
+                       f'&mdash; an extra cushion you could tap by selling or borrowing. Its rent is already in your income.</p>')
         fi_box = f"""<div class="box"><h3>Financial independence</h3>
 <div class="big">{fi['pct']:.0f}%</div>
 <div class="fi-bar" role="img" aria-label="{shown:.0f}% of the way"><i style="width:{shown:.1f}%"></i></div>
-<p class="small muted" style="margin:0">Savings of {_money(fi['savings'])} toward about {_money(fi['target'])} &mdash; 25 times a year of spending, a common rule of thumb. {line}</p></div>"""
+<p class="small muted" style="margin:0">{what} {line}</p>{cushion}</div>"""
     else:
         fi_box = ""
     ss_box = f"""<div class="box"><h3>How much can I safely spend?</h3>

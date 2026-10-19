@@ -37,24 +37,39 @@ def record_plan_check(rate: float, today: date | None = None) -> None:
 
 
 def independence_progress(s: dict) -> dict | None:
-    """Savings versus ~25x yearly spending. None when there is no spending
-    to measure against."""
+    """Savings versus ~25x the yearly spending your income does NOT cover.
+
+    Income that has already started (rent, a pension...) pays part of the
+    bills, so only the rest has to come out of savings -- the same netting the
+    "will my money last" simulation does, so the two never disagree. Future
+    income (Social Security that starts later) is left out on purpose, which
+    keeps this a little cautious. Home equity is reported separately as a
+    cushion, never added to savings. None when there is no spending."""
+    from source.reporting.monte_carlo import annual_income_need
+
     spending = float(s.get("next_year_expense_need") or 0.0)
     savings = max(float(s.get("net_liquid_asset") or 0.0), 0.0)
     if spending <= 0:
         return None
-    target = spending * FI_MULTIPLE
-    pct = savings / target * 100.0
     assumptions = s.get("assumptions") or {}
-    growth = float(assumptions.get("expected_return") or 0.06)
     inflation = float(assumptions.get("inflation_rate") or 0.03)
+    next_year = int(s.get("this_year") or date.today().year) + 1
+    income = min(spending, max(0.0, float(annual_income_need(s.get("income_for_simulation") or [], next_year, inflation))))
+    need = spending - income
+    target = need * FI_MULTIPLE
+    pct = 100.0 if target <= 0 else savings / target * 100.0
+    growth = float(assumptions.get("expected_return") or 0.06)
     real = (1.0 + growth) / (1.0 + inflation) - 1.0
     year = None
-    if savings < target and savings > 0 and real > 0.0005:
+    if 0 < savings < target and real > 0.0005:
         years = math.log(target / savings) / math.log(1.0 + real)
         if years < 80:
             year = int(s.get("this_year") or date.today().year) + math.ceil(years)
-    return {"target": target, "savings": savings, "pct": pct, "reached": savings >= target, "year": year}
+    equity = max(float(s.get("real_estate_equity_total") or 0.0), 0.0)
+    return {
+        "target": target, "savings": savings, "pct": pct, "reached": savings >= target, "year": year,
+        "spending": spending, "income": income, "need": need, "equity": equity,
+    }
 
 
 def _parse(day: str) -> date | None:

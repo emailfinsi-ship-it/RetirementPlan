@@ -26,6 +26,26 @@ class TestProgressFunctions(unittest.TestCase):
         s["next_year_expense_need"] = 0
         self.assertIsNone(progress.independence_progress(s))
 
+    def test_independence_counts_income_that_has_started_and_keeps_home_equity_separate(self):
+        income = [{"name": "Rent", "annual_amount": 60_000, "start_year": 2026, "end_year": None, "inflates": 0,
+                   "base_year": None, "include_in_monte_carlo": 1},
+                  {"name": "Social Security", "annual_amount": 30_000, "start_year": 2035, "end_year": None, "inflates": 0,
+                   "base_year": None, "include_in_monte_carlo": 1}]
+        s = {"next_year_expense_need": 100_000, "net_liquid_asset": 1_000_000, "this_year": 2026,
+             "income_for_simulation": income, "real_estate_equity_total": 500_000,
+             "assumptions": {"expected_return": 0.06, "inflation_rate": 0.03}}
+        p = progress.independence_progress(s)
+        self.assertAlmostEqual(p["income"], 60_000)       # rent counts, Social Security (starts 2035) does not yet
+        self.assertAlmostEqual(p["need"], 40_000)
+        self.assertAlmostEqual(p["target"], 1_000_000)    # 25 x the part income does not cover
+        self.assertAlmostEqual(p["pct"], 100.0)
+        self.assertEqual(p["equity"], 500_000)            # reported, never added to savings
+        s["income_for_simulation"][0]["annual_amount"] = 150_000  # income above spending
+        p = progress.independence_progress(s)
+        self.assertEqual(p["need"], 0)
+        self.assertTrue(p["reached"])
+        self.assertEqual(p["pct"], 100.0)
+
     def test_since_then_breaks_down_the_change(self):
         today = date(2026, 10, 18)
         snaps = [{"snapshot_date": "2026-09-10", "net_worth": 1_000_000, "retirement_liquid_total": 600_000,

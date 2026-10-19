@@ -465,6 +465,13 @@ PAGE_CSS = """
     border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius); padding: 8px 12px;
     margin: 0 0 16px 0; box-shadow: var(--shadow-sm); }
   .bulk-bar .bulk-count { font-weight: 600; color: var(--warn); font-size: 13px; }
+  /* Always in view: floats at the bottom of the window instead of sitting up by the tabs. */
+  .bulk-bar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; margin: 0;
+    box-shadow: var(--shadow-md); background: var(--surface); }
+  /* Income/Expense put the Delete button in each table's own header instead. */
+  body:has(.li-card) .bulk-bar { display: none !important; }
+  .li-del { display: none; }
+  .li-del.on { display: inline-flex; }
   .pie-seg { cursor: pointer; }
   .pie-seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   circle.pie-seg.seg-selected { stroke-width: 30; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35)); }
