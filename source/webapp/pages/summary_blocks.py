@@ -59,6 +59,12 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
         _tile("Investable savings", _money(s["net_liquid_asset"]), hero=True),
         _tile(f"Yearly spending in {s['next_year']}", _money(s["next_year_expense_need"]), hero=True),
     ))
+    re_in_plan = float((s.get("retirement_pools") or {}).get("real_estate") or 0.0)
+    in_plan_line = (
+        f'<p class="small" style="margin:8px 0 0">Plus <strong>{_money(re_in_plan)}</strong> of home equity you marked '
+        f'&ldquo;In the plan?&rdquo; on <a href="/real-estate.html">Real Estate</a>. Investable savings above are your accounts only; '
+        f'the simulation below can also draw on that equity, last and with no tax modelled.</p>'
+    ) if re_in_plan > 0 else ""
     return f"""
 <div class="card hero tone-{status['tone']}">
 <div class="hero-top"><span class="badge badge-{status['tone']}">&#9679; {html.escape(status['label'])}</span>
@@ -66,6 +72,7 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
 <h2 class="hero-title">{titles[status['key']]}</h2>
 <p class="hero-verdict">{html.escape(verdict)}</p>
 <div class="tiles">{tiles}</div>
+{in_plan_line}
 <p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. Based on {int(result['iterations']):,} simulated market paths,
 {_pct(assumptions, 'expected_return', 0.06)}% average yearly growth and {_pct(assumptions, 'inflation_rate', 0.03)}% inflation.
 <a href="/monte-carlo.html#assumptions">Change assumptions</a></p>
@@ -422,8 +429,11 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
                     f"{_money(fi['need'])} a year your income does not cover "
                     f"(spending {_money(fi['spending'])}, income {_money(fi['income'])}).")
         cushion = ""
+        if fi.get("in_plan_equity", 0) > 0:
+            cushion += (f'<p class="small" style="margin:6px 0 0">Includes <strong>{_money(fi["in_plan_equity"])}</strong> of home equity '
+                        f'you marked &ldquo;In the plan?&rdquo; on Real Estate.</p>')
         if fi["equity"] > 0:
-            cushion = (f'<p class="small" style="margin:6px 0 0">Not counted above: <strong>{_money(fi["equity"])}</strong> of home equity '
+            cushion += (f'<p class="small" style="margin:6px 0 0">Not counted above: <strong>{_money(fi["equity"])}</strong> of home equity '
                        f'&mdash; an extra cushion you could tap by selling or borrowing. Its rent is already in your income.</p>')
         fi_box = f"""<div class="box"><h3>Financial independence</h3>
 <div class="big">{fi['pct']:.0f}%</div>

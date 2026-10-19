@@ -43,12 +43,15 @@ def independence_progress(s: dict) -> dict | None:
     bills, so only the rest has to come out of savings -- the same netting the
     "will my money last" simulation does, so the two never disagree. Future
     income (Social Security that starts later) is left out on purpose, which
-    keeps this a little cautious. Home equity is reported separately as a
-    cushion, never added to savings. None when there is no spending."""
+    keeps this a little cautious. Home equity you did NOT tick "In the plan?" is
+    reported separately as a cushion, never added to savings. None when there is no spending."""
     from source.reporting.monte_carlo import annual_income_need
 
     spending = float(s.get("next_year_expense_need") or 0.0)
-    savings = max(float(s.get("net_liquid_asset") or 0.0), 0.0)
+    # Home equity you ticked "In the plan?" on the Real Estate tab is part of
+    # what the simulation can draw on, so it counts as savings here too.
+    in_plan = max(float((s.get("retirement_pools") or {}).get("real_estate") or 0.0), 0.0)
+    savings = max(float(s.get("net_liquid_asset") or 0.0), 0.0) + in_plan
     if spending <= 0:
         return None
     assumptions = s.get("assumptions") or {}
@@ -65,10 +68,10 @@ def independence_progress(s: dict) -> dict | None:
         years = math.log(target / savings) / math.log(1.0 + real)
         if years < 80:
             year = int(s.get("this_year") or date.today().year) + math.ceil(years)
-    equity = max(float(s.get("real_estate_equity_total") or 0.0), 0.0)
+    equity = max(float(s.get("real_estate_equity_total") or 0.0) - in_plan, 0.0)   # not ticked: a cushion only
     return {
         "target": target, "savings": savings, "pct": pct, "reached": savings >= target, "year": year,
-        "spending": spending, "income": income, "need": need, "equity": equity,
+        "spending": spending, "income": income, "need": need, "equity": equity, "in_plan_equity": in_plan,
     }
 
 
