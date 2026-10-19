@@ -202,8 +202,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         # than just "Expense".
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/expense.html" class="active">.*<span class="nl">Income/Expense</span></a>')
-        self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income/Expense</title>", body)
+        self.assertRegex(body, r'href="/expense.html" class="active">.*<span class="nl">Income &amp; Expenses</span></a>')
+        self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income &amp; Expenses</title>", body)
 
     def test_monte_carlo_page_renders_with_no_data(self):
         resp = self._get("/monte-carlo.html")
@@ -241,7 +241,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             "/asset.html": ("/real-estate.html", "Real Estate"),
             "/linked-accounts.html": ("/rebalance.html", "Risk &amp; Suggestions"),
             "/real-expenditure.html": ("/budget-vs-actual.html", "Budget vs Actual"),
-            "/drawdown-planning.html": ("/legacy-planning.html", "Legacy"),
+            "/drawdown-planning.html": ("/legacy-planning.html", "Legacy Planning"),
         }
         for first, (second, label) in pairs.items():
             for path in (first, second):
@@ -656,9 +656,9 @@ class TestLineItemEndpoints(DashboardTestCase):
         self.assertIn("Total liabilities", body)
 
     def test_asset_page_shows_real_estate_as_a_collapsed_summary_line(self):
-        # The Asset tab used to repeat every property's name/value/loan/
+        # The Assets tab used to repeat every property's name/value/loan/
         # equity in its own full table right below the asset categories
-        # -- pure duplication of the Real Estate Analysis tab's own,
+        # -- pure duplication of the Real Estate tab's own,
         # already-editable table (same underlying real_estate rows, just
         # shown twice). It's now a single line: total equity and a count,
         # linking to that tab instead of re-listing each property.
@@ -672,7 +672,7 @@ class TestLineItemEndpoints(DashboardTestCase):
         self.assertIn("1 property", body)
         self.assertIn('href="/real-estate.html"', body)
         self.assertNotIn("Real Estate Asset", body)  # the old per-property table's own heading is gone
-        self.assertNotIn("Home", body)  # property names no longer repeated on the Asset tab
+        self.assertNotIn("Home", body)  # property names no longer repeated on the Assets tab
 
     def test_asset_page_real_estate_line_pluralizes_and_totals_multiple_properties(self):
         db.add_line_item("real_estate", {
@@ -773,7 +773,7 @@ class TestLineItemEndpoints(DashboardTestCase):
 
     def test_linked_accounts_table_has_a_balance_total(self):
         # The "Linked accounts (live, read-only)" table lives on its own
-        # Linked Accounts tab, not the Asset tab -- see TestLinkedAccountsPage.
+        # Linked Accounts tab, not the Assets tab -- see TestLinkedAccountsPage.
         db.upsert_plaid_item(
             item_key="fidelity", plaid_item_id="item-1", institution_id="ins_1",
             institution_name="Fidelity", products=["investments"], environment="sandbox",
@@ -1069,7 +1069,7 @@ class TestIncomePageIncludeInMonteCarloCheckbox(DashboardTestCase):
 
 
 class TestExpensePageCategoryCharts(DashboardTestCase):
-    """The Income/Expense tab's "Expenses by category" and "Income by
+    """The Income & Expenses tab's "Expenses by category" and "Income by
     category" donut charts -- added per the user's "add Pie chart for
     Income and Expense by Category" request. Same _donut_chart_html/
     _grouped_slices helpers (and "no data yet" empty state) as every
@@ -1139,7 +1139,7 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
 
 
 class TestAssetPageSummaryTables(DashboardTestCase):
-    """The two top-of-page summary tables on the Asset tab: a per-category
+    """The two top-of-page summary tables on the Assets tab: a per-category
     breakdown ending in Net Liquid Asset (every asset row checked "In
     Monte Carlo?", net of liabilities), and a rollup of Net Liquid Asset
     + real estate's effective equity into Total Asset."""
@@ -1242,9 +1242,9 @@ class TestAssetPageSummaryTables(DashboardTestCase):
 
 
 class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
-    """The Asset tab's per-row "In the plan?" checkbox -- replaces the
+    """The Assets tab's per-row "In the plan?" checkbox -- replaces the
     old category-list assumption (retirement_liquid_categories) with
-    per-row control, same pattern as the Real Estate Analysis tab's own
+    per-row control, same pattern as the Real Estate tab's own
     "In the plan?" column. New rows default unchecked (opt-in), same
     as a new Real Estate row -- a brand-new asset was never automatically
     part of a plan's projected drawdown until explicitly included."""
@@ -1300,7 +1300,7 @@ class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
 
 
 class TestAssetPageTaxTreatment(DashboardTestCase):
-    """The Asset tab's Tax treatment column -- shown on every asset
+    """The Assets tab's Tax treatment column -- shown on every asset
     category table (not liability tables), editable through the same
     generic /api/line-item/update endpoint every other editable cell
     uses. A row's Tax treatment only actually matters once it's also
@@ -1729,13 +1729,13 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         self.assertIn("Wells Fargo -- MORTGAGE ...7982", body)
 
     def test_asset_page_real_estate_line_reflects_live_loan_balance_once_linked(self):
-        # The Asset tab's collapsed real-estate summary line shows equity,
+        # The Assets tab's collapsed real-estate summary line shows equity,
         # not the loan balance itself -- so linking to a live mortgage
         # account (480,000, vs. the typed-in loan_balance of 1) should
         # show up here as a *lower* equity figure (900,000 - 480,000 =
         # 420,000), not as the raw balance -- same live-balance-if-linked
         # rule real_estate_equity()/effective_loan_balance() apply
-        # everywhere else (see the Real Estate Analysis tab's own
+        # everywhere else (see the Real Estate tab's own
         # equivalent test above).
         db.update_line_item("real_estate", self.item_id, {"linked_account_id": "acc-mortgage"})
         resp = self._get("/asset.html")
@@ -1855,7 +1855,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
 
 
 class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
-    """The Real Estate Analysis tab's "In the plan?" checkbox column --
+    """The Real Estate tab's "In the plan?" checkbox column --
     lets a property's equity opt in to the Monte Carlo / historical
     stress test simulations as a 4th, untaxed, last-drawn pool (see
     source.reporting.aggregate.build_summary and monte_carlo._WITHDRAWAL_ORDER)."""
@@ -2029,7 +2029,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("AAPL", body)
-        self.assertIn("Linked portfolio positions", body)
+        self.assertIn("Linked Positions", body)
 
     def test_nav_includes_linked_positions_tab(self):
         resp = self._get("/linked-positions.html")
@@ -3011,10 +3011,10 @@ class TestMonteCarloAndSummaryAgreeOnSimulationResults(DashboardTestCase):
 
 class TestSummaryPageAssetTotals(DashboardTestCase):
     """The Summary tab no longer shows a standalone "Manual asset total"
-    tile -- it didn't match what the Asset tab itself displayed, since the
-    Asset tab breaks balances out by category (401k, Liquid, Insurance,
+    tile -- it didn't match what the Assets tab itself displayed, since the
+    Assets tab breaks balances out by category (401k, Liquid, Insurance,
     ...). Instead the Summary tab shows the same real, per-category
-    balances and totals the Asset tab shows, plus a rate-of-return tile."""
+    balances and totals the Assets tab shows, plus a rate-of-return tile."""
 
     def tearDown(self):
         db.clear_section("assets")
@@ -3074,7 +3074,7 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
         self.assertIn("6.00% average yearly growth", body)
 
     def test_summary_points_to_the_asset_tab_instead_of_repeating_the_category_table(self):
-        # The per-category table lives only on the Asset tab; Summary keeps
+        # The per-category table lives only on the Assets tab; Summary keeps
         # its Net Liquid / Total Asset tiles and links across.
         self._seed()
         summary_body = self._get("/summary.html").read().decode("utf-8")
@@ -3407,7 +3407,7 @@ class TestDrawdownTaxAssumption(DashboardTestCase):
 
     def test_detail_table_has_tax_and_total_withdrawal_columns_after_yearly_drawdown(self):
         # The dashboard always calls the simulation functions with the
-        # Asset tab's three-pool split (source.webapp.pages.monte_carlo_page.
+        # Assets tab's three-pool split (source.webapp.pages.monte_carlo_page.
         # _render_monte_carlo_page's pools=pools), so the live page is
         # always in per-scenario-tax mode: Tax/Total Withdrawal aren't a
         # shared column pair anymore (that's only true in the legacy
@@ -4048,7 +4048,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         resp = self._get("/linked-accounts.html")
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
-        self.assertIn("Linked accounts", body)
+        self.assertIn("Linked Accounts", body)
         self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">Linked Accounts</span></a>')
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
@@ -4379,7 +4379,7 @@ class TestRealExpenditurePage(DashboardTestCase):
     def test_nav_includes_real_expenditure(self):
         body = self._get("/asset.html").read().decode("utf-8")
         self.assertIn('href="/real-expenditure.html"', body)
-        self.assertIn("Real Expenditure", body)
+        self.assertIn("Actual Spending", body)
 
     def test_empty_state(self):
         body = self._get("/real-expenditure.html").read().decode("utf-8")
@@ -4776,7 +4776,7 @@ class TestClassifyTransactionExpenseFlagEndpoint(DashboardTestCase):
 
 
 class TestClassifyTransactionIncomeKindEndpoint(DashboardTestCase):
-    """/api/classify-transaction-income-kind -- the Real Expenditure
+    """/api/classify-transaction-income-kind -- the Actual Spending
     page's "Mark as income"/"Mark as expense"/"Auto-detect" bulk action.
     See plaid_categorize.is_real_income's own income_kind_override
     docstring for why this exists: a manually-retyped category that IS
@@ -4900,7 +4900,7 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
 
 
 class TestAssetPageNetWorthHistory(DashboardTestCase):
-    """The Asset tab's over-time chart (see source.webapp.pages.asset.
+    """The Assets tab's over-time chart (see source.webapp.pages.asset.
     _liquid_and_total_points): Net Liquid Asset, one point per captured
     day, laid out by real elapsed time on a y-axis fitted to the data."""
 
@@ -5080,7 +5080,7 @@ class TestBudgetVsActualRouting(DashboardTestCase):
     def test_page_is_reachable_and_in_the_nav(self):
         body = self._get("/budget-vs-actual.html").read().decode("utf-8")
         self.assertIn("Budget vs Actual", body)
-        # Budget vs Actual lives under the Spending tab, next to Real Expenditure.
+        # Budget vs Actual lives under the Spending tab, next to Actual Spending.
         self.assertRegex(body, r'href="/real-expenditure.html" class="active">.*<span class="nl">Spending</span></a>')
         self.assertIn('<div class="subnav">', body)
 
@@ -5400,7 +5400,7 @@ class TestApplyCategoryRuleEndpoint(DashboardTestCase):
 
 
 class TestApplyCategoryRuleFromTransactionEndpoint(DashboardTestCase):
-    """Real Expenditure's per-row "Categorize similar" action -- source.
+    """Actual Spending's per-row "Categorize similar" action -- source.
     common.db.transactions.apply_category_rule_from_transaction via
     /api/category-rule/apply-from-transaction. See TestCategoryRuleEndpoints
     above for the lower-level /api/category-rule/save this builds on."""
@@ -5530,7 +5530,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         resp = self._get("/drawdown-planning.html")
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
-        self.assertIn("Drawdown planning", body)
+        self.assertIn("Drawdown Planning", body)
         self.assertIn("No retirement/liquid resources yet", body)
 
     def test_shows_tiles_for_each_tax_bucket(self):
@@ -5555,7 +5555,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
         self.assertIn("ROTH IRA", body)
         self.assertIn("Fidelity", body)
-        self.assertIn("Linked account (not on Asset tab)", body)
+        self.assertIn("Linked account (not on Assets tab)", body)
         self.assertIn("75,000", body)
         # Roth appears both as the tile and the source table's Tax bucket cell.
         self.assertIn("Roth (tax-free)", body)
@@ -5761,13 +5761,13 @@ class TestLegacyPlanningPage(DashboardTestCase):
         resp = self._get("/legacy-planning.html")
         body = resp.read().decode("utf-8")
         self.assertRegex(body, r'href="/drawdown-planning.html" class="active">.*<span class="nl">Drawdown &amp; Legacy</span></a>')
-        self.assertIn('href="/legacy-planning.html" class="active">Legacy</a>', body)
+        self.assertIn('href="/legacy-planning.html" class="active">Legacy Planning</a>', body)
 
     def test_page_loads_with_no_data_at_all(self):
         resp = self._get("/legacy-planning.html")
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
-        self.assertIn("Legacy planning", body)
+        self.assertIn("Legacy Planning", body)
         self.assertIn("Strategy comparison", body)
 
     def test_shows_a_row_for_every_named_strategy(self):
@@ -6039,7 +6039,7 @@ class TestThemeToggle(DashboardTestCase):
 
 
 class TestNetWorthExplorer(DashboardTestCase):
-    """The Asset tab's net-worth card with a picker for plotting individual
+    """The Assets tab's net-worth card with a picker for plotting individual
     assets next to the total (charts._net_worth_explorer_html)."""
 
     def tearDown(self):

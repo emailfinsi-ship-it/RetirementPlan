@@ -470,7 +470,7 @@ def _render_legacy_planning_page() -> str:
     )
 
     body = f"""
-<h2 style="margin-top:0">Legacy planning</h2>
+<h2 style="margin-top:0">Legacy Planning</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Today's default withdrawal order (Taxable, then Tax-deferred, then Roth, then Real estate -- see the
 Drawdown Planning tab) is built to minimize YOUR OWN lifetime tax bill. It isn't necessarily what leaves the most
 after-tax money to an heir: a Roth balance passes to any heir 100% tax-free, a Taxable balance gets a full step-up in

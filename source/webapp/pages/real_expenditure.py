@@ -1,4 +1,4 @@
-"""The Real Expenditure tab: every transaction Plaid has synced for a
+"""The Actual Spending tab: every transaction Plaid has synced for a
 credit card, checking, or investment account (any linked Item whose own
 `products` includes "transactions" -- see source.collector.sync._sync_
 transactions_for_item), auto-categorized where Plaid's own personal_
@@ -294,7 +294,7 @@ def _render_real_expenditure_page() -> str:
     ) if duplicate_flagged_count else ""
 
     body = f"""
-<h2 style="margin-top:0">Real Expenditure</h2>
+<h2 style="margin-top:0">Actual Spending</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Every transaction Plaid has synced for a credit card, checking, or investment account that requested the "transactions" product -- auto-categorized from Plaid's own classification where it has one; select one or more rows below and use the bar that appears to retype the Category (already-used categories autocomplete). A transfer between your own linked accounts, or a credit card bill payment, is automatically left out of the totals below (so paying a credit card from checking doesn't get counted as spending twice) but still shown in the full list, marked "excluded" -- select it and use "Include in total" to correct it if Plaid got one wrong, or "Exclude from total"/"Reset to automatic" the other way. A new Item linked today can request "transactions" directly on Setup; one linked before this existed needs its own one-time "Enable Transactions" re-authorization there first.</p></details>
 {_sync_now_button_html()}
 <div class="group-section">
@@ -360,6 +360,6 @@ def _render_real_expenditure_page() -> str:
 <tbody>{transactions_rows_html}</tbody>
 </table>
 <p class="muted">A category marked with * was set by hand and won't be overwritten by a future sync. A deposit/paycheck counted as real income (see "Total real income" above) displays here as a plain positive amount for readability; every other amount follows Plaid's own convention -- positive is money out, negative is money in/a refund -- so a category or month's expenditure total already nets a refund against the spending it reverses.</p>
-<p class="muted">See <a href="/budget-vs-actual.html">Budget vs Actual</a> to compare this against what the Income/Expense tab's own assumptions planned for.</p>
+<p class="muted">See <a href="/budget-vs-actual.html">Budget vs Actual</a> to compare this against what the Income &amp; Expenses tab's own assumptions planned for.</p>
 """
-    return _shell(title="Real Expenditure", active="real-expenditure.html", body=body)
+    return _shell(title="Actual Spending", active="real-expenditure.html", body=body)

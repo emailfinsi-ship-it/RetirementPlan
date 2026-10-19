@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS assets (
 
 CREATE TABLE IF NOT EXISTS account_owners (
     account_id TEXT PRIMARY KEY,                   -- plaid_accounts.account_id -- a live linked account that is NOT
-                                                    -- tied to an Asset-tab row (an Asset row's own `owner` column
+                                                    -- tied to an Assets-tab row (an Asset row's own `owner` column
                                                     -- covers that case), so its owner has to live somewhere too.
                                                     -- A split account (account_tax_splits) takes this same owner
                                                     -- for every one of its pieces.
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS account_tax_splits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id TEXT NOT NULL,                      -- plaid_accounts.account_id this split applies to --
                                                     -- one linked investment account (typically a 401k not yet
-                                                    -- added to the Asset tab) broken into several named pieces,
+                                                    -- added to the Assets tab) broken into several named pieces,
                                                     -- per the user's own request ("for fidelity can i segregate
                                                     -- the sources manually" -- a single Plaid account/subtype
                                                     -- can hold pre-tax, Roth, and after-tax money all at once,
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS net_worth_snapshots (
     -- Your share of every property's market value (current_value x
     -- ownership %, before subtracting loans). NULL on snapshots taken
     -- before this column existed -- no value history was kept then, so
-    -- the Asset tab's real-estate line simply starts on the first day
+    -- the Assets tab's real-estate line simply starts on the first day
     -- this was recorded (equity, above, has the longer history).
     real_estate_value_total REAL,
     created_at TEXT NOT NULL,
@@ -433,7 +433,7 @@ CREATE TABLE IF NOT EXISTS account_balance_snapshots (
 CREATE INDEX IF NOT EXISTS idx_account_balance_snapshots_account
     ON account_balance_snapshots(account_id, snapshot_date);
 
--- One row per (Asset-tab row, calendar day): that row's effective balance
+-- One row per (Assets-tab row, calendar day): that row's effective balance
 -- (the live Plaid balance for a linked row, the typed balance otherwise)
 -- as of that day. Written alongside every net-worth snapshot (see
 -- source.reporting.aggregate.capture_net_worth_snapshot), so the Asset

@@ -96,7 +96,7 @@ def _wizard_card_html() -> str:
   <p><strong>Connect your accounts.</strong> Link banks and brokerages with Plaid for live balances and spending (needs your own free Plaid developer keys; they are kept only in this Mac's Keychain).</p>
   <p><button type="button" onclick="location.href='/setup.html#plaid-keys'">Take me to Plaid setup</button></p>
   <p><strong>Type it in yourself.</strong> Add accounts, real estate, income and expenses by hand -- no bank connection needed.</p>
-  <p><a href="/asset.html"><button type="button">Open the Assets page</button></a> <a href="/expense.html"><button type="button">Open Income/Expense</button></a></p>
+  <p><a href="/asset.html"><button type="button">Open the Assets page</button></a> <a href="/expense.html"><button type="button">Open Income &amp; Expenses</button></a></p>
   {sample_block}
 </div>
 

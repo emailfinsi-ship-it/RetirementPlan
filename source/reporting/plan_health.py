@@ -42,10 +42,10 @@ def plan_health_items(summary: dict) -> list[dict]:
         add("warn", "No expenses are entered, so the plan has nothing to fund.", "/expense.html")
     pools = summary.get("retirement_pools") or {}
     if sum(pools.values()) <= 0:
-        add("warn", "Nothing is ticked \"In the plan?\" on the Asset tab, so there is no money to simulate.",
+        add("warn", "Nothing is ticked \"In the plan?\" on the Assets tab, so there is no money to simulate.",
             "/asset.html")
     if not any("social security" in f"{r.get('name') or ''} {r.get('category') or ''}".lower() for r in summary.get("income") or []):
-        add("info", "No Social Security income is entered. The planner on the Income/Expense tab can add it.",
+        add("info", "No Social Security income is entered. The planner on the Income & Expenses tab can add it.",
             "/expense.html")
     if not _truthy_assumption(a, "apply_drawdown_tax"):
         add("info", "\"Apply drawdown tax\" is off, so withdrawals are modeled with no income tax.",

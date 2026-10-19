@@ -86,7 +86,7 @@ def _render_monte_carlo_page() -> str:
   <div class="tile"><div class="label">Total tax over horizon (median path)</div><div class="value">{_money(result.get('yearly_tax_total', 0.0))}</div></div>
 """ if tax_on else ""
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
-    # Real estate equity opted in on the Real Estate Analysis tab
+    # Real estate equity opted in on the Real Estate tab
     # (real_estate.include_in_monte_carlo) is a 4th pool the simulation
     # actually draws from -- run_simulation/run_historical_bootstrap_
     # simulation/run_historical_stress_test all ignore `starting_balance`
@@ -142,13 +142,13 @@ def _render_monte_carlo_page() -> str:
     )
 
     real_estate_pool_clause = (
-        f' Plus {_money(re_pool)} of real estate equity opted in on the Real Estate Analysis tab, added as a '
+        f' Plus {_money(re_pool)} of real estate equity opted in on the Real Estate tab, added as a '
         f'4th, untaxed pool drawn only once those three are exhausted -- {_money(total_simulated_balance)} '
         f'simulated in total (the Starting balance tile above).'
     ) if re_pool else ""
     excluded_from_net_liquid = (
-        "insurance cash value and any other unchecked Asset-tab row" if re_pool
-        else "real estate equity, insurance cash value, and any unchecked Asset-tab row"
+        "insurance cash value and any other unchecked Assets-tab row" if re_pool
+        else "real estate equity, insurance cash value, and any unchecked Assets-tab row"
     )
     withdrawal_order_suffix = ", then the opted-in real estate pool last of all" if re_pool else ""
 
@@ -203,7 +203,7 @@ def _render_monte_carlo_page() -> str:
 <div class="tiles">{pool_tiles}
   <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
 {tax_tiles}</div>
-<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Asset-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Asset tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income/Expense tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
+<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Assets-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Assets tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income &amp; Expenses tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
 </details>
 <h2>What could go wrong?</h2>
 <p class="muted small">Three ways to test your plan against bad luck: markets replaying their real history, real recessions starting the day your plan does, and what changes if you sell a property.</p>
@@ -423,7 +423,7 @@ def _historical_stress_test_html(result: dict) -> str:
     return f"""
 <h3 class="sub">What if markets fall? Historical recession stress test</h3>
 {personal_lines_html}
-<p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income/Expense tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's Expense- and Income-tab totals on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. Two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption (listed first, so every other column reads against it), and the S&amp;P 500's actual compound average over the most recent {sp500_look['years']} years ({sp500_look['first_year']}-{sp500_look['last_year']}) -- as many years as your plan horizon, instead of an all-time average.</p>
+<p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income &amp; Expenses tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's expense and income totals (Income &amp; Expenses tab) on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. Two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption (listed first, so every other column reads against it), and the S&amp;P 500's actual compound average over the most recent {sp500_look['years']} years ({sp500_look['first_year']}-{sp500_look['last_year']}) -- as many years as your plan horizon, instead of an all-time average.</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Scenario</th><th>Depleted?</th><th>Year depleted</th><th class="num">Ending balance</th></tr></thead>
@@ -497,7 +497,7 @@ def _sensitivity_html(sensitivity: dict) -> str:
     return f"""
 <h2 id="levers">What moves your plan most</h2>
 {lead_html}
-<p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every Expense/Income-tab line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
+<p class="muted">Same simulation as above, run again for each row below with exactly one input nudged up and down (everything else held at this plan's own assumptions) -- sorted by how far Success rate swings, biggest first. This plan's baseline Success rate is <strong>{baseline_pct:.0f}%</strong> (the dark tick on each bar); green means that direction helped, amber means it hurt. "Expense/income level" scales every expense and income line item by the same percentage, holding the Assumptions form's own numbers fixed.</p>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Lever</th><th>Swing tested</th><th>Low vs. high success rate</th><th class="num">Low</th><th class="num">High</th></tr></thead>

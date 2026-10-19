@@ -4,7 +4,7 @@ own Required Minimum Distribution from their own balance and birth year
 rather than treating every 401k/IRA as one pool owned by one person.
 
 Two places an owner lives, mirroring the two ways an account enters the
-plan: an Asset-tab row carries its own `assets.owner` column (edited like
+plan: an Assets-tab row carries its own `assets.owner` column (edited like
 any other line-item field), while a live Plaid investment account that
 ISN'T tied to an Asset row has no row to hang an owner on, so it gets an
 entry in the small `account_owners` table here instead.
@@ -99,7 +99,7 @@ def normalize_owner(raw) -> str:
 
 def set_account_owner(account_id: str, owner: str) -> None:
     """Records which person a live linked account (one NOT tied to an
-    Asset-tab row) belongs to. Assigning '' (Unassigned) removes the row
+    Assets-tab row) belongs to. Assigning '' (Unassigned) removes the row
     entirely, so the table only ever holds real assignments."""
     account_id = (account_id or "").strip()
     if not account_id:

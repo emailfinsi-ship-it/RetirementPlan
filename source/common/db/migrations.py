@@ -84,7 +84,7 @@ def _migrate_schema(conn) -> None:
     if existing_nws and "real_estate_value_total" not in existing_nws:
         # Nullable on purpose: snapshots from before this column existed
         # have no recorded property value, and a made-up backfill would
-        # draw a false history on the Asset tab's real-estate line.
+        # draw a false history on the Assets tab's real-estate line.
         conn.execute("ALTER TABLE net_worth_snapshots ADD COLUMN real_estate_value_total REAL")
     existing_pi = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_items)").fetchall()}
     if "credential_profile" not in existing_pi:

@@ -47,7 +47,7 @@ def deterministic_drawdown_schedule(
     time for `horizon_years` (defaults to the plan's own
     plan_horizon_years assumption, same as every random simulation),
     applying that year's expected_return, then withdrawing the year's
-    net need (Income/Expense tab totals, same as every other simulation
+    net need (Income & Expenses tab totals, same as every other simulation
     method) via the shared RMD/withdrawal-order/tax engine.
 
     Returns {"years": [...], "rows": [...], "expected_return": float,

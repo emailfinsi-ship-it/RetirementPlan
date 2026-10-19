@@ -260,7 +260,7 @@ def prune_plaid_holdings(*, item_key: str, keep_pairs: set) -> int:
     overstating that account on the Linked Positions tab (its own
     total, and its by-institution/type/sector/industry charts) and the
     standalone portfolio-positions export -- though never Net Worth/
-    Total Asset on the Summary or Asset tabs, since those use each
+    Total Asset on the Summary or Assets tabs, since those use each
     account's own live current_balance, not a sum of its holdings."""
     with connect() as conn:
         rows = conn.execute(

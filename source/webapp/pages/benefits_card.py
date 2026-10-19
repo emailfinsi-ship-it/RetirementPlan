@@ -1,4 +1,4 @@
-"""The Income/Expense tab's "Social Security & Medicare planner" card --
+"""The Income & Expenses tab's "Social Security & Medicare planner" card --
 inputs, a claiming-age comparison per person, and the Medicare/IRMAA tier
 for the income entered. Calculations live in source.reporting.benefits."""
 

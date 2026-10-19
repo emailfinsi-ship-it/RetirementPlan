@@ -19,7 +19,7 @@ from source.webapp.render_helpers.formatting import (
 
 
 def _link_select_html(row: dict, linkable: list[dict], *, section: str = "assets") -> str:
-    """The "Linked account" cell for one Asset-tab or Real Estate Analysis
+    """The "Linked account" cell for one Assets-tab or Real Estate
     row: a dropdown of every currently-connected Plaid account,
     pre-selected to whichever one (if any) this line item is linked to.
     Picking one wires this row to that account's live balance (see
@@ -115,7 +115,7 @@ def _editable_select_cell(
 ) -> str:
     """A <select> that saves via the same shared updateField() JS helper
     (and /api/line-item/update endpoint) as _editable_text_cell/
-    _editable_number_cell above -- e.g. the Asset tab's Tax treatment
+    _editable_number_cell above -- e.g. the Assets tab's Tax treatment
     column. `options` is (stored_value, label) pairs; a `value` that
     doesn't match any option's stored_value (blank/legacy row) renders
     with nothing selected, so the browser shows the first option --

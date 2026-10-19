@@ -27,7 +27,7 @@ def _render_setup_page() -> str:
         profile_label = secrets_store.PROFILE_LABELS.get(profile, profile)
         products = {p.strip() for p in (item["products"] or "").split(",") if p.strip()}
         # An Item only ever gets the products it was originally linked
-        # with -- one linked before Real Expenditure existed (or linked
+        # with -- one linked before Actual Spending existed (or linked
         # without explicitly requesting "transactions") needs this
         # one-time re-consent via Plaid "update mode" Link before it has
         # anything to sync there; see source.collector.link_item.
@@ -143,7 +143,7 @@ def _render_setup_page() -> str:
 <thead><tr><th>Item key</th><th>Institution</th><th>Products</th><th>Env</th><th>Plaid app</th><th>Last synced</th><th></th></tr></thead>
 <tbody>{items_rows_html}</tbody>
 </table>
-<p class="muted">"Sync now" (pulls current balances/holdings/transactions from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, <a href="/linked-positions.html">Linked Positions</a>, and <a href="/real-expenditure.html">Real Expenditure</a> pages now, next to the data it actually refreshes. An Item's "Enable Transactions" button above (shown until its Products column already includes "transactions") opens Plaid Link once more so it can start syncing spend history for <a href="/real-expenditure.html">Real Expenditure</a> -- no need to unlink and relink it from scratch.</p>
+<p class="muted">"Sync now" (pulls current balances/holdings/transactions from Plaid) has moved -- it's on the <a href="/summary.html">Summary</a>, <a href="/linked-accounts.html">Linked Accounts</a>, <a href="/linked-positions.html">Linked Positions</a>, and <a href="/real-expenditure.html">Actual Spending</a> pages now, next to the data it actually refreshes. An Item's "Enable Transactions" button above (shown until its Products column already includes "transactions") opens Plaid Link once more so it can start syncing spend history for <a href="/real-expenditure.html">Actual Spending</a> -- no need to unlink and relink it from scratch.</p>
 </details>
 
 {security_html}
@@ -413,7 +413,7 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
 
     Kind (Auto-detect/Income/Expense) is this rule's own opinion on
     whether everything it matches is real income or a real expense on
-    the Real Expenditure/Budget vs Actual pages (plaid_categorize.
+    the Actual Spending/Budget vs Actual pages (plaid_categorize.
     is_real_income's own income_kind_override) -- saving it alone does
     NOT touch any transaction (same as Save never force-overwrites a
     hand-edited category); the card's single "Apply all rules" button does, via
@@ -484,7 +484,7 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Category rules</h2>
-<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Real Expenditure</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Real Expenditure's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time. A "Merchant/name keyword" rule's Match mode picks how its Value is compared against the transaction's own merchant/description text: Contains (a plain substring, the original behavior), Starts with, Ends with, or an advanced Regex pattern. Kind is this rule's own say on whether everything it matches counts as real income or a real expense on Real Expenditure/Budget vs Actual (leave it "Auto-detect" to let the usual heuristic decide) -- saving a rule alone never overwrites a transaction you've already categorized by hand; click <strong>Apply all rules</strong> (above the table) to force every saved rule (category AND kind) onto all matching transactions at once, hand-edited ones included. Save any edited rows first -- only saved rules are applied.</p>
+<p class="muted">Every synced transaction's starting Category (on the <a href="/real-expenditure.html">Actual Spending</a> tab) comes from Plaid's own classification, rolled up into a short list of broad buckets by this program's built-in rules (see the reference table below). A rule you add here always wins over the matching built-in one, and applies immediately to every transaction that hasn't been individually re-typed by hand (a category set via Actual Spending's own bulk bar is never overwritten by either). This is separate from that per-transaction bulk-classify bar -- these rules change the *default*, going forward and retroactively, rather than one transaction at a time. A "Merchant/name keyword" rule's Match mode picks how its Value is compared against the transaction's own merchant/description text: Contains (a plain substring, the original behavior), Starts with, Ends with, or an advanced Regex pattern. Kind is this rule's own say on whether everything it matches counts as real income or a real expense on Actual Spending/Budget vs Actual (leave it "Auto-detect" to let the usual heuristic decide) -- saving a rule alone never overwrites a transaction you've already categorized by hand; click <strong>Apply all rules</strong> (above the table) to force every saved rule (category AND kind) onto all matching transactions at once, hand-edited ones included. Save any edited rows first -- only saved rules are applied.</p>
 <datalist id="category-rule-categories">{category_options_html}</datalist>
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/category-rule/save', {{

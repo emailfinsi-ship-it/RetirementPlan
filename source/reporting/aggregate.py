@@ -17,7 +17,7 @@ from source.common import db, linked_data
 # Monte Carlo simulation's three pools it belongs to (tax_deferred /
 # roth / taxable -- see source.reporting.monte_carlo's module
 # docstring). Stored explicitly per row (assets.tax_treatment) once the
-# user sets it on the Asset tab; a row that hasn't been touched yet
+# user sets it on the Assets tab; a row that hasn't been touched yet
 # ('' in storage) falls back to this category-based guess instead of
 # silently being treated as $0/uncategorized, so every dollar included
 # in the simulation (row.include_in_monte_carlo) always lands in
@@ -80,7 +80,7 @@ def real_estate_equity(row: dict, *, loan_balance: float | None = None) -> float
 
 def real_estate_value(row: dict) -> float:
     """Your share of a property's market value (current_value x ownership
-    %), before any loan -- the "Real estate value" the Asset tab charts over
+    %), before any loan -- the "Real estate value" the Assets tab charts over
     time, as opposed to real_estate_equity above (value less loan)."""
     share = (row.get("ownership_pct") or 100.0) / 100.0
     return (row.get("current_value") or 0.0) * share
@@ -101,7 +101,7 @@ def effective_loan_balance(row: dict, live_by_account_id: dict) -> float:
 def effective_balance(row: dict, live_by_account_id: dict) -> float:
     """A line item's balance for totals: its live Plaid balance when it's
     linked to a still-connected account (kept in sync automatically --
-    see the Asset tab's "Linked account" column), otherwise whatever was
+    see the Assets tab's "Linked account" column), otherwise whatever was
     typed in by hand. A linked liability row always comes back as a
     positive amount owed regardless of how Plaid signs the underlying
     account (credit/loan balances come back negative from
@@ -144,9 +144,9 @@ def row_bucket_amounts(row: dict, live_by_account_id: dict, splits_by_account: d
 def category_subtotals(rows: list[dict], live_by_account_id: dict) -> list[tuple[str, float]]:
     """Per-category subtotals (effective balance -- live Plaid balance
     when linked, otherwise the typed-in figure) for a list of asset or
-    liability line items, in first-seen order. Shared by the Asset tab's
+    liability line items, in first-seen order. Shared by the Assets tab's
     own per-category tables and build_summary()'s asset_category_subtotals
-    below, so the Asset tab and the Summary tab can never show two
+    below, so the Assets tab and the Summary tab can never show two
     different numbers for the same category."""
     order: list[str] = []
     totals: dict[str, float] = {}
@@ -233,7 +233,7 @@ def capture_net_worth_snapshot(summary: dict | None = None) -> None:
 
 
 def capture_asset_balance_snapshots(summary: dict | None = None) -> None:
-    """Records today's effective balance for every Asset-tab asset row (not
+    """Records today's effective balance for every Assets-tab asset row (not
     liabilities) into source.common.db.asset_balance_snapshots -- called
     from capture_net_worth_snapshot, so every place that already captures
     a net-worth point (startup, after a Plaid sync, the once-a-day
@@ -251,7 +251,7 @@ def capture_asset_balance_snapshots(summary: dict | None = None) -> None:
 
 
 def asset_balance_history(assets: list[dict]) -> list[dict]:
-    """Each current Asset-tab asset row's balance-over-time, for the net-
+    """Each current Assets-tab asset row's balance-over-time, for the net-
     worth chart's "plot individual assets" picker: [{"id", "name",
     "category", "points": [(date, balance), ...]}], largest current
     balance first. A row's own daily snapshots are authoritative; days
@@ -369,7 +369,7 @@ def build_summary() -> dict:
     # parts"), an account with 1+ splits recorded has its lump balance
     # replaced below by those named, individually-bucketed pieces
     # instead, whether that account is still unlinked or is now linked to
-    # a manual Asset-tab row (row_bucket_amounts above handles the
+    # a manual Assets-tab row (row_bucket_amounts above handles the
     # latter -- see retirement_liquid_total/tax_deferred_total/etc.
     # below). Computed once, up front, since both retirement_rows'
     # own totals and the Drawdown-only unlinked-account totals further
@@ -390,7 +390,7 @@ def build_summary() -> dict:
     # "In the plan?" checkbox (assets.include_in_monte_carlo), rather
     # than a category-list match. Uses the same effective_balance() as
     # manual_asset_total (live Plaid balance when linked, otherwise the
-    # typed-in figure) so a 401k or brokerage row linked on the Asset tab
+    # typed-in figure) so a 401k or brokerage row linked on the Assets tab
     # is never stale here either.
     retirement_rows = [
         a for a in assets
@@ -445,11 +445,11 @@ def build_summary() -> dict:
 
     net_worth = manual_asset_total + linked_asset_total - liability_total + re_equity_total
 
-    # Same per-category breakdown the Asset tab's own top Summary table
+    # Same per-category breakdown the Assets tab's own top Summary table
     # shows (401k, Liquid, Insurance, whatever else exists) -- exposed
-    # here so the Summary page can show the *actual* Asset-tab balances
+    # here so the Summary page can show the *actual* Assets-tab balances
     # instead of a single lumped "manual asset total" figure that didn't
-    # match what the Asset tab itself displays.
+    # match what the Assets tab itself displays.
     asset_only_rows = [a for a in assets if a["kind"] == "asset"]
     asset_category_subtotals = category_subtotals(asset_only_rows, live_by_account_id)
     net_liquid_asset = retirement_liquid_total - liability_total
@@ -464,7 +464,7 @@ def build_summary() -> dict:
     # deliberately computed OUTSIDE _pools_net_of_liabilities -- a
     # property's own mortgage is already netted into its equity by
     # real_estate_equity()/effective_loan_balance() above, so it has
-    # nothing to do with the Asset tab's separate liability_total. Always
+    # nothing to do with the Assets tab's separate liability_total. Always
     # present (0.0 when nothing is opted in) so every caller can treat
     # retirement_pools as a fixed four-key shape rather than special-
     # casing whether "real_estate" exists.
@@ -475,17 +475,17 @@ def build_summary() -> dict:
 
     # Drawdown Planning tab support: "resources by tax criteria" for
     # every dollar this program knows about, not just the manual
-    # Asset-tab rows checked "In the plan?" that retirement_pools
+    # Assets-tab rows checked "In the plan?" that retirement_pools
     # above is built from. A live Plaid investment account (Fidelity's
     # BrokerageLink, a 401(k), a Roth IRA, ...) that's never been added
-    # as its own Asset-tab row -- and so was never part of
+    # as its own Assets-tab row -- and so was never part of
     # retirement_rows/retirement_pools at all, only ever counted once
     # inside the single lumped linked_asset_total figure above -- is
     # surfaced here on its own, bucketed by its own Plaid subtype
     # (source.common.linked_data.detected_tax_treatment), so Roth/IRA/
     # 401k money at an institution like Fidelity shows up correctly
     # without requiring the extra manual step of linking it to an
-    # Asset-tab row first. Excludes anything in linked_account_ids (an
+    # Assets-tab row first. Excludes anything in linked_account_ids (an
     # account already linked to a manual asset/real-estate row) -- that
     # money is already in retirement_pools/re_equity_total via its own
     # row, so including it again here would double-count it, the exact
@@ -494,10 +494,10 @@ def build_summary() -> dict:
         v for account_id, v in live_by_account_id.items()
         if account_id not in linked_account_ids and (v.get("type") or "").strip().lower() == "investment"
     ]
-    # Every live investment account, linked to an Asset-tab row or not --
+    # Every live investment account, linked to an Assets-tab row or not --
     # what the Drawdown Planning tab's own "Split a linked account across
     # tax buckets" card offers in its account picker, so a 401k that's
-    # already on the Asset tab (row_bucket_amounts above handles applying
+    # already on the Assets tab (row_bucket_amounts above handles applying
     # its splits) can still be split, not just one that isn't yet.
     splittable_investment_accounts = [
         v for v in live_by_account_id.values() if (v.get("type") or "").strip().lower() == "investment"
@@ -505,7 +505,7 @@ def build_summary() -> dict:
     split_unlinked_account_ids = {acc["account_id"] for acc in unlinked_investment_accounts} & splits_by_account.keys()
 
     # A quick reconciliation note per split account (whether it's linked
-    # to an Asset-tab row or not) -- the splits are manually typed, so
+    # to an Assets-tab row or not) -- the splits are manually typed, so
     # they can drift from the account's own live balance (new
     # contributions since the split was last set, a typo, ...) --
     # surfaced so the Drawdown Planning tab can flag it rather than
@@ -523,7 +523,7 @@ def build_summary() -> dict:
                 "split_total": split_total,
             })
 
-    # Owner of each live account that ISN'T tied to an Asset-tab row
+    # Owner of each live account that ISN'T tied to an Assets-tab row
     # (source.common.db.owners) -- the Asset row's own owner column
     # covers the linked case.
     account_owners = db.get_account_owners()
@@ -579,7 +579,7 @@ def build_summary() -> dict:
                 drawdown_sources.append({
                     "name": f'{row_name} -- {split["name"]}',
                     "institution": (live or {}).get("institution", ""),
-                    "origin": "Linked account (Asset tab, manually split)",
+                    "origin": "Linked account (Assets tab, manually split)",
                     "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
                     "balance": split["amount"] or 0.0,
                     "owner": db.normalize_owner(a.get("owner")),
@@ -589,7 +589,7 @@ def build_summary() -> dict:
             drawdown_sources.append({
                 "name": row_name,
                 "institution": (live or {}).get("institution", ""),
-                "origin": "Linked account (Asset tab)" if live else "Manual entry (Asset tab)",
+                "origin": "Linked account (Assets tab)" if live else "Manual entry (Assets tab)",
                 "tax_bucket": effective_tax_treatment(a, live_by_account_id),
                 "balance": effective_balance(a, live_by_account_id),
                 "owner": db.normalize_owner(a.get("owner")),
@@ -601,7 +601,7 @@ def build_summary() -> dict:
                 drawdown_sources.append({
                     "name": f'{acc["label"]} -- {split["name"]}',
                     "institution": acc["institution"],
-                    "origin": "Linked account (not on Asset tab, manually split)",
+                    "origin": "Linked account (not on Assets tab, manually split)",
                     "tax_bucket": split["tax_treatment"] if split["tax_treatment"] in _VALID_TAX_TREATMENTS else "taxable",
                     "balance": split["amount"] or 0.0,
                     "owner": db.normalize_owner(account_owners.get(acc["account_id"])),
@@ -611,7 +611,7 @@ def build_summary() -> dict:
             drawdown_sources.append({
                 "name": acc["label"],
                 "institution": acc["institution"],
-                "origin": "Linked account (not on Asset tab)",
+                "origin": "Linked account (not on Assets tab)",
                 "tax_bucket": acc.get("detected_tax_treatment") or "taxable",
                 "balance": acc["balance"],
                 "owner": db.normalize_owner(account_owners.get(acc["account_id"])),
@@ -668,7 +668,7 @@ def build_summary() -> dict:
     # need" tile -- next_year is always this_year + 1, deliberately NOT a
     # second read of assumptions.current_year, so nothing here can drift
     # out of step with "this year" as computed above. Every other page
-    # (Monte Carlo, Income/Expense) keeps using this_year/current_year as
+    # (Monte Carlo, Income & Expenses) keeps using this_year/current_year as
     # "now" -- this is purely an additional number, not a redefinition.
     next_year = this_year + 1
     next_year_need = annual_expense_need(expenses, next_year, inflation_rate)
@@ -717,7 +717,7 @@ def build_summary() -> dict:
         "drawdown_unlinked_total": sum(drawdown_unlinked_totals.values()),
         # The Drawdown Planning tab's own "Split a linked account across
         # tax buckets" card: every live investment account -- linked to
-        # an Asset-tab row or not -- so the user can pick one to split,
+        # an Assets-tab row or not -- so the user can pick one to split,
         # every split recorded so far (regardless of whether its account
         # is still live -- see the comment above splits_by_account), and
         # any account whose splits no longer add up to its own live

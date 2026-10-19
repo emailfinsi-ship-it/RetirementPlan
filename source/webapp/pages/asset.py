@@ -1,4 +1,4 @@
-"""The Asset tab: editable per-category asset tables plus the
+"""The Assets tab: editable per-category asset tables plus the
 linked-institution balance sync that keeps them current."""
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _render_asset_page() -> str:
     asset_category_groups = _group_by_category(asset_rows)
     # Sourced from aggregate.category_subtotals() -- the same helper
     # build_summary() uses for the Summary tab's own asset breakdown --
-    # so the Asset tab's top Summary table, its per-category detail
+    # so the Assets tab's top Summary table, its per-category detail
     # tables below, and the Summary tab can never disagree with each
     # other.
     asset_category_subtotals = category_subtotals(asset_rows, live_by_account_id)
@@ -186,7 +186,7 @@ def _render_asset_page() -> str:
 
 <p class="muted">Your live linked account balances (read-only, pulled directly from Plaid) are on their own <a href="/linked-accounts.html">Linked Accounts</a> tab; investment holdings are on <a href="/linked-positions.html">Linked Positions</a>.</p>
 """
-    return _shell(title="Asset", active="asset.html", body=body)
+    return _shell(title="Assets & Debts", active="asset.html", body=body)
 
 def _group_by_category(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     """Groups line items by their category, preserving the order each
@@ -322,7 +322,7 @@ def _editable_category_cell(item_id: int, category: str) -> str:
 
 
 def _real_estate_summary_line_html(real_estate_total: float, count: int) -> str:
-    """A single collapsed line on the Asset tab for real estate --
+    """A single collapsed line on the Assets tab for real estate --
     equity total and property count, linking to the Real Estate
     Analysis tab -- instead of a second full table that repeated every
     property's name/value/loan/equity right below it (that table's own
@@ -331,14 +331,14 @@ def _real_estate_summary_line_html(real_estate_total: float, count: int) -> str:
     though the underlying data was never duplicated in storage -- see
     that tab's own docstring). real_estate_total is computed by the
     caller (_render_asset_page) with the same real_estate_equity() +
-    effective_loan_balance() combination the Real Estate Analysis tab
+    effective_loan_balance() combination the Real Estate tab
     itself uses, so this figure can never drift from that tab's own
     subtotal."""
     if count == 0:
-        return '<p class="muted">Real estate: no properties yet -- add one on the <a href="/real-estate.html">Real Estate Analysis</a> tab.</p>'
+        return '<p class="muted">Real estate: no properties yet -- add one on the <a href="/real-estate.html">Real Estate</a> tab.</p>'
     plural = "property" if count == 1 else "properties"
     return (
         f'<p class="status-line">Real estate equity: <strong>{_money(real_estate_total)}</strong> '
-        f'across {count} {plural} -- see <a href="/real-estate.html">Real Estate Analysis</a> for detail.</p>'
+        f'across {count} {plural} -- see <a href="/real-estate.html">Real Estate</a> for detail.</p>'
     )
 

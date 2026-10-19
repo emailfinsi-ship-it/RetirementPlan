@@ -1,7 +1,7 @@
 """The Drawdown Planning tab: "resources by tax criteria" -- every
-dollar this program knows about (manual Asset-tab rows, live-linked
+dollar this program knows about (manual Assets-tab rows, live-linked
 Plaid investment accounts whether or not they've been added to the
-Asset tab, and any opted-in real estate equity), bucketed into
+Assets tab, and any opted-in real estate equity), bucketed into
 Taxable/Tax-deferred/Roth/Real-estate, plus a deterministic year-by-year
 projection of the standard tax-efficient withdrawal order (Taxable,
 then Tax-deferred, then Roth, then Real estate last), reusing the exact
@@ -64,10 +64,10 @@ def _bucket_label(bucket: str) -> str:
 
 
 def _owner_cell_html(source: dict) -> str:
-    """The Owner <select> for one "Resources by source" row. An Asset-tab
+    """The Owner <select> for one "Resources by source" row. An Assets-tab
     row (or a manually split piece of one) saves through the shared
     updateField() helper onto that row's own owner column; a live account
-    that isn't on the Asset tab saves through setAccountOwner() onto
+    that isn't on the Assets tab saves through setAccountOwner() onto
     db.set_account_owner instead. Real estate has no owner (equity isn't
     subject to RMDs) -- shown as "--"."""
     target = source.get("owner_target")
@@ -86,7 +86,7 @@ def _owner_cell_html(source: dict) -> str:
 
 def _sources_table_html(sources: list[dict]) -> str:
     if not sources:
-        return '<p class="muted">No retirement/liquid resources yet -- check "In the plan?" on an Asset-tab row, link a Plaid investment account, or opt a property in on the Real Estate Analysis tab.</p>'
+        return '<p class="muted">No retirement/liquid resources yet -- check "In the plan?" on an Assets-tab row, link a Plaid investment account, or opt a property in on the Real Estate tab.</p>'
     rows_html = "".join(
         f'<tr><td>{html.escape(s["name"])}</td>'
         f'<td>{html.escape(s["institution"]) if s["institution"] else "--"}</td>'
@@ -123,12 +123,12 @@ def _account_splits_card_html(
     each piece by hand; source.reporting.aggregate.build_summary then
     replaces that account's single lumped entry with these split pieces
     instead, everywhere the Drawdown Planning tab uses them -- and, if
-    that account is also linked to a manual Asset-tab row, in the Monte
+    that account is also linked to a manual Assets-tab row, in the Monte
     Carlo simulation's own starting pools too (source.reporting.aggregate.
     row_bucket_amounts).
 
     Offers every live investment account (splittable_investment_accounts),
-    whether or not it's been added to the Asset tab -- the two cases only
+    whether or not it's been added to the Assets tab -- the two cases only
     differ in which of build_summary()'s totals the split ends up
     feeding."""
     mismatch_by_account = {m["account_id"]: m for m in account_split_mismatches}
@@ -215,7 +215,7 @@ def _rmd_by_person_card_html(summary: dict, assumptions: dict) -> str:
     the wife's birth year (the plan owner's own lives on the Monte Carlo
     tab's Assumptions, same as before). Which account belongs to whom is
     set in the Owner column of "Resources by source" above (or on the
-    Asset tab). Surfaces the two things that would otherwise silently
+    Assets tab). Surfaces the two things that would otherwise silently
     skew the numbers: Tax-deferred money still Unassigned (modeled under
     the plan owner's birth year until assigned), and spouse-owned money
     with no birth year to compute her RMD from."""
@@ -334,7 +334,7 @@ def _this_years_plan_html(rows: list[dict]) -> str:
     parts = _withdrawal_parts(r)
     tax_clause = f" (that total already includes {_money(r['tax'])} of estimated tax on the withdrawal itself)" if r["tax"] > 0.01 else ""
     if not parts:
-        plan_text = "Nothing needs to come out of the portfolio this year -- Income-tab rows are assumed to cover spending on their own."
+        plan_text = "Nothing needs to come out of the portfolio this year -- Income rows (Income &amp; Expenses tab) are assumed to cover spending on their own."
     else:
         plan_text = "Withdraw " + ", plus ".join(parts) + f".{tax_clause}"
     return f"""
@@ -471,8 +471,8 @@ def _render_drawdown_planning_page() -> str:
 
     unlinked_note = (
         f' <span class="muted">Includes {_money(s["drawdown_unlinked_total"])} from linked accounts '
-        'not yet added to the Asset tab, auto-classified from each account\'s own Plaid subtype '
-        '(Roth/IRA/401k/brokerage/...) -- add one to the Asset tab and set its Tax treatment there '
+        'not yet added to the Assets tab, auto-classified from each account\'s own Plaid subtype '
+        '(Roth/IRA/401k/brokerage/...) -- add one to the Assets tab and set its Tax treatment there '
         'if you\'d rather classify it by hand.</span>'
         if s["drawdown_unlinked_total"] else ""
     )
@@ -527,11 +527,11 @@ def _render_drawdown_planning_page() -> str:
     )
 
     body = f"""
-<h2 style="margin-top:0">Drawdown planning</h2>
+<h2 style="margin-top:0">Drawdown Planning</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Every retirement/liquid resource this program knows about, classified by tax treatment -- Taxable
 (brokerage, taxed on gains as you withdraw), Tax-deferred (401k/Traditional IRA, taxed as ordinary income and
 subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never forces an RMD), and Real estate equity
-opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
+opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
 <div class="tiles">{tiles}</div>
 <details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
 <details class="how-it-works" id="resources-by-source"><summary>Show table: resources by source ({len(sources)})</summary>

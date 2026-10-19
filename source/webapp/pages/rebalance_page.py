@@ -182,12 +182,12 @@ def _grouping_html(positions: list[dict], overrides: dict) -> str:
 def _render_rebalance_page() -> str:
     # Skip holdings worth under a dollar: an account that shows as $0 has nothing to rebalance.
     positions = [p for p in linked_data.read_linked_portfolio_positions() if (p.get("market_value") or 0) >= 1]
-    head = ('<h2 style="margin-top:0">Risk &amp; suggestions</h2>'
+    head = ('<h2 style="margin-top:0">Risk &amp; Suggestions</h2>'
             '<p class="muted">Pick how much risk you are comfortable with. Below, each account tells you what to do, '
             'if anything, to match it. These are suggestions only &mdash; this app never buys or sells for you.</p>')
     if not positions:
         body = head + '<div class="card"><p class="muted" style="margin:0">No linked investment accounts yet. Connect one on the Setup tab and your suggestions will show up here.</p></div>'
-        return _shell(title="Risk & suggestions", active="rebalance.html", body=body)
+        return _shell(title="Risk & Suggestions", active="rebalance.html", body=body)
     age = _age(db.get_assumptions())
     saved = rebalance.get_target()
     risk = rebalance.get_risk() if saved else ""
@@ -226,4 +226,4 @@ def _render_rebalance_page() -> str:
 {cards}
 {_grouping_html(positions, overrides)}
 <p class="muted small">Taxable gains shown are estimates from your cost basis.</p>"""
-    return _shell(title="Risk & suggestions", active="rebalance.html", body=body)
+    return _shell(title="Risk & Suggestions", active="rebalance.html", body=body)

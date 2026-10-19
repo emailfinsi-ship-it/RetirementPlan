@@ -85,7 +85,7 @@ class TestRebalanceCard(DashboardTestCase):
 
     def test_page_shows_per_account_advice(self):
         body = self._get("/rebalance.html").read().decode("utf-8")
-        self.assertIn("Risk &amp; suggestions", body)
+        self.assertIn("Risk &amp; Suggestions", body)
         self.assertIn("How much risk are you comfortable with?", body)
         self.assertIn("Your mix today", body)
         self.assertIn("Your mix by institution", body)

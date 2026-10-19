@@ -1,7 +1,7 @@
-"""The Budget vs Actual tab: compares the Income/Expense tab's own
+"""The Budget vs Actual tab: compares the Income &amp; Expenses tab's own
 assumptions (the annual, inflation-aware planning figures the Monte Carlo
 simulation itself draws on -- see source.reporting.monte_carlo.
-annual_expense_need/annual_income_need) against what Real Expenditure's
+annual_expense_need/annual_income_need) against what Actual Spending's
 synced Plaid transactions say actually happened.
 
 Deliberately a TOTALS-level comparison, not a category-by-category one:
@@ -30,7 +30,7 @@ from source.webapp.render_helpers import _money, _shell, _sync_now_button_html
 
 def _actual_expense_and_income_by_month(transactions: list[dict]) -> tuple[dict, dict]:
     """Splits every COUNTED transaction (excluded_from_expense already
-    left out, same as Real Expenditure's own totals) into two month-keyed
+    left out, same as Actual Spending's own totals) into two month-keyed
     dicts: actual spend and actual income (sign-flipped to a positive
     dollar amount -- Plaid's own convention has money in as negative).
 
@@ -111,7 +111,7 @@ def _render_budget_vs_actual_page() -> str:
     # Every month that has EITHER a transaction or falls in the current
     # year (so a just-started year with no spend yet still shows up,
     # rather than the table looking empty until the first sync) --
-    # capped to the trailing 12, same window Real Expenditure's own
+    # capped to the trailing 12, same window Actual Spending's own
     # monthly chart uses, so a person doesn't have to scroll years of
     # history to see the recent trend.
     today = date.today()
@@ -178,7 +178,7 @@ def _render_budget_vs_actual_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Budget vs Actual</h2>
-<p class="muted">Compares the <a href="/expense.html">Income/Expense</a> tab's own planning assumptions -- the same inflation-aware annual figures the plan's simulation draws its withdrawal need from -- against what <a href="/real-expenditure.html">Real Expenditure</a>'s synced transactions say actually happened. This is a TOTALS comparison, not category-by-category: an Expense-tab row's category (Fixed/Variable/...) and a transaction's category (Food/Travel/...) are two different taxonomies that were never meant to line up one-to-one.</p>
+<p class="muted">Compares the <a href="/expense.html">Income &amp; Expenses</a> tab's own planning assumptions -- the same inflation-aware annual figures the plan's simulation draws its withdrawal need from -- against what <a href="/real-expenditure.html">Actual Spending</a>'s synced transactions say actually happened. This is a TOTALS comparison, not category-by-category: an expense row's category (Fixed/Variable/...) and a transaction's category (Food/Travel/...) are two different taxonomies that were never meant to line up one-to-one.</p>
 {sync_html}
 {no_transactions_note}
 <div class="tiles">{tiles_html}</div>

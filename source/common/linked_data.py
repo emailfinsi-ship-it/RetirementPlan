@@ -32,7 +32,7 @@ def _is_liability_type(typ) -> bool:
 # account (confirmed in this program's own synced data: 'brokerage',
 # 'stock plan', 'roth', 'ira', '401k', 'crypto exchange' all actually
 # occur), so a linked account never has to sit at the category-based
-# ("401k"/"liquid") guess a brand-new, never-tagged manual Asset-tab row
+# ("401k"/"liquid") guess a brand-new, never-tagged manual Assets-tab row
 # falls back to. Deliberately keyed on Plaid's own subtype strings
 # (lowercase, exactly as Plaid/this database returns them -- see
 # plaid_accounts.subtype), never a guess from the account's display
@@ -97,7 +97,7 @@ def read_linked_account_balances() -> list:
             # which is wrong whenever Plaid's account-level name doesn't
             # happen to read like a bank name (e.g. "Individual Brokerage",
             # "401(k)", "Checking") -- see linkable_accounts() below, which
-            # already did this correctly for the Asset-tab picker.
+            # already did this correctly for the Assets-tab picker.
             "institution": item.get("institution_name") or "",
             "account_name": a["official_name"] or a["name"] or "",
             "last4": (a["mask"] or "")[-4:],
@@ -125,7 +125,7 @@ def read_linked_account_balances() -> list:
 
 
 def linkable_accounts() -> list:
-    """Plaid accounts shaped for the Asset tab's "linked account" picker
+    """Plaid accounts shaped for the Assets tab's "linked account" picker
     and for looking up a linked line item's live balance by account_id --
     read_linked_account_balances() above is display-only (no id); both
     functions pull the real institution name from the parent plaid_items
@@ -150,11 +150,11 @@ def linkable_accounts() -> list:
             # any (detected_tax_treatment above) -- exposed here, not
             # just on read_linked_account_balances(), so
             # source.reporting.aggregate.build_summary/
-            # effective_tax_treatment can auto-fill a linked Asset-tab
+            # effective_tax_treatment can auto-fill a linked Assets-tab
             # row's tax treatment from the very same live_by_account_id
             # map it already builds from this function, and so the
             # Drawdown Planning tab can bucket an investment account
-            # that was never manually added to the Asset tab at all.
+            # that was never manually added to the Assets tab at all.
             "type": a["type"] or "",
             "subtype": a["subtype"] or "",
             "detected_tax_treatment": detected_tax_treatment(a["subtype"]),

@@ -1,12 +1,12 @@
 """Donut and horizontal-bar chart renderers shared by every page that
 breaks a total down by category (Summary, Asset, Expense/Income, Linked
-Positions, Linked Accounts, Real Expenditure) -- see the dataviz skill
+Positions, Linked Accounts, Actual Spending) -- see the dataviz skill
 for the chart-form and color-assignment rules these follow (fixed
 categorical hue order, <=6 real slices + a folded "Other", click-to-
 filter wired through the shared handlePieSegClick() JS in shell.py's
 PAGE_SHELL). Every chart's segments carry the data-dim/data-slice-id/
 data-values click-to-filter contract, but only Linked Positions
-(applyPositionFilters), Real Expenditure (applyExpenditureFilters), and
+(applyPositionFilters), Actual Spending (applyExpenditureFilters), and
 Linked Accounts (applyAccountsFilters) currently have a table wired up
 to actually filter on click -- a click on Summary/Asset/Expense's own
 charts still highlights the clicked segment but has no table below it
@@ -200,7 +200,7 @@ def _line_chart_html(
     """A single-series trend line -- change-over-time, unlike the part-
     to-whole donut/bar charts above (dataviz skill: a trend belongs on
     one axis, read left-to-right, not ranked by magnitude). Currently
-    only the Asset tab's net-worth-over-time card uses this (source.
+    only the Assets tab's net-worth-over-time card uses this (source.
     common.db.net_worth_snapshots, one point per captured day -- see
     source.webapp.pages.asset._liquid_and_total_points).
 
@@ -642,7 +642,7 @@ def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, d
 
 
 # ---------------------------------------------------------------------------
-# Net worth explorer: the Asset tab's net-worth line plus a picker for
+# Net worth explorer: the Assets tab's net-worth line plus a picker for
 # plotting individual assets next to it.
 # ---------------------------------------------------------------------------
 
@@ -932,7 +932,7 @@ def _net_worth_explorer_html(
     liquid_points: list[tuple[str, float]], total_points: list[tuple[str, float]] | None,
     assets: list[dict], real_estate: list[dict], *, note: str = "",
 ) -> str:
-    """The Asset tab's one over-time chart. The headline line is Net Liquid
+    """The Assets tab's one over-time chart. The headline line is Net Liquid
     Asset by default; picking either real-estate line (value / equity)
     switches it to Total Asset (Net Liquid Asset + real estate equity,
     `total_points`) -- the same two figures the rollup table above sums.

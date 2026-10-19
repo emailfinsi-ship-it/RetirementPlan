@@ -352,7 +352,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
         )
     xs.finish_sheet(ws, tab_color="1BAF7A")
 
-    # ------------------------------------------------------ Real Estate Analysis
+    # ------------------------------------------------------ Real Estate
     ws = wb.create_sheet("Real Estate Analysis")
     re_rows = [
         (
@@ -392,7 +392,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
     # Linked Positions / Linked Accounts -- live Plaid data shown on the
     # dashboard's own Linked Positions page, but never previously part of
     # this export at all (the export only ever covered this program's own
-    # manually-entered line items, plus the Asset tab's already-netted
+    # manually-entered line items, plus the Assets tab's already-netted
     # live balance for a *linked* asset row -- the raw brokerage holdings
     # and account list behind those balances had no sheet of their own).
     positions = linked_data.read_linked_portfolio_positions()

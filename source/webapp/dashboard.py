@@ -7,7 +7,7 @@ this one deliberately doesn't import anything from that app. Port 8898,
 one below FamilyFinanceTracker's 8899, so both can run side by side.
 
 Tabs mirror the old workbook's own sheet names (Summary, Asset, Expense,
-Real Estate Analysis, Monte Carlo Simulation) since that's the layout the
+Real Estate, Monte Carlo Simulation) since that's the layout the
 user asked this program to keep. Unlike the retired FamilyFinanceTracker
 feature, every section here is a live, editable table backed by this
 program's own database (source.common.db) -- add a line item, edit or
@@ -528,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": ok})
             elif path == "/api/line-item/classify-linked-account":
                 # The Linked Accounts page's "Classify" action: creates a
-                # new Asset-tab line item for a not-yet-classified Plaid
+                # new Assets-tab line item for a not-yet-classified Plaid
                 # account and links it to it in the same call, instead of
                 # requiring the user to add a row by hand on the Asset
                 # tab first and then use that row's own "Linked account"
@@ -557,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "id": item_id})
             elif path == "/api/account-owner/set":
                 # Who owns a live linked account that isn't tied to an
-                # Asset-tab row (an Asset row's own owner goes through
+                # Assets-tab row (an Asset row's own owner goes through
                 # /api/line-item/update) -- see source.common.db.owners.
                 db.set_account_owner(payload.get("account_id") or "", payload.get("owner") or "")
                 self._send_json({"ok": True})
@@ -575,7 +575,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/benefits/claiming-analysis":
                 self._send_json({"ok": True, **benefits.analyze_claiming(build_summary(), str(payload.get("person") or "self"))})
             elif path == "/api/benefits/apply":
-                # Social Security & Medicare planner (Income/Expense tab):
+                # Social Security & Medicare planner (Income & Expenses tab):
                 # writes the saved planner inputs as ordinary rows.
                 result = benefits.apply_benefits_plan(db.get_assumptions())
                 self._send_json({"ok": True, **result})
@@ -863,7 +863,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = db.apply_all_category_rules()
                 self._send_json({"ok": True, **result})
             elif path == "/api/category-rule/apply-from-transaction":
-                # Real Expenditure page's per-row "Categorize similar"
+                # Actual Spending page's per-row "Categorize similar"
                 # link -- turns one transaction into a keyword rule from
                 # its own already-set category, without a person having
                 # to type a keyword by hand on Setup (see source.common.
@@ -939,7 +939,7 @@ class Handler(BaseHTTPRequestHandler):
                 # button -- an Item linked before this feature existed
                 # (or linked without explicitly requesting "transactions")
                 # needs this one-time re-consent (Plaid "update mode"
-                # Link) before Real Expenditure has anything to sync for
+                # Link) before Actual Spending has anything to sync for
                 # it; see source.collector.link_item.
                 # enable_transactions_for_item's own docstring for why a
                 # plain resync alone can't grant a new product. Same
@@ -951,7 +951,7 @@ class Handler(BaseHTTPRequestHandler):
                 plaid_link_item.enable_transactions_for_item(item_key)
                 self._send_json({"ok": True})
             elif path == "/api/classify-transaction-category":
-                # Backs the Real Expenditure page's multi-select "Set
+                # Backs the Actual Spending page's multi-select "Set
                 # category"/"Reset category" bar -- same tolerant-per-item
                 # pattern as /api/classify-industry above, just keyed by
                 # transaction_id instead of security_id. An empty/missing
@@ -970,7 +970,7 @@ class Handler(BaseHTTPRequestHandler):
                     count = db.clear_plaid_transaction_category_overrides(transaction_ids)
                 self._send_json({"ok": True, "count": count})
             elif path == "/api/classify-transaction-expense-flag":
-                # Backs the Real Expenditure page's "Exclude from total"/
+                # Backs the Actual Spending page's "Exclude from total"/
                 # "Include in total"/"Reset to automatic" buttons -- lets a
                 # person correct Plaid's own transfer/credit-card-payment
                 # auto-tagging (source.common.plaid_categorize.default_
@@ -989,7 +989,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError(f"Unknown action {action!r} -- expected 'exclude', 'include', or 'reset'.")
                 self._send_json({"ok": True, "count": count})
             elif path == "/api/classify-transaction-income-kind":
-                # Backs the Real Expenditure page's "Mark as income"/"Mark
+                # Backs the Actual Spending page's "Mark as income"/"Mark
                 # as expense"/"Auto-detect" buttons -- an explicit person-
                 # set override (plaid_categorize.is_real_income's own
                 # income_kind_override) that beats the text-based

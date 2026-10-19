@@ -1,4 +1,4 @@
-"""The Real Estate Analysis tab: property values, loan balances, and
+"""The Real Estate tab: property values, loan balances, and
 equity, in one editable table."""
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _render_real_estate_page() -> str:
         equity = real_estate_equity(r, loan_balance=loan_balance)
         is_linked = bool(r.get("linked_account_id")) and r["linked_account_id"] in live_by_account_id
         # A linked property's loan balance tracks Plaid automatically, same
-        # rule as an Asset-tab linked row -- only an unlinked property's
+        # rule as an Assets-tab linked row -- only an unlinked property's
         # Loan Balance becomes an editable input.
         loan_display = (
             loan_cell if is_linked
@@ -92,7 +92,7 @@ def _render_real_estate_page() -> str:
     sale_card = sale_settings_card_html(summary["real_estate_sale"], summary["assumptions"])
 
     body = f"""
-<h2 style="margin-top:0">Real estate analysis</h2>
+<h2 style="margin-top:0">Real Estate</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Link a property's loan to a live Plaid mortgage/HELOC account (its "Linked account" column) to have Loan Balance -- and equity everywhere else in the app -- track that balance automatically. Equity is your Ownership % share of (Current Value minus Loan Balance). Every field except Equity and the live-linked Loan Balance is editable right in the table below -- changes save immediately. Check "In the plan?" to have a property's equity added as a 4th pool the Monte Carlo / historical stress test simulations can draw from -- last, after your 401k/Roth/taxable pools are exhausted, and with no tax modeled on those draws (unlike the other three pools). Off by default: real estate equity has never been part of a plan's projected drawdown until you opt a property in here.</p></details>
 <div style="overflow-x:auto">
 <table class="sortable">
@@ -121,4 +121,4 @@ function refreshPropertyValue(id, btn) {{
 </div>
 {sale_card}
 """
-    return _shell(title="Real Estate Analysis", active="real-estate.html", body=body)
+    return _shell(title="Real Estate", active="real-estate.html", body=body)

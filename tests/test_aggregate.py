@@ -544,9 +544,9 @@ class TestDrawdownPlanning(TempConfigTestCase):
         s = build_summary()
         names = {src["name"]: src for src in s["drawdown_sources"]}
         self.assertEqual(names["Manual 401k"]["tax_bucket"], "tax_deferred")
-        self.assertEqual(names["Manual 401k"]["origin"], "Manual entry (Asset tab)")
+        self.assertEqual(names["Manual 401k"]["origin"], "Manual entry (Assets tab)")
         self.assertEqual(names["ROTH IRA"]["tax_bucket"], "roth")
-        self.assertEqual(names["ROTH IRA"]["origin"], "Linked account (not on Asset tab)")
+        self.assertEqual(names["ROTH IRA"]["origin"], "Linked account (not on Assets tab)")
         self.assertEqual(names["ROTH IRA"]["institution"], "Fidelity")
         self.assertEqual(names["Cabin"]["tax_bucket"], "real_estate")
         self.assertEqual(names["Cabin"]["balance"], 300_000)
@@ -576,7 +576,7 @@ class TestDrawdownPlanning(TempConfigTestCase):
         self.assertEqual(names["ROTH IRA -- Base Pay Traditional"]["tax_bucket"], "tax_deferred")
         self.assertEqual(names["ROTH IRA -- Base Pay Traditional"]["balance"], 70_000.0)
         self.assertEqual(names["ROTH IRA -- Roth In-Plan Conversion"]["tax_bucket"], "roth")
-        self.assertEqual(names["ROTH IRA -- Roth In-Plan Conversion"]["origin"], "Linked account (not on Asset tab, manually split)")
+        self.assertEqual(names["ROTH IRA -- Roth In-Plan Conversion"]["origin"], "Linked account (not on Assets tab, manually split)")
         self.assertEqual(s["account_split_mismatches"], [])
 
     def test_split_mismatch_with_the_live_balance_is_flagged(self):
@@ -618,7 +618,7 @@ class TestDrawdownPlanning(TempConfigTestCase):
         self.assertNotIn("401k", names)  # the lump row is gone, replaced by its own named pieces
         self.assertEqual(names["401k -- Base Pay Traditional"]["tax_bucket"], "tax_deferred")
         self.assertEqual(names["401k -- Roth In-Plan Conversion"]["tax_bucket"], "roth")
-        self.assertEqual(names["401k -- Roth In-Plan Conversion"]["origin"], "Linked account (Asset tab, manually split)")
+        self.assertEqual(names["401k -- Roth In-Plan Conversion"]["origin"], "Linked account (Assets tab, manually split)")
 
     def test_splittable_investment_accounts_includes_ones_already_linked_to_an_asset_row(self):
         # unlinked_investment_accounts (the Drawdown Planning tab's own

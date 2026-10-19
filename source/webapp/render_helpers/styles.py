@@ -468,7 +468,7 @@ PAGE_CSS = """
   /* Always in view: floats at the bottom of the window instead of sitting up by the tabs. */
   .bulk-bar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; margin: 0;
     box-shadow: var(--shadow-md); background: var(--surface); }
-  /* Income/Expense put the Delete button in each table's own header instead. */
+  /* Income & Expenses put the Delete button in each table's own header instead. */
   body:has(.li-card) .bulk-bar { display: none !important; }
   .li-del { display: none; }
   .li-del.on { display: inline-flex; }
@@ -489,7 +489,7 @@ PAGE_CSS = """
     cursor: pointer; line-height: 1.4; }
   .filter-bar > button { background: transparent; border: none; color: var(--brand-dark); text-decoration: underline;
     padding: 0; font-size: 12px; cursor: pointer; }
-  /* Real Expenditure's "Show: All / Income only / Expense only" quick
+  /* Actual Spending's "Show: All / Income only / Expense only" quick
      filter -- a plain toggle-button row (not chart-driven, so it isn't
      a .filter-chip), the active one filled in brand color same as a
      selected chart segment reads. */

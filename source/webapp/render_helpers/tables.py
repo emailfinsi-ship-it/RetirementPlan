@@ -1,6 +1,6 @@
 """The two Asset/Summary-tab rollup tables (category subtotals -> Net
 Liquid Asset, and Net Liquid Asset + real estate -> Total Asset) shared
-between the Asset tab and the Summary tab.
+between the Assets tab and the Summary tab.
 """
 
 from __future__ import annotations

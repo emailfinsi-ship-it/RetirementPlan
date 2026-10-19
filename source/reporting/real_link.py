@@ -1,4 +1,4 @@
-"""Link a planned Income/Expense line to a real (synced) category.
+"""Link a planned Income & Expenses line to a real (synced) category.
 
 A line item can optionally name one Real Expenditure category (for an
 expense) or one real-income category (for income). This module works out

@@ -19,9 +19,9 @@ from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THE
 # between the pair. Each group's tab links to its first page.
 NAV_ITEMS = (
     ("summary.html", "Summary"),
-    ("asset.html", "Asset"),
+    ("asset.html", "Assets"),
     ("linked-accounts.html", "Linked Accounts"),
-    ("expense.html", "Income/Expense"),
+    ("expense.html", "Income & Expenses"),
     ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Will my money last?"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
@@ -29,10 +29,10 @@ NAV_ITEMS = (
 )
 
 NAV_GROUPS = (
-    (("asset.html", "Assets"), ("real-estate.html", "Real Estate")),
+    (("asset.html", "Assets & Debts"), ("real-estate.html", "Real Estate")),
     (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Risk & Suggestions")),
-    (("real-expenditure.html", "Real Expenditure"), ("budget-vs-actual.html", "Budget vs Actual")),
-    (("drawdown-planning.html", "Drawdown"), ("legacy-planning.html", "Legacy")),
+    (("real-expenditure.html", "Actual Spending"), ("budget-vs-actual.html", "Budget vs Actual")),
+    (("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning")),
 )
 
 
@@ -344,7 +344,7 @@ function refreshBulkBar() {{
   bar.querySelector('button.danger').disabled = n === 0;
   bar.style.display = n > 0 ? 'flex' : 'none';
 }}
-// Per-table "Delete selected" buttons (Income/Expense cards): shown next to the
+// Per-table "Delete selected" buttons (Income & Expenses cards): shown next to the
 // card's Add button as soon as one of its own rows is ticked.
 function refreshCardDeleteButtons() {{
   document.querySelectorAll('.li-del').forEach(function(btn) {{
@@ -410,7 +410,7 @@ function classifyLinkedAccount(accountId, rowEl) {{
   // The Linked Accounts page's "Classify" action -- creates the Asset
   // tab line item and links it to this Plaid account in one call (see
   // /api/line-item/classify-linked-account), instead of the user having
-  // to go add a row by hand on the Asset tab first. rowEl is the small
+  // to go add a row by hand on the Assets tab first. rowEl is the small
   // classify form's own container, so its fields are read by class name
   // rather than by id (there's one of these per unlinked row).
   var kind = rowEl.querySelector('.classify-kind').value;
@@ -452,7 +452,7 @@ function formatMoneyInputs() {{
 document.addEventListener('DOMContentLoaded', formatMoneyInputs);
 function setAccountOwner(accountId, owner) {{
   // Drawdown Planning's "Resources by source" Owner column, for a live
-  // linked account that ISN'T tied to an Asset-tab row (an Asset row's
+  // linked account that ISN'T tied to an Assets-tab row (an Asset row's
   // own Owner select goes through updateField instead) -- see
   // source.common.db.owners.
   postJSON('/api/account-owner/set', {{account_id: accountId, owner: owner}})
@@ -665,7 +665,7 @@ function renderFilterChips(barId, filters, onClearOne, onClearAll) {{
 }}
 function __filtersSubset(dimNames) {{
   // Every page's applyXFilters() only owns a handful of dims (Linked
-  // Positions: type/institution/industry/sector; Real Expenditure:
+  // Positions: type/institution/industry/sector; Actual Spending:
   // expense-category/expense-month) out of the one shared
   // __positionsFilters object, since a single page load only ever sets
   // the dims its own charts declare -- this just keeps each page's own
@@ -784,7 +784,7 @@ function __expenditureFilterField(dim) {{
   return dim.replace(/-([a-z])/g, function(_, c) {{ return c.toUpperCase(); }});
 }}
 function applyExpenditureFilters() {{
-  // Real Expenditure tab's own click-to-filter: clicking a "by
+  // Actual Spending tab's own click-to-filter: clicking a "by
   // category" or "by month" bar segment (expense OR income) filters the
   // transaction list below to the row(s) that actually make up that
   // bar's own dollar total -- same contract as applyPositionFilters()
@@ -836,7 +836,7 @@ function applyExpenditureFilters() {{
   }});
 }}
 function setExpenditureKindFilter(kind) {{
-  // The Real Expenditure page's "Show: All / Income only / Expense
+  // The Actual Spending page's "Show: All / Income only / Expense
   // only" buttons -- unlike every other dim on this page, 'kind' isn't
   // built from a chart click (there's no "by kind" chart), so this sets
   // __positionsFilters directly instead of going through
@@ -1001,7 +1001,7 @@ document.addEventListener('change', function(e) {{
   }}
 }});
 document.addEventListener('DOMContentLoaded', refreshIndustryBulkBar);
-// Real Expenditure tab's own checkbox + bulk-classify bars (category,
+// Actual Spending tab's own checkbox + bulk-classify bars (category,
 // and the excluded-from-total flag) -- same shape as the industry/
 // sector bars just above, deliberately kept as its own, distinctly-
 // named set of functions/listener rather than reusing
@@ -1092,7 +1092,7 @@ function excludeOneTransaction(transactionId) {{
     .catch(function(err) {{ alert(err.message); }});
 }}
 function categorizeSimilarTransactions(transactionId) {{
-  // Real Expenditure's per-row "Categorize similar" link -- turns this
+  // Actual Spending's per-row "Categorize similar" link -- turns this
   // ONE transaction's own already-set Category into a reusable keyword
   // rule (source.common.db.transactions.apply_category_rule_from_
   // transaction derives the keyword server-side from this row's own
