@@ -135,6 +135,10 @@ def _render_linked_positions_page() -> str:
             return f"<td>{name}</td>"
         if rebalance.is_margin_loan(p):
             return f'<td>{name} <span class="status-ok" style="font-size:11px;">Margin loan</span></td>'
+        if (p["security_type"] or "").strip().lower() != "cash":
+            # A negative stock or fund is a short position, not a loan.
+            return (f'<td>{name} <span class="muted" style="font-size:11px;" '
+                    f'title="Negative shares mean this is sold short, which is not a margin loan">Short position</span></td>')
         sid = html.escape(p["security_id"], quote=True)
         tick = html.escape(p["ticker"] or "", quote=True)
         return (
