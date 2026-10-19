@@ -51,7 +51,7 @@ def _format_money_input_value(value) -> str:
 def _pct(assumptions: dict, key: str, default="") -> str:
     """Formats an assumptions value (stored as a decimal, e.g. 0.06) as a
     percent string for a form field's value= (e.g. "6.00"). Shared by the
-    Summary page's "what if" card and the Monte Carlo tab's full
+    Summary page's "what if" card and the Will my money last? tab's full
     assumptions form -- both edit the same underlying row via
     /api/assumptions, so they always agree with each other."""
     try:

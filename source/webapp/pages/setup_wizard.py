@@ -83,7 +83,7 @@ def _wizard_card_html() -> str:
 
 <div class="wz-step" data-step="2">
   <h3 style="margin-top:0">Growth assumptions</h3>
-  <p class="muted">Starting points for the projections -- long-run averages, not promises. Adjust them any time on the Monte Carlo page.</p>
+  <p class="muted">Starting points for the projections -- long-run averages, not promises. Adjust them any time on the Will my money last? page.</p>
   <div class="inline" style="display:flex; gap:12px; flex-wrap:wrap;">
     <label>Expected return %<input id="wz-return" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
     <label>Inflation %<input id="wz-inflation" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
@@ -102,7 +102,7 @@ def _wizard_card_html() -> str:
 
 <div class="wz-step" data-step="4">
   <h3 style="margin-top:0">All set</h3>
-  <p>Your plan is ready to look at. The Summary page shows net worth and the Monte Carlo result; everything else is a tab away.</p>
+  <p>Your plan is ready to look at. The Summary page shows net worth and your chance of lasting; everything else is a tab away.</p>
   <p class="muted">Tip: the Setup tab keeps backups, the optional login password and all of these settings -- you can reopen this wizard from the top of the Setup page whenever you like.</p>
 </div>
 

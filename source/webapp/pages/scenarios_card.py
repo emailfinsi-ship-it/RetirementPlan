@@ -1,4 +1,4 @@
-"""The Monte Carlo tab's "Saved scenarios" card: save the current
+"""The Will my money last? tab's "Saved scenarios" card: save the current
 assumptions under a name, load or delete one, and compare them all side by
 side. The comparison runs on demand (each scenario is a full simulation),
 via /api/scenarios/compare, and is drawn in the browser."""

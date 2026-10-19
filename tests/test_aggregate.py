@@ -499,7 +499,7 @@ class TestDrawdownPlanning(TempConfigTestCase):
         self.assertEqual(s["drawdown_pools"]["roth"], 50_000.0)
         self.assertEqual(s["drawdown_unlinked_total"], 50_000.0)
         # retirement_pools itself is untouched -- it only ever reflects
-        # manual Asset-tab rows checked "In Monte Carlo?".
+        # manual Asset-tab rows checked "In the plan?".
         self.assertEqual(s["retirement_pools"]["roth"], 0.0)
 
     def test_an_unlinked_investment_account_with_no_detected_subtype_defaults_to_taxable(self):
@@ -680,7 +680,7 @@ class TestBuildSummaryAssetBreakdown(TempConfigTestCase):
             s["asset_category_subtotals"],
             [("401k", 100_000), ("Liquid", 50_000), ("Insurance", 20_000)],
         )
-        # Net Liquid Asset = rows checked "In Monte Carlo?" only, net of
+        # Net Liquid Asset = rows checked "In the plan?" only, net of
         # liabilities -- same rule as retirement_liquid_total, Insurance
         # excluded (left unchecked).
         self.assertEqual(s["net_liquid_asset"], 100_000 + 50_000 - 5_000)

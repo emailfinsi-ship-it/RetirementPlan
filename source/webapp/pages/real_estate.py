@@ -93,21 +93,21 @@ def _render_real_estate_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Real estate analysis</h2>
-<details class="how-it-works"><summary>How this works</summary><p class="muted">Link a property's loan to a live Plaid mortgage/HELOC account (its "Linked account" column) to have Loan Balance -- and equity everywhere else in the app -- track that balance automatically. Equity is your Ownership % share of (Current Value minus Loan Balance). Every field except Equity and the live-linked Loan Balance is editable right in the table below -- changes save immediately. Check "In Monte Carlo?" to have a property's equity added as a 4th pool the Monte Carlo / historical stress test simulations can draw from -- last, after your 401k/Roth/taxable pools are exhausted, and with no tax modeled on those draws (unlike the other three pools). Off by default: real estate equity has never been part of a plan's projected drawdown until you opt a property in here.</p></details>
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Link a property's loan to a live Plaid mortgage/HELOC account (its "Linked account" column) to have Loan Balance -- and equity everywhere else in the app -- track that balance automatically. Equity is your Ownership % share of (Current Value minus Loan Balance). Every field except Equity and the live-linked Loan Balance is editable right in the table below -- changes save immediately. Check "In the plan?" to have a property's equity added as a 4th pool the Monte Carlo / historical stress test simulations can draw from -- last, after your 401k/Roth/taxable pools are exhausted, and with no tax modeled on those draws (unlike the other three pools). Off by default: real estate equity has never been part of a plan's projected drawdown until you opt a property in here.</p></details>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th class="check-col"><input type="checkbox" class="select-all-check"></th><th>Property</th><th>Address (for value lookup)</th><th class="num">Purchase Price</th><th class="num">Current Value</th>
 <th class="num">Ownership %</th><th class="num">Loan Balance</th><th class="num">Loan ends (year)</th><th class="link-col">Linked account</th><th class="num">Equity</th>
-<th class="num">Annual Income</th><th>In Monte Carlo?</th></tr></thead>
+<th class="num">Annual Income</th><th>In the plan?</th></tr></thead>
 <tbody>{rows_html}</tbody>
 <tfoot><tr><td colspan="3">Totals</td><td class="num">{_money(total_purchase)}</td><td class="num">{_money(total_value)}</td><td></td>
 <td class="num">{_money(total_loan)}</td><td></td><td></td><td class="num">{_money(total_equity)}</td>
 <td class="num">{_money(total_income)}</td><td></td></tr></tfoot>
 </table>
 </div>
-<p class="status-line">Included in Monte Carlo simulations: <strong>{_money(mc_equity_total)}</strong> of equity above.</p>
-<p class="muted">Loan ends (year): the year each property's loan is paid off. The tax estimates on the Drawdown, Legacy and Monte Carlo tabs treat Rental income as sheltered by mortgage interest and depreciation until then and as fully taxable after it (weighted by each property's Annual Income when several properties have different years). Leave it blank and rent is taxable every year.</p>
-<p class="muted">Annual income (e.g. rental income) isn't automatically netted against the Monte Carlo withdrawal need -- if you want that, add it to "Annual income offset" on the Monte Carlo tab yourself.</p>
+<p class="status-line">Included in the plan's simulations: <strong>{_money(mc_equity_total)}</strong> of equity above.</p>
+<p class="muted">Loan ends (year): the year each property's loan is paid off. The tax estimates on the Drawdown, Legacy and Will my money last? tabs treat Rental income as sheltered by mortgage interest and depreciation until then and as fully taxable after it (weighted by each property's Annual Income when several properties have different years). Leave it blank and rent is taxable every year.</p>
+<p class="muted">Annual income (e.g. rental income) isn't automatically netted against the plan's withdrawal need -- if you want that, add it to "Annual income offset" on the Will my money last? tab yourself.</p>
 <script>
 function refreshPropertyValue(id, btn) {{
   btn.disabled = true; var label = btn.textContent; btn.textContent = 'Looking up...';

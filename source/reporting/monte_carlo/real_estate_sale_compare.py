@@ -6,7 +6,7 @@ returns the row dicts sale_cards.comparison_rows_html lays out.
 
 "Total" rows add the equity of properties that are NOT already inside the
 simulated pools (the default -- a property only joins the Real-estate
-pool when its "In Monte Carlo?" box is ticked) to the Keep side, so Keep
+pool when its "In the plan?" box is ticked) to the Keep side, so Keep
 and Sell are compared on total wealth rather than on liquid money alone.
 """
 

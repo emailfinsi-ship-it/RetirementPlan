@@ -178,7 +178,7 @@ def _render_budget_vs_actual_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Budget vs Actual</h2>
-<p class="muted">Compares the <a href="/expense.html">Income/Expense</a> tab's own planning assumptions -- the same inflation-aware annual figures the Monte Carlo simulation draws its withdrawal need from -- against what <a href="/real-expenditure.html">Real Expenditure</a>'s synced transactions say actually happened. This is a TOTALS comparison, not category-by-category: an Expense-tab row's category (Fixed/Variable/...) and a transaction's category (Food/Travel/...) are two different taxonomies that were never meant to line up one-to-one.</p>
+<p class="muted">Compares the <a href="/expense.html">Income/Expense</a> tab's own planning assumptions -- the same inflation-aware annual figures the plan's simulation draws its withdrawal need from -- against what <a href="/real-expenditure.html">Real Expenditure</a>'s synced transactions say actually happened. This is a TOTALS comparison, not category-by-category: an Expense-tab row's category (Fixed/Variable/...) and a transaction's category (Food/Travel/...) are two different taxonomies that were never meant to line up one-to-one.</p>
 {sync_html}
 {no_transactions_note}
 <div class="tiles">{tiles_html}</div>

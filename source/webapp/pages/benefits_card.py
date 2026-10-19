@@ -66,7 +66,7 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
         status = f'<p class="muted">"Save &amp; apply" will create or update these rows: {html.escape(names)}.</p>'
     missing = [f"{p['name']}'s birth year" for p in people if not p["birth_year"]]
     missing_text = (
-        f'<p class="status-line status-warn">Set {" and ".join(missing)} on the Monte Carlo tab\'s Assumptions '
+        f'<p class="status-line status-warn">Set {" and ".join(missing)} on the Will my money last? tab\'s Assumptions '
         "for the matching person's rows and tables.</p>" if missing else ""
     )
 
@@ -83,7 +83,7 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
 <summary style="font-weight:600;">Social Security &amp; Medicare planner</summary>
 <p class="muted">Pick when each of you claims Social Security and see what it does to the yearly benefit; then
 "Save &amp; apply" writes the result onto the tables below as ordinary rows (Social Security under Income, Medicare
-under Expenses), so Monte Carlo, Drawdown and Legacy all pick it up. Benefits are in today's dollars and grow with
+under Expenses), so the money-lasts forecast, Drawdown and Legacy all pick it up. Benefits are in today's dollars and grow with
 the Inflation assumption. The comparison ignores taxes, spousal and survivor benefits, and discounting. Medicare
 premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY, cents=True)}/mo)
 and one income estimate; the real IRMAA rule looks at your income from two years earlier and can change each year. Add your

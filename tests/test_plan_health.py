@@ -42,7 +42,7 @@ class TestPlanHealth(unittest.TestCase):
             assumptions={"birth_year": "1965", "retirement_year": "2030", "apply_drawdown_tax": "0"},
         )
         texts = " | ".join(i["text"] for i in plan_health_items(s))
-        for needle in ("no Owner", "No expenses", "In Monte Carlo?", "Apply drawdown tax"):
+        for needle in ("no Owner", "No expenses", "In the plan?", "Apply drawdown tax"):
             self.assertIn(needle, texts)
 
     def test_flags_missing_social_security(self):

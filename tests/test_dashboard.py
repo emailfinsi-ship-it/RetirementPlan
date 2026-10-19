@@ -1242,10 +1242,10 @@ class TestAssetPageSummaryTables(DashboardTestCase):
 
 
 class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
-    """The Asset tab's per-row "In Monte Carlo?" checkbox -- replaces the
+    """The Asset tab's per-row "In the plan?" checkbox -- replaces the
     old category-list assumption (retirement_liquid_categories) with
     per-row control, same pattern as the Real Estate Analysis tab's own
-    "In Monte Carlo?" column. New rows default unchecked (opt-in), same
+    "In the plan?" column. New rows default unchecked (opt-in), same
     as a new Real Estate row -- a brand-new asset was never automatically
     part of a plan's projected drawdown until explicitly included."""
 
@@ -1258,7 +1258,7 @@ class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
         db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertEqual(body.count("<th>In Monte Carlo?</th>"), 2)
+        self.assertEqual(body.count("<th>In the plan?</th>"), 2)
 
     def test_every_asset_table_uses_the_same_fixed_column_widths(self):
         """A fixed colgroup (not content-sized columns) keeps Name,
@@ -1304,7 +1304,7 @@ class TestAssetPageTaxTreatment(DashboardTestCase):
     category table (not liability tables), editable through the same
     generic /api/line-item/update endpoint every other editable cell
     uses. A row's Tax treatment only actually matters once it's also
-    checked "In Monte Carlo?", but the column itself is always there so
+    checked "In the plan?", but the column itself is always there so
     it's ready the moment a row is opted in."""
 
     def tearDown(self):
@@ -1855,7 +1855,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
 
 
 class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
-    """The Real Estate Analysis tab's "In Monte Carlo?" checkbox column --
+    """The Real Estate Analysis tab's "In the plan?" checkbox column --
     lets a property's equity opt in to the Monte Carlo / historical
     stress test simulations as a 4th, untaxed, last-drawn pool (see
     source.reporting.aggregate.build_summary and monte_carlo._WITHDRAWAL_ORDER)."""
@@ -1871,7 +1871,7 @@ class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
     def test_column_header_present(self):
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("In Monte Carlo?", body)
+        self.assertIn("In the plan?", body)
 
     def test_loan_end_year_column_is_editable_and_blank_clears_it(self):
         body = self._get("/real-estate.html").read().decode("utf-8")
@@ -1921,7 +1921,7 @@ class TestRealEstateIncludeInMonteCarlo(DashboardTestCase):
         db.update_line_item("real_estate", self.item_id, {"include_in_monte_carlo": 1})
         resp = self._get("/real-estate.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Included in Monte Carlo simulations", body)
+        self.assertIn("Included in the plan's simulations", body)
         self.assertIn("300,000", body)  # only the Cabin, not the Rental
 
 
@@ -2910,7 +2910,7 @@ class TestMonteCarloStartingBalance(DashboardTestCase):
 
 class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
     """Reported bug: once a property is opted in to the simulation (Real
-    Estate Analysis tab's "In Monte Carlo?"), run_simulation/
+    Estate Analysis tab's "In the plan?"), run_simulation/
     run_historical_bootstrap_simulation/run_historical_stress_test all
     ignore their own `starting_balance` argument and instead walk down
     sum(pools.values()) -- which includes the opted-in real estate
@@ -5652,7 +5652,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
     def test_no_retirement_year_set_shows_every_year(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        self.assertIn("Set a Retirement year on the Summary or Monte Carlo tab", body)
+        self.assertIn("Set a Retirement year on the Summary or Will my money last? tab", body)
         self.assertNotIn("are omitted below", body)
 
     def test_retirement_year_set_hides_the_years_before_it(self):
@@ -5846,7 +5846,7 @@ class TestLegacyPlanningPage(DashboardTestCase):
     def test_no_retirement_year_set_shows_every_year(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 500_000, "include_in_monte_carlo": 1})
         body = self._get("/legacy-planning.html").read().decode("utf-8")
-        self.assertIn("Set a Retirement year on the Summary or Monte Carlo tab", body)
+        self.assertIn("Set a Retirement year on the Summary or Will my money last? tab", body)
         self.assertNotIn("are omitted below", body)
 
     def test_retirement_year_set_hides_the_years_before_it_same_as_drawdown_planning(self):

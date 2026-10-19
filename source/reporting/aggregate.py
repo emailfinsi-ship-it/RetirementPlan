@@ -387,7 +387,7 @@ def build_summary() -> dict:
     re_value_total = sum(real_estate_value(r) for r in real_estate)
 
     # Monte Carlo's starting balance -- per-row, via each Asset row's own
-    # "In Monte Carlo?" checkbox (assets.include_in_monte_carlo), rather
+    # "In the plan?" checkbox (assets.include_in_monte_carlo), rather
     # than a category-list match. Uses the same effective_balance() as
     # manual_asset_total (live Plaid balance when linked, otherwise the
     # typed-in figure) so a 401k or brokerage row linked on the Asset tab
@@ -475,7 +475,7 @@ def build_summary() -> dict:
 
     # Drawdown Planning tab support: "resources by tax criteria" for
     # every dollar this program knows about, not just the manual
-    # Asset-tab rows checked "In Monte Carlo?" that retirement_pools
+    # Asset-tab rows checked "In the plan?" that retirement_pools
     # above is built from. A live Plaid investment account (Fidelity's
     # BrokerageLink, a 401(k), a Roth IRA, ...) that's never been added
     # as its own Asset-tab row -- and so was never part of

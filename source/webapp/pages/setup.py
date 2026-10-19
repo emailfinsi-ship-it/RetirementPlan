@@ -99,7 +99,7 @@ def _render_setup_page() -> str:
 <details class="card" style="padding:12px 16px;">
 <summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
 <h2 style="margin-top:8px">One-time workbook import</h2>
-<p class="muted">Point this at a retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the Monte Carlo assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
+<p class="muted">Point this at a retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the plan assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
 <p class="status-line">{'Last imported: ' + html.escape(last_import) if last_import else 'Not imported yet.'}</p>
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/import', {{path: this.path.value, password: this.password.value}})
@@ -218,7 +218,7 @@ def _sample_data_card_html() -> str:
     return """
 <div class="card" id="sample-data">
 <h2 style="margin-top:0">Sample data</h2>
-<p class="muted">The example household (Alex and Sam) is loaded so you can look around. Remove it before entering your own numbers -- only the sample rows are deleted, anything you typed stays. Names and assumptions it set can be changed above and on the Monte Carlo page.</p>
+<p class="muted">The example household (Alex and Sam) is loaded so you can look around. Remove it before entering your own numbers -- only the sample rows are deleted, anything you typed stays. Names and assumptions it set can be changed above and on the Will my money last? page.</p>
 <button type="button" onclick="if (confirm('Remove the sample household rows?')) { postJSON('/api/sample-data', {action: 'remove'}).then(function() { location.reload(); }).catch(function(e) { alert(e.message); }); }">Remove sample data</button>
 </div>
 """

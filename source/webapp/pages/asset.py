@@ -113,7 +113,7 @@ def _render_asset_page() -> str:
     ) or '<p class="muted">No liability line items yet.</p>'
     liability_total = sum(_effective_balance_html(a, live_by_account_id)[0] for a in liability_rows)
 
-    # Per-row now, via each Asset row's own "In Monte Carlo?" checkbox --
+    # Per-row now, via each Asset row's own "In the plan?" checkbox --
     # not a category-list match (see source.reporting.aggregate.build_summary
     # for the matching Monte Carlo starting-balance logic).
     retirement_liquid_total = sum(
@@ -166,7 +166,7 @@ def _render_asset_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Assets</h2>
-<p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In Monte Carlo?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
+<p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In the plan?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
 {asset_rollup_html}
 {net_worth_history_html}
 {asset_summary_html}
@@ -229,13 +229,13 @@ def _sync_linked_institution_fields(row: dict, live_by_account_id: dict, *, sect
 def _category_table_html(
     category: str, rows: list[dict], linkable: list[dict], live_by_account_id: dict, *, is_asset_table: bool = False,
 ) -> str:
-    # Tax treatment and the "In Monte Carlo?" checkbox only apply to
+    # Tax treatment and the "In the plan?" checkbox only apply to
     # asset tables -- a liability row is never one of the simulation's
     # starting pools, so it skips both columns entirely rather than
     # showing controls that wouldn't do anything.
     tax_treatment_th = '<th>Tax treatment</th>' if is_asset_table else ""
     owner_th = '<th>Owner</th>' if is_asset_table else ""
-    mc_th = '<th>In Monte Carlo?</th>' if is_asset_table else ""
+    mc_th = '<th>In the plan?</th>' if is_asset_table else ""
 
     def row_html(a):
         balance, balance_cell = _effective_balance_html(a, live_by_account_id)

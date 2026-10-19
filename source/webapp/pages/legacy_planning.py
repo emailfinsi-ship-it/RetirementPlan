@@ -465,7 +465,7 @@ def _render_legacy_planning_page() -> str:
         f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year), same as '
         "the Drawdown Planning tab -- years before it are left out of the callout and table below.</span>"
         if retirement_year is not None else
-        ' <span class="muted">Set a Retirement year on the Summary or Monte Carlo tab to have this tab match the '
+        ' <span class="muted">Set a Retirement year on the Summary or Will my money last? tab to have this tab match the '
         "Drawdown Planning tab's own pre-retirement gating.</span>"
     )
 

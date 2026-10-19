@@ -135,7 +135,7 @@ def _editable_checkbox_cell(section: str, item_id: int, field: str, checked) -> 
     """A checkbox that saves via the shared updateField() JS helper, same
     /api/line-item/update endpoint as _editable_text_cell/_editable_number_cell
     -- used for the Expense/Income tabs' "Inflates?" column and the Real
-    Estate Analysis tab's "In Monte Carlo?" column. Moved here (out of
+    Estate Analysis tab's "In the plan?" column. Moved here (out of
     expense.py, its original single caller) so real_estate.py can reuse
     it without a cross-page-module import."""
     is_checked = " checked" if checked else ""

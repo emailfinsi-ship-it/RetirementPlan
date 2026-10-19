@@ -6,7 +6,7 @@ for this user's real workbook, that band was empty -- a bug this rebuild
 fixes by computing it instead of reading it).
 
 Model: starting from the Monte Carlo starting balance (Net Liquid Asset
--- every Asset-tab row checked "In Monte Carlo?", net of liabilities --
+-- every Asset-tab row checked "In the plan?", net of liabilities --
 see source.reporting.aggregate.build_summary's net_liquid_asset), each of
 `iterations` simulated paths draws a
 random annual return ~ Normal(expected_return, return_volatility) for

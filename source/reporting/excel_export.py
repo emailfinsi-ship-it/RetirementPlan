@@ -186,7 +186,7 @@ def build_workbook(summary: dict, *, monte_carlo_result: dict | None = None) -> 
         ("Linked account balance total", summary["linked_asset_total"]),
         ("Liability total", -summary["liability_total"]),
         ("Real estate equity total", summary["real_estate_equity_total"]),
-        ("Retirement/Liquid total (Asset rows checked \"In Monte Carlo?\")", summary["retirement_liquid_total"]),
+        ("Retirement/Liquid total (Asset rows checked \"In the plan?\")", summary["retirement_liquid_total"]),
         ("Net Liquid Asset (Monte Carlo starting balance)", summary["net_liquid_asset"]),
         ("Total Asset (Net Liquid Asset + Real estate equity)", summary["total_asset"]),
         (f"This year's ({summary['this_year']}) expense need", summary["this_year_expense_need"]),

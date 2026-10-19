@@ -35,7 +35,7 @@ def build_plan_views() -> dict:
     starting_balance = s["net_liquid_asset"]
     # Seeded deterministically (see stable_simulation_seed's own
     # docstring) so the chance-your-money-lasts figures here always match
-    # the Monte Carlo tab's own top simulation -- both call run_simulation
+    # the Will my money last? tab's own top simulation -- both call run_simulation
     # with identical starting_balance/pools/assumptions/expenses/income.
     mc_seed = stable_simulation_seed(
         starting_balance=starting_balance, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,

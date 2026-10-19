@@ -14,8 +14,8 @@ def _asset_category_summary_html(category_subtotals: list[tuple[str, float]], li
     """The first top-of-page table: one row per asset category (401k,
     Liquid, Insurance, whatever else exists -- same categories as the
     detail tables below, same order), a Liabilities row, and a
-    Net Liquid Asset total -- only the rows checked "In Monte Carlo?"
-    (the same per-row selection the Monte Carlo tab's starting balance
+    Net Liquid Asset total -- only the rows checked "In the plan?"
+    (the same per-row selection the Will my money last? tab's starting balance
     uses -- see source.reporting.aggregate.build_summary), net of
     liabilities. A category with nothing checked in it (e.g. Insurance,
     left unchecked by default) still shows its own row above, but
@@ -35,7 +35,7 @@ def _asset_category_summary_html(category_subtotals: list[tuple[str, float]], li
 </tbody>
 <tfoot><tr><td>Net Liquid Asset</td><td class="num">{_money(net_liquid_asset)}</td></tr></tfoot>
 </table>
-<p class="muted">Net Liquid Asset = the balance of every asset row checked "In Monte Carlo?", minus total liabilities -- not an unchecked row above, and not real estate (see the next table).</p>
+<p class="muted">Net Liquid Asset = the balance of every asset row checked "In the plan?", minus total liabilities -- not an unchecked row above, and not real estate (see the next table).</p>
 """
 
 

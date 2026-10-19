@@ -5,7 +5,7 @@ Asset tab, and any opted-in real estate equity), bucketed into
 Taxable/Tax-deferred/Roth/Real-estate, plus a deterministic year-by-year
 projection of the standard tax-efficient withdrawal order (Taxable,
 then Tax-deferred, then Roth, then Real estate last), reusing the exact
-same pool math the Monte Carlo tab's own three-pool mode runs on.
+same pool math the Will my money last? tab's own three-pool mode runs on.
 
 Two sections, per the user's own request ("include resources by tax
 criteria" + a full drawdown *plan*, not just a snapshot):
@@ -86,7 +86,7 @@ def _owner_cell_html(source: dict) -> str:
 
 def _sources_table_html(sources: list[dict]) -> str:
     if not sources:
-        return '<p class="muted">No retirement/liquid resources yet -- check "In Monte Carlo?" on an Asset-tab row, link a Plaid investment account, or opt a property in on the Real Estate Analysis tab.</p>'
+        return '<p class="muted">No retirement/liquid resources yet -- check "In the plan?" on an Asset-tab row, link a Plaid investment account, or opt a property in on the Real Estate Analysis tab.</p>'
     rows_html = "".join(
         f'<tr><td>{html.escape(s["name"])}</td>'
         f'<td>{html.escape(s["institution"]) if s["institution"] else "--"}</td>'
@@ -251,7 +251,7 @@ def _rmd_by_person_card_html(summary: dict, assumptions: dict) -> str:
         )
     if not me_raw and (by_owner.get("self", 0.0) + unassigned) > 0.005:
         warnings += (
-            '<p class="status-line status-warn">Set your own Birth year on the Monte Carlo tab\'s Assumptions to model your RMDs.</p>'
+            '<p class="status-line status-warn">Set your own Birth year on the Will my money last? tab\'s Assumptions to model your RMDs.</p>'
         )
     household_has_spouse = db.has_spouse()
     spouse_row = _row(db.spouse_name(), wife_raw, by_owner.get("spouse", 0.0)) if household_has_spouse else ""
@@ -481,7 +481,7 @@ def _render_drawdown_planning_page() -> str:
     # This page's starting pools also include unlinked live investment
     # accounts, so the spouse's share of the Tax-deferred pool is the
     # drawdown-wide one, not the Asset-rows-only figure build_summary put
-    # in `assumptions` for the Monte Carlo tab.
+    # in `assumptions` for the Will my money last? tab.
     schedule_assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
     schedule = deterministic_drawdown_schedule(
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=schedule_assumptions,
@@ -508,7 +508,7 @@ def _render_drawdown_planning_page() -> str:
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
     rmd_note = (
         "" if has_birth_year else
-        ' <span class="muted">Set a Birth year in the Monte Carlo tab\'s Assumptions to also model Required '
+        ' <span class="muted">Set a Birth year in the Will my money last? tab\'s Assumptions to also model Required '
         "Minimum Distributions (RMDs) once you reach RMD age.</span>"
     )
     retirement_year = schedule.get("retirement_year")
@@ -516,7 +516,7 @@ def _render_drawdown_planning_page() -> str:
         f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year) -- '
         "income is assumed to cover expenses until then, so those years are left out of the table below.</span>"
         if retirement_year is not None else
-        ' <span class="muted">Set a Retirement year on the Summary or Monte Carlo tab to skip withdrawals for '
+        ' <span class="muted">Set a Retirement year on the Summary or Will my money last? tab to skip withdrawals for '
         "the years before you retire.</span>"
     )
     early_tax_deferred_age = schedule.get("early_tax_deferred_age")
@@ -541,9 +541,9 @@ opted in on the Real Estate Analysis tab (drawn last of all, untaxed here).{unli
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 {sale_card}
 <h2>Year-by-year withdrawal sequence</h2>
-<details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random Monte Carlo band -- see the Monte Carlo tab for
+<details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random-markets band -- see the Will my money last? tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
-set on the Monte Carlo tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
+set on the Will my money last? tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}

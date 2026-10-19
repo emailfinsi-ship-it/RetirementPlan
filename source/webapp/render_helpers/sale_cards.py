@@ -1,6 +1,6 @@
 """HTML for the "what if I sold my real estate" what-if -- the settings
 form and proceeds breakdown on the Real Estate tab, and the Keep-vs-Sell
-comparison card shown on the Monte Carlo, Drawdown Planning and Legacy
+comparison card shown on the Will my money last?, Drawdown Planning and Legacy
 Planning tabs. The numbers come from source.reporting.monte_carlo.
 real_estate_sale; this module only lays them out.
 """
@@ -113,7 +113,7 @@ def sale_settings_card_html(sale: dict, assumptions: dict) -> str:
 <div class="card">
 <h2 style="margin-top:0">What if I sold? (liquidation scenario)</h2>
 <p class="muted">Selling every property in one year turns each into cash in your Taxable pool and stops its rental income.
-The Monte Carlo, Drawdown Planning and Legacy Planning tabs each show Keep vs. Sell side by side using the numbers below.
+The Will my money last?, Drawdown Planning and Legacy Planning tabs each show Keep vs. Sell side by side using the numbers below.
 Estimates only: gain = sale price minus selling costs minus purchase price (no improvements, no depreciation recapture, no
 primary-residence exclusion), federal long-term gains + California + 3.8% net investment income tax. The loan pays down in a
 straight line to its "Loan ends" year (flat if blank).</p>

@@ -141,7 +141,7 @@ def projection_card_html(s: dict, display_result: dict, mode: str, retirement_ye
         retirement_year=retirement_year, birth_year=birth,
     )
     # The simulation walks down every opted-in pool (incl. property equity
-    # marked "In Monte Carlo?"), so say what it actually starts from.
+    # marked "In the plan?"), so say what it actually starts from.
     start = sum(float(v or 0) for v in (s.get("retirement_pools") or {}).values())
     tiles = "".join((
         _tile("Starting balance", _money(start)),
@@ -465,7 +465,7 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
 def next_steps_html(items: list[dict], can_vary_retirement: bool = True, growth_pct: float = 6.0) -> str:
     """The Summary's closing "What should I do next?" card: just the
     missing-input checks. The interactive what-if lives with the
-    Assumptions on the Monte Carlo tab (see whatif_form_html), so the
+    Assumptions on the Will my money last? tab (see whatif_form_html), so the
     two ways of changing the plan sit in one place."""
     if items:
         rows = "".join(
