@@ -73,6 +73,7 @@ from source.webapp.pages.drawdown_planning import _render_drawdown_planning_page
 from source.webapp.pages.expense import _render_expense_page
 from source.webapp.pages.legacy_planning import _render_legacy_planning_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
+from source.webapp.pages.rebalance_page import _render_rebalance_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
 from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
@@ -371,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_linked_accounts_page())
             elif path == "/linked-positions.html":
                 self._send_html(_render_linked_positions_page())
+            elif path == "/rebalance.html":
+                self._send_html(_render_rebalance_page())
             elif path == "/expense.html":
                 self._send_html(_render_expense_page())
             elif path == "/real-expenditure.html":
@@ -634,19 +637,13 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
             elif path == "/api/target-allocation":
                 from source.reporting import rebalance
-                from source.webapp.pages.rebalance_card import _age
+                from source.webapp.pages.rebalance_page import _age
 
                 if payload.get("use_suggested"):
                     target = rebalance.set_target(rebalance.suggested_target(_age(db.get_assumptions())))
                 else:
                     target = rebalance.set_target(payload)
                 self._send_json({"ok": True, "target": target})
-            elif path == "/api/rebalance-accounts":
-                from source.reporting import rebalance
-
-                accounts = payload.get("accounts")
-                rebalance.set_scope(accounts if isinstance(accounts, list) else [])
-                self._send_json({"ok": True})
             elif path == "/api/asset-class":
                 from source.reporting import rebalance
 

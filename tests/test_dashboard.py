@@ -174,7 +174,7 @@ class TestChooseFileDialog(unittest.TestCase):
 class TestPagesRenderWithEmptyState(DashboardTestCase):
     def test_every_page_returns_200(self):
         for path in (
-            "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/expense.html",
+            "/summary.html", "/asset.html", "/linked-accounts.html", "/linked-positions.html", "/rebalance.html", "/expense.html",
             "/real-estate.html", "/monte-carlo.html", "/setup.html", "/setup-wizard.html",
         ):
             with self.subTest(path=path):
@@ -239,7 +239,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertEqual(len(NAV_ITEMS), 8)
         pairs = {
             "/asset.html": ("/real-estate.html", "Real Estate"),
-            "/linked-accounts.html": ("/linked-positions.html", "Positions"),
+            "/linked-accounts.html": ("/rebalance.html", "Rebalance"),
             "/real-expenditure.html": ("/budget-vs-actual.html", "Budget vs Actual"),
             "/drawdown-planning.html": ("/legacy-planning.html", "Legacy"),
         }
@@ -1130,6 +1130,12 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
             body.index("Expenses by category (annual, nominal)"),
             body.index("<h2>Expenses</h2>"),
         )
+
+    def test_income_comes_before_expenses(self):
+        body = self._get("/expense.html").read().decode("utf-8")
+        self.assertLess(body.index("<h2>Income</h2>"), body.index("<h2>Expenses</h2>"))
+        self.assertLess(body.index("Income by category"), body.index("Expenses by category"))
+        self.assertLess(body.index(" income</div>"), body.index(" expense need</div>"))
 
 
 class TestAssetPageSummaryTables(DashboardTestCase):

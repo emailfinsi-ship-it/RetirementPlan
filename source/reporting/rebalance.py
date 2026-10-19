@@ -17,7 +17,6 @@ CLASSES = ("Stocks", "Bonds", "Cash", "Other")
 DRIFT_THRESHOLD_PTS = 5.0
 _TARGET_KEY = "target_allocation"
 _OVERRIDES_KEY = "asset_class_overrides"
-_SCOPE_KEY = "rebalance_accounts"
 _BOND_WORDS = re.compile(r"\b(bond|bonds|treasury|treasuries|tips|fixed income|t-bill|municipal|muni|aggregate|income fund)\b", re.I)
 _STOCK_TYPES = {"equity", "stock", "etf", "mutual fund", "common stock"}
 # Least tax first: retirement accounts can be rebalanced for free.
@@ -73,34 +72,6 @@ def set_override(security_id: str, asset_class: str | None) -> None:
     else:
         raise ValueError("Unknown asset class.")
     db.set_meta(_OVERRIDES_KEY, json.dumps(overrides))
-
-
-def get_scope() -> list[str]:
-    """Account ids the suggestions are limited to; empty means every account."""
-    raw = db.get_meta(_SCOPE_KEY)
-    try:
-        data = json.loads(raw) if raw else []
-    except ValueError:
-        return []
-    return [str(x) for x in data] if isinstance(data, list) else []
-
-
-def set_scope(account_ids: list) -> list[str]:
-    ids = [str(a) for a in (account_ids or []) if str(a)]
-    db.set_meta(_SCOPE_KEY, json.dumps(ids))
-    return ids
-
-
-def accounts_in(positions: list[dict]) -> list[dict]:
-    """[{"account_id", "label", "value"}] for every account holding something."""
-    found: dict[str, dict] = {}
-    for p in positions:
-        if (p.get("market_value") or 0) <= 0:
-            continue
-        aid = p.get("account_id") or p.get("account") or ""
-        row = found.setdefault(aid, {"account_id": aid, "label": " - ".join(x for x in (p.get("institution"), p.get("account")) if x) or aid, "value": 0.0})
-        row["value"] += p["market_value"]
-    return sorted(found.values(), key=lambda r: -r["value"])
 
 
 def suggested_target(age: int | None) -> dict:

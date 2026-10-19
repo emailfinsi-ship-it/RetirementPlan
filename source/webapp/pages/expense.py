@@ -57,14 +57,14 @@ def _render_expense_page() -> str:
     )
 
     body = f"""
-<h2 style="margin-top:0">Expense &amp; income</h2>
+<h2 style="margin-top:0">Income &amp; expense</h2>
 <p class="muted">Each row is an annual amount, optionally scoped to a year range (blank = every year). Inflating rows grow with the Inflation % below; the Monte Carlo tab nets Income against Expenses each year.</p>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Each row is an annual amount, optionally scoped to a year range (leave blank for "every year"). Check "Inflates" and set a Base Year (e.g. 2026, the year the amount is denominated in) to have a row grow with the Inflation % assumption below every simulated year -- otherwise it stays flat at the typed-in amount, same as before. Setting a row's Category to "Variable" does this for you automatically (checks Inflates and fills in Base Year if it's still blank) -- for both Expenses and Income -- since a Variable-cost row is, by definition, one that's expected to grow with inflation; a Fixed row can still opt in by hand. Change the Inflation % below to update the assumption everywhere it's used (this tab's totals, Summary, and Monte Carlo). The Monte Carlo tab nets Income against Expenses for each simulated year's withdrawal need -- uncheck an Income row's "In simulation?" to leave it out of that net (e.g. money you don't want to rely on for a projection), while still tracking it here. On by default, since every income row has always counted.</p>
 <p class="muted"><strong>Rental income:</strong> any income row whose name or category contains "rent" is treated as rental income. Enter it as the cash you actually receive after property costs (mortgage payment, property tax, insurance, upkeep). For taxes, the plan treats it as untaxed while that property's loan is running (mortgage interest and depreciation shelter it) and as fully taxed ordinary income from the year after the "Loan ends" year you set on the <a href="/real-estate.html">Real Estate</a> tab; a property with no loan end year is taxed every year. Depreciation recapture on a later sale is not modeled.</p>
 </details>
 <div class="tiles">
-  <div class="tile"><div class="label">{this_year} expense need</div><div class="value">{_money(s["this_year_expense_need"])}</div></div>
   <div class="tile"><div class="label">{this_year} income</div><div class="value">{_money(s["this_year_income"])}</div></div>
+  <div class="tile"><div class="label">{this_year} expense need</div><div class="value">{_money(s["this_year_expense_need"])}</div></div>
   <div class="tile"><div class="label">{this_year} net withdrawal need</div><div class="value">{_money(s["this_year_net_need"])}</div></div>
   <div class="tile">
     <div class="label">Inflation %</div>
@@ -79,11 +79,11 @@ def _render_expense_page() -> str:
 </div>
 {social_security_medicare_card_html(assumptions)}
 <div class="group-section">
-{expense_chart_html}
 {income_chart_html}
+{expense_chart_html}
 </div>
-{expense_section_html}
 {income_section_html}
+{expense_section_html}
 """
     return _shell(title="Income/Expense", active="expense.html", body=body)
 
