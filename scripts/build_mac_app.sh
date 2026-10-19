@@ -77,6 +77,7 @@ rm -rf build dist "$SERVER_NAME.spec"
   --collect-all lxml \
   --collect-all cryptography \
   --collect-all keyring \
+  --collect-all truststore \
   --collect-all msoffcrypto \
   --collect-all openpyxl \
   --collect-all plaid \

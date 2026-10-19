@@ -3,3 +3,4 @@ msoffcrypto-tool==5.4.2
 plaid-python==37.0.0
 keyring==25.6.0
 yfinance==0.2.66
+truststore==0.10.4; python_version >= "3.10"

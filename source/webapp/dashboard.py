@@ -89,6 +89,7 @@ from source.webapp.pages.setup import _render_setup_page
 from source.webapp.pages.report import _render_report_page
 from source.webapp.pages.setup_wizard import _render_wizard_page
 from source.webapp import warm
+from source.common import tls
 from source.webapp.pages.summary import _render_summary_page
 
 # Every name imported above from render_helpers/pages.* is a re-export:
@@ -1281,7 +1282,7 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError, ValueError) as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
         except Exception as exc:
-            self._send_json({"ok": False, "error": str(exc)}, status=500)
+            self._send_json({"ok": False, "error": tls.friendly_error(str(exc))}, status=500)
 
 
 _DAILY_SNAPSHOT_CHECK_SECONDS = 15 * 60
@@ -1320,6 +1321,7 @@ def run(*, open_browser: bool = True) -> None:
     # Real launches (Mac app or from source) ask for an admin password and
     # database setup first; tests and the throwaway demo never do.
     first_run.enforce(not config.DEMO)
+    tls.use_system_certificates()
     config.ensure_directories()
     db.init_db()
     if config.DEMO and not db.list_line_items("assets"):
