@@ -1,0 +1,75 @@
+<p><strong>FinSi answers one question: "Will my money last?"</strong>
+It pulls your accounts, income and spending into one place, tests your plan against thousands of possible market futures, and tells you in plain words what to do next. Everything runs on your own Mac. Your data stays on your computer.</p>
+<p><em>Not financial, investment, tax or legal advice. FinSi gives estimates to help you think and plan. Talk to a qualified professional before making decisions.</em></p>
+<hr />
+<h2>1. Start it</h2>
+<ol>
+<li>Open Terminal and go to the <code>Code</code> folder.</li>
+<li>Run <code>./scripts/run_dashboard.sh</code> (to stop it: <code>./scripts/stop_dashboard.sh</code>).</li>
+<li>Your browser opens the dashboard. To try it with made-up data first, open <strong>Setup → Sample data</strong> and press <strong>Load sample household</strong> (and <strong>Add sample linked accounts</strong> for pretend bank and brokerage accounts). Press <strong>Remove sample data</strong> before you enter your own numbers.</li>
+</ol>
+<p>After an update, restart the dashboard and refresh the page (Cmd+Shift+R).</p>
+<h2>2. The big idea in 60 seconds</h2>
+<ul>
+<li><strong>Chance your money lasts.</strong> FinSi replays your plan through thousands of good and bad market years. "98 of 100" means your savings lasted to the end in 98 of 100 of those runs. Aim for about 85% or more.</li>
+<li><strong>Financial independence.</strong> Savings compared with about 25 times the yearly spending your income does not already cover.</li>
+<li><strong>Safe spending.</strong> The most you could spend each year and still keep your chance of lasting at the level you choose.</li>
+<li><strong>Real numbers.</strong> You can see everything in today's dollars or future dollars (a toggle on the Will my money last? tab).</li>
+</ul>
+<h2>3. A tour of every tab</h2>
+<h3>Summary — your whole picture</h3>
+<p><img loading="lazy" alt="Summary" src="/tutorial/screenshots/01-summary.jpg" /></p>
+<p>Top to bottom: <strong>Alerts</strong> (only when something needs a look), whether your plan is <strong>on track</strong>, <strong>Where you stand</strong> (progress to independence, safe spending, what changed since last month and <em>which accounts moved most</em>), your net worth over time, a <strong>Data check</strong>, and <strong>What should I do next?</strong>, a short numbered list with the most important step first. Every item has an <strong>Open</strong> link to the right tab.</p>
+<p>The bell at the top right shows how many alerts are open. The <strong>eye</strong> button blurs every dollar amount, handy when you share your screen.</p>
+<h3>Assets and Real Estate — what you own and owe</h3>
+<p><img loading="lazy" alt="Assets" src="/tutorial/screenshots/02-assets.jpg" /></p>
+<p>Click any number to edit it. Tick <strong>In the plan?</strong> for the money you want the simulation to spend. Pick a <strong>Tax treatment</strong> (taxable, tax-deferred like a 401(k), or Roth) and an <strong>Owner</strong> for each account. Real Estate tracks each property's value, loan, rent and when the loan ends.</p>
+<p><img loading="lazy" alt="Real estate" src="/tutorial/screenshots/03-real-estate.jpg" /></p>
+<h3>Linked Accounts — Accounts, Positions, Risk &amp; Suggestions</h3>
+<p><img loading="lazy" alt="Accounts" src="/tutorial/screenshots/04-accounts.jpg" /></p>
+<p>Accounts connected through Plaid refresh themselves. <strong>Positions</strong> lists every holding. Its <strong>Portfolio check-up</strong> warns if one stock, one sector or one firm holds too much of your money.</p>
+<p><img loading="lazy" alt="Positions" src="/tutorial/screenshots/05-positions.jpg" /></p>
+<p><strong>Risk &amp; Suggestions</strong> asks one question: how much risk are you comfortable with? Pick Conservative, Moderate, Growth or Aggressive. FinSi turns that into a goal mix of stocks, bonds and cash, compares it with what you hold today (overall and by institution), and tells you what to buy or sell in each account. Selling in retirement accounts is suggested first because it costs no tax. FinSi only suggests; it never places an order.</p>
+<p><img loading="lazy" alt="Risk and suggestions" src="/tutorial/screenshots/06-risk.jpg" /></p>
+<h3>Income &amp; Expenses — what comes in and goes out</h3>
+<p><img loading="lazy" alt="Income and expenses" src="/tutorial/screenshots/07-income-expenses.jpg" /></p>
+<p>Income is listed first, then expenses. Add rows with <strong>+ Add</strong>, tick rows and press <strong>Delete selected</strong> to remove them. Link a row to a real spending category to see what you actually spent over the last 12 months. The Social Security planner compares claiming ages 62 to 70.</p>
+<p><strong>Spending</strong> (under Actual Spending and Budget vs Actual) shows what really left your accounts, from your linked transactions.</p>
+<h3>Will my money last? — the simulation</h3>
+<p><img loading="lazy" alt="Will it last" src="/tutorial/screenshots/08-will-it-last.jpg" /></p>
+<p>This is where the chance of lasting comes from. Change the assumptions (growth, inflation, retirement year, tax) or try a <strong>what-if</strong> such as "spend 10% less" or "retire 2 years later". Nothing is saved until you choose to save it. You can also save named scenarios and compare them.</p>
+<h3>Drawdown &amp; Legacy</h3>
+<p><img loading="lazy" alt="Drawdown" src="/tutorial/screenshots/09-drawdown.jpg" /></p>
+<p><strong>Drawdown Planning</strong> shows, year by year, which accounts you draw from, your required minimum distributions (RMDs) and the estimated tax. The card <strong>"Which account should I take it from?"</strong> compares the usual order (brokerage first) with the split that costs the least tax this year, and shows the tax saved. It looks at one year only, so treat it as a starting point for a conversation with a tax professional.</p>
+<p><img loading="lazy" alt="Legacy" src="/tutorial/screenshots/10-legacy.jpg" /></p>
+<p><strong>Legacy Planning</strong> compares strategies, such as Roth conversions, for what you could leave your heirs.</p>
+<h3>Setup</h3>
+<p><img loading="lazy" alt="Setup" src="/tutorial/screenshots/11-setup.jpg" /></p>
+<ul>
+<li><strong>Household</strong>: names of the people in the plan (a one-person plan works too).</li>
+<li><strong>Link accounts</strong> with Plaid, set a <strong>password</strong>, and optionally a <strong>view-only password</strong> (see section 5).</li>
+<li><strong>Alerts &amp; weekly email</strong>: turn on a weekly summary email and Mac notifications.</li>
+<li><strong>Backups</strong>: a copy of your data is made daily. Press <strong>Test latest backup</strong> to prove it opens correctly.</li>
+</ul>
+<h2>4. Alerts, Data check and next steps</h2>
+<ul>
+<li><strong>Alerts</strong> appear when your chance of lasting drops 5 points or more in a week (or is low), when a data problem needs fixing, when one holding or sector dominates, or when your mix drifts 10+ points from your goal. Press <strong>Dismiss</strong> to hide one; it comes back only if the problem goes away and returns.</li>
+<li><strong>Data check</strong> looks for things that quietly skew your numbers: a negative cash balance (margin), a fund with the wrong sector tag, accounts that have not synced in a week, holdings with no cost basis, missing or old backups. Some come with a one-click fix.</li>
+<li><strong>Weekly email</strong>: in <strong>Setup → Alerts &amp; weekly email</strong> enter your email, your email server and an <em>app password</em> (Gmail and iCloud require one; you create it in your account's security settings). Press <strong>Send test email</strong>. The password is kept in your Mac's Keychain, never in the database.</li>
+</ul>
+<h2>5. Sharing safely: view-only login</h2>
+<p>Set your own password first (<strong>Setup → Security</strong>), then add a <strong>view-only password</strong> for a spouse, advisor or accountant. They sign in on the same page with that password. They can look at everything and try what-ifs, but cannot change anything, and they do not see the Setup page. Changing or removing the view-only password signs them out immediately.</p>
+<h2>6. Privacy and safety</h2>
+<ul>
+<li>Your data lives in a database on your Mac (<code>data/retirement_plan.db</code>), plus backups.</li>
+<li>Plaid passwords and email passwords are stored in the macOS Keychain.</li>
+<li>The app listens only on your Mac unless you change <strong>Network access</strong> in Setup, and then a password is required.</li>
+<li>FinSi never moves money or places trades.</li>
+</ul>
+<h2>7. Common questions</h2>
+<p><strong>Why does my chance of lasting change from day to day?</strong> Markets are simulated randomly, and your balances, spending and assumptions change. FinSi keeps its test runs consistent for the same inputs, so a change usually means something real changed. Look at "Since last month" on the Summary.</p>
+<p><strong>It says my mix is off but I hold bond funds.</strong> Funds are sorted by name and tag. If one is wrong, fix its tag in <strong>Positions</strong> or use the Data check's <em>Clear these tags</em> button.</p>
+<p><strong>Can I see everything in today's dollars?</strong> Yes. Use the dollars toggle on the Will my money last? tab.</p>
+<p><strong>How do I start over?</strong> Setup → Sample data → Remove sample data removes only the sample rows. Your own rows stay.</p>
+<hr />
+<p><em>Made-up sample data is used in all screenshots. Not financial, investment, tax or legal advice.</em></p>

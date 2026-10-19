@@ -75,6 +75,7 @@ from source.webapp.pages.expense import _render_expense_page
 from source.webapp.pages.legacy_planning import _render_legacy_planning_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
 from source.webapp.pages.rebalance_page import _render_rebalance_page
+from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
 from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
@@ -314,6 +315,58 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
+    def _send_tutorial_file(self, rel_path: str) -> None:
+        """Serves a bundled tutorial file (video / screenshot). Videos need HTTP
+        Range support or Safari will not play them."""
+        base = TUTORIAL_DIR.resolve()
+        file_path = (base / rel_path).resolve()
+        if base not in file_path.parents or not file_path.is_file():
+            self._send_html("<h1>Not found</h1>", status=404)
+            return
+        ext = file_path.suffix.lower().lstrip(".")
+        content_type = {"mp4": "video/mp4", "jpg": "image/jpeg", "png": "image/png"}.get(ext, "application/octet-stream")
+        size = file_path.stat().st_size
+        start, end, status = 0, size - 1, 200
+        rng = self.headers.get("Range") or ""
+        if rng.startswith("bytes="):
+            first, _, last = rng[6:].split(",")[0].partition("-")
+            try:
+                if first == "":
+                    start = max(0, size - int(last))
+                else:
+                    start = int(first)
+                    end = min(size - 1, int(last)) if last else size - 1
+                if start > end or start >= size:
+                    raise ValueError
+                status = 206
+            except ValueError:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+        length = end - start + 1
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(length))
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            if self.command != "HEAD":
+                with file_path.open("rb") as fh:
+                    fh.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = fh.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
     def _session_cookie(self) -> str | None:
         raw = self.headers.get("Cookie") or ""
         for part in raw.split(";"):
@@ -396,6 +449,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_linked_positions_page())
             elif path == "/rebalance.html":
                 self._send_html(_render_rebalance_page())
+            elif path == "/tutorial.html":
+                self._send_html(_render_tutorial_page())
+            elif path.startswith("/tutorial/"):
+                self._send_tutorial_file(path[len("/tutorial/"):])
             elif path == "/expense.html":
                 self._send_html(_render_expense_page())
             elif path == "/real-expenditure.html":

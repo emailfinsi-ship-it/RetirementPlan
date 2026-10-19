@@ -163,6 +163,8 @@ THEME_TOGGLE_HTML = (
     '<a href="/report.html" target="_blank" rel="noopener" id="report-link" '
     'title="Open a clean, printable report of this plan -- save it as a PDF"><button type="button" class="primary" '
     'id="report-btn">Download plan report</button></a>'
+    '<a href="/tutorial.html" id="tutorial-link" title="Watch the video tour and read the user guide">'
+    '<button type="button" class="primary" id="tutorial-btn">Tutorial</button></a>'
     '<button type="button" id="hide-toggle" onclick="rpToggleHide()" aria-label="Hide balances" '
     f'title="Hide balances -- blur every dollar amount, handy for demos and screenshots">{_EYE_SVG}</button>'
     '<button type="button" id="theme-toggle" onclick="rpCycleTheme()" '
