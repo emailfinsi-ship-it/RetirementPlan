@@ -18,6 +18,7 @@ delete it, right from the page -- seeded once from the old workbook
 from __future__ import annotations
 
 import html
+import base64
 import json
 import subprocess
 import sys
@@ -34,7 +35,7 @@ from source.collector import link_item as plaid_link_item
 from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
-from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, production, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, production, secrets_store, transfer
 from source.importer import xlsx_import
 from source.reporting import benefits, excel_export, scenarios as scenarios_module, what_if
 from source.reporting.aggregate import (
@@ -116,7 +117,7 @@ SESSION_COOKIE_NAME = "rp_session"
 # see _may_set_password below, it needs a narrower rule than "always
 # public", since a password change (as opposed to the very first
 # password being set) must require an existing session.
-_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js", "/welcome.html", "/api/first-run", "/forgot.html", "/api/reset-password", "/legal.html"}
+_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js", "/welcome.html", "/api/first-run", "/forgot.html", "/api/reset-password", "/legal.html", "/api/transfer-import"}
 
 
 # POST routes a view-only ("viewer") login may still use: they only calculate or
@@ -527,8 +528,41 @@ class Handler(BaseHTTPRequestHandler):
             # nothing to have logged in with). The moment a password
             # exists, changing it goes through the same 401 gate as
             # everything else below, same as any other write.
-            if first_run.required() and path != "/api/first-run":
+            if first_run.required() and path not in ("/api/first-run", "/api/transfer-import"):
                 self._send_json({"ok": False, "error": "Finish the first-time setup first."}, status=403)
+                return
+            if path == "/api/transfer-import":
+                if not first_run.required():
+                    self._send_json({"ok": False, "error": "This Mac is already set up. Importing is only offered on a brand-new install."}, status=400)
+                    return
+                host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+                if host not in ("127.0.0.1", "localhost", "::1"):
+                    self._send_json({"ok": False, "error": "Importing must be done on this computer."}, status=403)
+                    return
+                try:
+                    blob = base64.b64decode(payload.get("data_b64") or "", validate=True)
+                except ValueError:
+                    self._send_json({"ok": False, "error": "The file could not be read."}, status=400)
+                    return
+                try:
+                    bundle = transfer.read_bundle(blob, payload.get("passphrase") or "")
+                    result = transfer.apply_bundle(bundle)
+                except ValueError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=400)
+                    return
+                self._send_json({"ok": True, **result})
+                return
+            if path == "/api/transfer-export":
+                if auth_store.is_password_set() and not auth_store.verify_password(payload.get("password") or ""):
+                    self._send_json({"ok": False, "error": "Wrong password."}, status=401)
+                    return
+                try:
+                    blob = transfer.build_bundle(payload.get("passphrase") or "", include_backups=bool(payload.get("include_backups", True)))
+                except ValueError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=400)
+                    return
+                self._send_json({"ok": True, "filename": f"{branding.INTERNAL_ID}-transfer-{time.strftime('%Y%m%d')}.finsi-transfer",
+                                 "data_b64": base64.b64encode(blob).decode("ascii")})
                 return
             if path == "/api/first-run":
                 if not first_run.required():
@@ -867,6 +901,16 @@ class Handler(BaseHTTPRequestHandler):
 
                 alerts.send_test()
                 self._send_json({"ok": True})
+            elif path == "/api/backup-restore":
+                if auth_store.is_password_set() and not auth_store.verify_password(payload.get("password") or ""):
+                    self._send_json({"ok": False, "error": "Wrong password. Nothing was changed."}, status=401)
+                    return
+                try:
+                    result = backup.restore_backup(payload.get("filename") or "")
+                except ValueError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=400)
+                    return
+                self._send_json({"ok": True, **result})
             elif path == "/api/backup-verify":
                 self._send_json({"ok": True, **backup.verify_latest()})
             elif path == "/api/asset-class":

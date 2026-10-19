@@ -42,3 +42,31 @@ def about_card_html() -> str:
 </details>
 </div>
 """
+
+
+def transfer_card_html() -> str:
+    """Setup card: save everything into one encrypted file to open on another Mac."""
+    return """
+<div class="card" id="transfer-card">
+<h2 style="margin-top:0">Move to another Mac</h2>
+<p class="muted">Saves your Keychain items (Plaid keys and bank connections, your login password and recovery key), your data and, if you like, your backups into one file locked with a passphrase you choose. On the new Mac, open the app and choose <strong>Moving from another Mac?</strong> on the welcome screen. You keep your old password.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  var f = this, btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Preparing...';
+  postJSON('/api/transfer-export', {password: f.password.value, passphrase: f.passphrase.value, include_backups: f.backups.checked})
+    .then(function(r) {
+      var bin = atob(r.data_b64), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}));
+      a.download = r.filename; document.body.appendChild(a); a.click(); a.remove();
+      document.getElementById('transfer-done').style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Save transfer file'; f.passphrase.value = '';
+    }).catch(function(e) { alert(e.message); btn.disabled = false; btn.textContent = 'Save transfer file'; });">
+  <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
+  <label>Passphrase for the file (8+ characters)<input name="passphrase" type="password" required minlength="8" autocomplete="new-password"></label>
+  <label style="flex-direction:row; align-items:center; gap:6px;"><input type="checkbox" name="backups" checked style="width:auto"> Include my backups</label>
+  <button type="submit" class="primary">Save transfer file</button>
+</form>
+<p id="transfer-done" class="status-line status-ok" style="display:none">Saved to your Downloads folder. Move it to the new Mac (AirDrop or a USB stick) and remember the passphrase. Delete the file afterwards.</p>
+<p class="muted" style="font-size:12px">Nothing is sent anywhere. Without the passphrase the file cannot be read, so do not forget it.</p>
+</div>
+"""

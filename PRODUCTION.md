@@ -11,6 +11,8 @@ What the app now does by itself, and what only you can do.
 | Private data files | The data folder, database, backups and logs are readable only by your Mac user. Setup → About shows whether FileVault (disk encryption) is on. |
 | Privacy and terms | In-app page at `/legal.html`, linked from every footer. Describes exactly what the app does with data. |
 | Support | Setup → About → **Download support report**: versions, sizes, recent logs, with emails, long numbers and secrets removed. Nothing is sent automatically. |
+| Restore | Setup → Backups → **Restore a backup**: asks for the password, checks the backup, saves a "pre-restore" copy of your current data, then replaces it. |
+| Move to a new Mac | Setup → **Move to another Mac** saves Keychain items, database and backups into one passphrase-encrypted file. The new Mac's welcome screen imports it ("Moving from another Mac?"). Same from Terminal: `scripts/transfer.py`. |
 | Updates | Setup → About → **Check for updates** reads one small JSON file you host. With no address set, the app never contacts anyone. |
 | Version | `APP_VERSION` in `source/common/branding.py` (shown in the app, the Mac app and the .dmg name). |
 | Automatic tests | `.github/workflows/tests.yml` runs every test plus the fresh-install check on Linux and Mac for each push. |
@@ -50,5 +52,4 @@ Files are private to your Mac user and FileVault covers a lost laptop. Encryptin
 Not started. The app is built for the Mac (Keychain, Mac app bundle). A Windows version needs a different secrets store and installer. A hosted multi-user version is a separate product: accounts, a real database, encryption at rest, backups, monitoring, and security review. Decide with your first customers before building either.
 
 ## Not covered yet
-- In-app restore of a backup (today you copy the file back by hand; see the README).
 - Crash reports sent to you automatically (by design nothing is sent; people send the support report).

@@ -14,10 +14,9 @@ time the app is opened on a given calendar day, and
 source.webapp.dashboard's /api/import handler calls create_backup(
 reason="pre-import") right before every import. A "Back up now" button
 on the Setup page also calls create_backup(reason="manual") directly.
-There's currently no in-app "restore" action (list_backups() below is
-read-only, for display) -- restoring means closing the app and copying
-the chosen backup file over data/retirement_plan.db by hand; see the
-Setup page's Backups card for exactly where both live.
+restore_backup() below is the in-app "restore": it checks the chosen
+backup, saves a "pre-restore" copy of the current data first, then replaces
+the live database with it (Setup > Backups).
 """
 
 from __future__ import annotations
@@ -154,6 +153,44 @@ def list_backups() -> list[dict]:
             "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
         })
     return rows
+
+
+def restore_backup(filename: str) -> dict:
+    """Replaces the live database with one of the listed backups.
+
+    Order matters: the chosen backup is checked and copied aside FIRST (the
+    safety copy made next could otherwise prune it away), then a
+    "pre-restore" backup of the current data is saved, then the live file is
+    overwritten, then init_db() brings an older backup up to date. Raises
+    ValueError with a plain message if anything is wrong; nothing is changed
+    unless every check passes."""
+    from source.common import db
+
+    name = (filename or "").strip()
+    chosen = next((b for b in list_backups() if b["filename"] == name), None)
+    if chosen is None:
+        raise ValueError("That backup is not in the list any more.")
+    checked = verify_backup(Path(chosen["path"]))
+    if not checked["ok"]:
+        raise ValueError("That backup cannot be used: " + (checked["error"] or "it does not open correctly."))
+    target_dir = backup_dir()
+    staged = target_dir / ".restoring.tmp"
+    _copy_db_safely(Path(chosen["path"]), staged)
+    try:
+        safety = create_backup("pre-restore")
+        source_conn = sqlite3.connect(str(staged))
+        try:
+            live_conn = sqlite3.connect(str(config.DB_PATH))
+            try:
+                source_conn.backup(live_conn)
+            finally:
+                live_conn.close()
+        finally:
+            source_conn.close()
+    finally:
+        staged.unlink(missing_ok=True)
+    db.init_db()
+    return {"restored": chosen["filename"], "counts": checked["counts"], "safety_copy": safety.name if safety else ""}
 
 
 def has_backup_today() -> bool:

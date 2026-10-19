@@ -76,10 +76,10 @@ def _render_welcome_page(*, error: str | None = None) -> str:
   fetch('/api/first-run', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{{body_fields}}})}})
     .then(function(resp) {{ return resp.json().then(function(d) {{ if (!resp.ok || !d.ok) throw new Error(d.error || 'Failed'); return d; }}); }})
-    .then(function(d) {{ document.getElementById('fr-form').style.display = 'none'; document.getElementById('fr-key').textContent = d.recovery_key; document.getElementById('fr-done').style.display = 'block'; }})
+    .then(function(d) {{ document.getElementById('fr-form').style.display = 'none'; document.getElementById('fr-import').style.display = 'none'; document.getElementById('fr-key').textContent = d.recovery_key; document.getElementById('fr-done').style.display = 'block'; }})
     .catch(function(e) {{ btn.disabled = false; msg.textContent = e.message; }});">
   <div class="fr-step">1. Create your admin password</div>
-  <p class="muted" style="margin:0">This protects your financial picture. Use at least 8 characters. There is no username, and nobody can reset it for you, so keep it somewhere safe.</p>
+  <p class="muted" style="margin:0">This protects your financial picture. Use at least 8 characters. There is no username. You will get a recovery key next, which is the way back in if you forget it.</p>
   <label>Password<input type="password" name="password" autofocus required minlength="8" autocomplete="new-password"></label>
   <label>Type it again<input type="password" name="confirm" required minlength="8" autocomplete="new-password"></label>
   <div class="fr-step">2. Set up your database</div>
@@ -87,6 +87,30 @@ def _render_welcome_page(*, error: str | None = None) -> str:
   <p id="fr-msg" class="status-line status-err" role="alert"></p>
   <button type="submit" class="primary">Create password &amp; set up database</button>
 </form>
+<details id="fr-import" style="margin-top:14px">
+  <summary>Moving from another Mac?</summary>
+  <p class="muted">Choose the transfer file you saved from the old Mac (Setup &rarr; Move to another Mac) and type its passphrase. Your password, bank connections and data come across, so you do not make a new password.</p>
+  <form onsubmit="event.preventDefault();
+    var f = this, btn = f.querySelector('button'), msg = document.getElementById('fr-import-msg');
+    var file = f.transfer_file.files[0];
+    if (!file) {{ msg.textContent = 'Choose the transfer file first.'; return; }}
+    msg.textContent = ''; btn.disabled = true; btn.textContent = 'Importing...';
+    var rd = new FileReader();
+    rd.onload = function() {{
+      var b64 = rd.result.split(',')[1] || '';
+      fetch('/api/transfer-import', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{data_b64: b64, passphrase: f.passphrase.value}})}})
+        .then(function(r) {{ return r.json().then(function(d) {{ if (!r.ok || !d.ok) throw new Error(d.error || 'Failed'); return d; }}); }})
+        .then(function() {{ location.href = '/login.html'; }})
+        .catch(function(e) {{ btn.disabled = false; btn.textContent = 'Import and continue'; msg.textContent = e.message; }});
+    }};
+    rd.readAsDataURL(file);">
+    <label>Transfer file<input type="file" name="transfer_file" id="fr-transfer-file"></label>
+    <label>Its passphrase<input type="password" name="passphrase" autocomplete="off"></label>
+    <p id="fr-import-msg" class="status-line status-err" role="alert"></p>
+    <button type="submit">Import and continue</button>
+  </form>
+</details>
 <div id="fr-done" style="display:none">
   <h3 style="margin-top:0">All set. One last thing: save your recovery key</h3>
   <p>If you ever forget your password, this key is the only way back in. It is shown just this once, so write it down or save it in a password manager.</p>

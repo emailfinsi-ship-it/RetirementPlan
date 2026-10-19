@@ -6,7 +6,7 @@ from __future__ import annotations
 import html
 
 from source.webapp.pages.alerts_card import alerts_settings_card_html
-from source.webapp.pages.about_card import about_card_html
+from source.webapp.pages.about_card import about_card_html, transfer_card_html
 from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
 from source.webapp.render_helpers import _shell
@@ -79,6 +79,7 @@ def _render_setup_page() -> str:
         backup_health_line = f"Health: PROBLEM with the latest backup &mdash; {html.escape(health['error'])}"
 
     password_set = auth_store.is_password_set()
+    restore_html = _restore_form_html(backups, password_set)
     bind_host = app_settings.get_bind_host()
     quit_html = _quit_card_html()
     security_html = _security_card_html(password_set=password_set)
@@ -162,6 +163,8 @@ def _render_setup_page() -> str:
 
 {about_card_html()}
 
+{transfer_card_html()}
+
 <details class="advanced-group" id="advanced-settings" style="margin:16px 0;">
 <summary style="font-weight:650; font-size:15px; cursor:pointer;">Advanced settings <span class="muted">(data locations, category rules, automatic sync, property values, network access)</span></summary>
 <h2>Data &amp; output locations</h2>
@@ -175,7 +178,7 @@ def _render_setup_page() -> str:
 
 <details class="card" id="backups-card" style="padding:12px 16px;">
 <summary style="font-weight:600;">Backups ({len(backups)})</summary>
-<p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.keep_count()} (older ones are deleted automatically). There's no in-app restore yet -- to roll back, close this app and copy the backup file you want over data/retirement_plan.db by hand.</p>
+<p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.keep_count()} (older ones are deleted automatically). To go back to an earlier copy, use <strong>Restore a backup</strong> below. Your current data is saved first, so a restore can itself be undone.</p>
 <p class="status-line">{backup_status_line}</p>
 <p class="small" id="backup-health">{backup_health_line}
   <button type="button" class="chip" onclick="var b = this; b.disabled = true; postJSON('/api/backup-verify', {{}}).then(function(r) {{ b.disabled = false; document.getElementById('backup-health-result').textContent = r.ok ? ('Passed: ' + r.filename + ' opens correctly and passes SQLite\\'s integrity check.') : ('Problem: ' + (r.error || 'could not be opened')); }}).catch(function(e) {{ b.disabled = false; alert(e.message); }});">Test latest backup</button>
@@ -192,6 +195,7 @@ def _render_setup_page() -> str:
 <thead><tr><th>When</th><th>File</th><th class="num">Size</th></tr></thead>
 <tbody>{backup_rows_html}</tbody>
 </table>
+{restore_html}
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/backup-keep', {{keep: this.keep.value}})
     .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
@@ -317,6 +321,34 @@ def _plaid_credentials_profile_html(*, profile: str, presence) -> str:
   <button type="submit" class="primary">Save</button>
 </form>
 </div>
+"""
+
+
+def _restore_form_html(backups: list[dict], password_set: bool) -> str:
+    """Go back to an earlier backup. Asks for the password (it replaces
+    everything you have now) and saves the current data first."""
+    if not backups:
+        return ""
+    options = "".join(
+        f'<option value="{html.escape(b["filename"])}">{html.escape(b["modified_at"])} ({_format_bytes(b["size_bytes"])})</option>'
+        for b in backups
+    )
+    password_field = ('<label>Your password<input name="password" type="password" required autocomplete="current-password"></label>'
+                      if password_set else "")
+    return f"""
+<form class="inline" id="restore-backup" onsubmit="event.preventDefault();
+  var f = this;
+  if (!confirm('Replace everything you have now with the backup from ' + f.filename.options[f.filename.selectedIndex].text.split(' (')[0] + '? Your current data is saved first.')) return;
+  var btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Restoring...';
+  postJSON('/api/backup-restore', {{filename: f.filename.value, password: f.password ? f.password.value : ''}})
+    .then(function(r) {{ alert('Restored. Your previous data was saved as ' + r.safety_copy + '.'); location.href = '/'; }})
+    .catch(function(e) {{ alert(e.message); btn.disabled = false; btn.textContent = 'Restore this backup'; }});">
+  <h3 style="font-size:13px; margin:12px 0 4px; flex-basis:100%;">Restore a backup</h3>
+  <label>Backup<select name="filename">{options}</select></label>
+  {password_field}
+  <button type="submit">Restore this backup</button>
+</form>
+<p class="muted" style="font-size:12px">Replaces your current data with the chosen backup. A copy of what you have now is saved first (look for "pre-restore" in the list), so you can undo a restore the same way.</p>
 """
 
 

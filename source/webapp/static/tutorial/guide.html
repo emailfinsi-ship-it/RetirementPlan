@@ -6,23 +6,28 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 <ol>
 <li>Open Terminal and go to the <code>Code</code> folder.</li>
 <li>Run <code>./scripts/run_dashboard.sh</code> (to stop it: <code>./scripts/stop_dashboard.sh</code>).</li>
-<li>Your browser opens the dashboard. To try it with made-up data first, open <strong>Setup → Sample data</strong> and press <strong>Load sample household</strong> (and <strong>Add sample linked accounts</strong> for pretend bank and brokerage accounts). Press <strong>Remove sample data</strong> before you enter your own numbers.</li>
+<li>Your browser opens the dashboard. <strong>The first time, you see a welcome screen</strong> (the Mac app does the same). Create your <strong>admin password</strong> (at least 8 characters, typed twice) and set up the <strong>database</strong>: it shows where your data will be saved, and you can keep it somewhere else if you like. Press <strong>Create password &amp; set up database</strong>. You are then shown a <strong>recovery key</strong>; save it, because it is the only way back in if you forget the password. Then you land in the setup wizard. This happens once; after that you simply log in.</li>
+</ol>
+<p><img alt="Welcome screen" src="/tutorial/screenshots/00-welcome.jpg" /></p>
+<p><img alt="Save your recovery key" src="/tutorial/screenshots/00-recovery-key.jpg" /></p>
+<ol>
+<li>To try it with made-up data first, open <strong>Setup → Sample data</strong> and press <strong>Load sample household</strong> (and <strong>Add sample linked accounts</strong> for pretend bank and brokerage accounts). Press <strong>Remove sample data</strong> before you enter your own numbers.</li>
 </ol>
 <p>After an update, restart the dashboard and refresh the page (Cmd+Shift+R).</p>
 <h2>2. Set it up (about 10 minutes)</h2>
 <p><strong>Step 1: the setup wizard.</strong> Open <strong>Setup</strong> and press <strong>Run the setup wizard</strong>. It asks, one short step at a time: who the plan is for (your name, your partner's, or turn the second person off), birth years and the year you plan to retire, the growth and inflation you expect (6% and 3% are a reasonable start), and how to bring in your accounts. You can change every answer later.</p>
-<p><img loading="lazy" alt="Setup wizard" src="/tutorial/screenshots/00-wizard.jpg" /></p>
+<p><img alt="Setup wizard" src="/tutorial/screenshots/00-wizard.jpg" /></p>
 <p><strong>Step 2: bring in your accounts.</strong> Do either or both.</p>
 <p><em>Connect with Plaid</em> gives you live balances, holdings and spending:</p>
 <ol>
 <li>Make a free developer account at plaid.com and copy your <strong>Client ID</strong> and <strong>Secret</strong>. The <em>sandbox</em> environment has fake test banks, so you can try everything safely. Real banks need Plaid's <em>production</em> environment, which Plaid turns on for your account (check Plaid's current terms).</li>
 <li>On <strong>Setup → Plaid API keys</strong>, paste the Client ID and Secret, choose the environment and press <strong>Save</strong>. They are stored only in your Mac's Keychain.</li>
 </ol>
-<p><img loading="lazy" alt="Plaid API keys" src="/tutorial/screenshots/00-plaid-keys.jpg" /></p>
+<p><img alt="Plaid API keys" src="/tutorial/screenshots/00-plaid-keys.jpg" /></p>
 <ol>
 <li>On <strong>Setup → Connect an account</strong>, type a short name (for example <code>wells_fargo_checking</code>), choose what to pull (<code>investments</code>, <code>transactions</code>; tick <em>Full account number</em> for checking or savings) and press <strong>Connect</strong>. Plaid's secure window opens in a new tab. Log in to your bank there. Your bank password never passes through FinSi.</li>
 </ol>
-<p><img loading="lazy" alt="Connect an account" src="/tutorial/screenshots/00-connect-account.jpg" /></p>
+<p><img alt="Connect an account" src="/tutorial/screenshots/00-connect-account.jpg" /></p>
 <ol>
 <li>Repeat for each bank or brokerage. After that, <strong>Sync now</strong> refreshes everything, and the app also syncs by itself.</li>
 </ol>
@@ -39,38 +44,38 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 </ul>
 <h2>4. A tour of every tab</h2>
 <h3>Summary — your whole picture</h3>
-<p><img loading="lazy" alt="Summary" src="/tutorial/screenshots/01-summary.jpg" /></p>
+<p><img alt="Summary" src="/tutorial/screenshots/01-summary.jpg" /></p>
 <p>Top to bottom: <strong>Alerts</strong> (only when something needs a look), whether your plan is <strong>on track</strong>, <strong>Where you stand</strong> (progress to independence, safe spending, what changed since last month and <em>which accounts moved most</em>), your net worth over time, a <strong>Data check</strong>, and <strong>What should I do next?</strong>, a short numbered list with the most important step first. Every item has an <strong>Open</strong> link to the right tab.</p>
 <p>The bell at the top right shows how many alerts are open. The <strong>eye</strong> button blurs every dollar amount, handy when you share your screen.</p>
 <h3>Assets and Real Estate — what you own and owe</h3>
-<p><img loading="lazy" alt="Assets" src="/tutorial/screenshots/02-assets.jpg" /></p>
+<p><img alt="Assets" src="/tutorial/screenshots/02-assets.jpg" /></p>
 <p>Click any number to edit it. Tick <strong>In the plan?</strong> for the money you want the simulation to spend. Pick a <strong>Tax treatment</strong> (taxable, tax-deferred like a 401(k), or Roth) and an <strong>Owner</strong> for each account. Real Estate tracks each property's value, loan, rent and when the loan ends.</p>
-<p><img loading="lazy" alt="Real estate" src="/tutorial/screenshots/03-real-estate.jpg" /></p>
+<p><img alt="Real estate" src="/tutorial/screenshots/03-real-estate.jpg" /></p>
 <h3>Linked Accounts — Accounts, Positions, Risk &amp; Suggestions</h3>
-<p><img loading="lazy" alt="Accounts" src="/tutorial/screenshots/04-accounts.jpg" /></p>
+<p><img alt="Accounts" src="/tutorial/screenshots/04-accounts.jpg" /></p>
 <p>Accounts connected through Plaid refresh themselves. <strong>Positions</strong> lists every holding. Its <strong>Portfolio check-up</strong> warns if one stock, one sector or one firm holds too much of your money.</p>
-<p><img loading="lazy" alt="Positions" src="/tutorial/screenshots/05-positions.jpg" /></p>
+<p><img alt="Positions" src="/tutorial/screenshots/05-positions.jpg" /></p>
 <p><strong>Risk &amp; Suggestions</strong> asks one question: how much risk are you comfortable with? Pick Conservative, Moderate, Growth or Aggressive. FinSi turns that into a goal mix of stocks, bonds and cash, compares it with what you hold today (overall and by institution), and tells you what to buy or sell in each account. Selling in retirement accounts is suggested first because it costs no tax. FinSi only suggests; it never places an order.</p>
-<p><img loading="lazy" alt="Risk and suggestions" src="/tutorial/screenshots/06-risk.jpg" /></p>
+<p><img alt="Risk and suggestions" src="/tutorial/screenshots/06-risk.jpg" /></p>
 <h3>Income &amp; Expenses — what comes in and goes out</h3>
-<p><img loading="lazy" alt="Income and expenses" src="/tutorial/screenshots/07-income-expenses.jpg" /></p>
+<p><img alt="Income and expenses" src="/tutorial/screenshots/07-income-expenses.jpg" /></p>
 <p>Income is listed first, then expenses. Add rows with <strong>+ Add</strong>, tick rows and press <strong>Delete selected</strong> to remove them. Link a row to a real spending category to see what you actually spent over the last 12 months. The Social Security planner compares claiming ages 62 to 70.</p>
 <p><strong>Spending</strong> (under Actual Spending and Budget vs Actual) shows what really left your accounts, from your linked transactions.</p>
 <h3>Will my money last? — the simulation</h3>
-<p><img loading="lazy" alt="Will it last" src="/tutorial/screenshots/08-will-it-last.jpg" /></p>
+<p><img alt="Will it last" src="/tutorial/screenshots/08-will-it-last.jpg" /></p>
 <p>This is where the chance of lasting comes from. Change the assumptions (growth, inflation, retirement year, tax) or try a <strong>what-if</strong> such as "spend 10% less" or "retire 2 years later". Nothing is saved until you choose to save it. You can also save named scenarios and compare them.</p>
 <h3>Drawdown &amp; Legacy</h3>
-<p><img loading="lazy" alt="Drawdown" src="/tutorial/screenshots/09-drawdown.jpg" /></p>
+<p><img alt="Drawdown" src="/tutorial/screenshots/09-drawdown.jpg" /></p>
 <p><strong>Drawdown Planning</strong> shows, year by year, which accounts you draw from, your required minimum distributions (RMDs) and the estimated tax. The card <strong>"Which account should I take it from?"</strong> compares the usual order (brokerage first) with the split that costs the least tax this year, and shows the tax saved. It looks at one year only, so treat it as a starting point for a conversation with a tax professional.</p>
-<p><img loading="lazy" alt="Legacy" src="/tutorial/screenshots/10-legacy.jpg" /></p>
+<p><img alt="Legacy" src="/tutorial/screenshots/10-legacy.jpg" /></p>
 <p><strong>Legacy Planning</strong> compares strategies, such as Roth conversions, for what you could leave your heirs.</p>
 <h3>Setup</h3>
-<p><img loading="lazy" alt="Setup" src="/tutorial/screenshots/11-setup.jpg" /></p>
+<p><img alt="Setup" src="/tutorial/screenshots/11-setup.jpg" /></p>
 <ul>
 <li><strong>Household</strong>: names of the people in the plan (a one-person plan works too).</li>
 <li><strong>Link accounts</strong> with Plaid, set a <strong>password</strong>, and optionally a <strong>view-only password</strong> (see section 6).</li>
 <li><strong>Alerts &amp; weekly email</strong>: turn on a weekly summary email and Mac notifications.</li>
-<li><strong>Backups</strong>: a copy of your data is made daily. Press <strong>Test latest backup</strong> to prove it opens correctly.</li>
+<li><strong>Backups</strong>: a copy of your data is made daily. Press <strong>Test latest backup</strong> to prove it opens correctly. To go back to an earlier copy, use <strong>Restore a backup</strong> (it asks for your password and saves your current data first, so a restore can be undone).</li>
 </ul>
 <h2>5. Alerts, Data check and next steps</h2>
 <ul>
@@ -79,10 +84,10 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 <li><strong>Weekly email</strong>: in <strong>Setup → Alerts &amp; weekly email</strong> enter your email, your email server and an <em>app password</em> (Gmail and iCloud require one; you create it in your account's security settings). Press <strong>Send test email</strong>. The password is kept in your Mac's Keychain, never in the database.</li>
 </ul>
 <h2>6. Sharing safely: view-only login</h2>
-<p>Set your own password first (<strong>Setup → Security</strong>), then add a <strong>view-only password</strong> for a spouse, advisor or accountant. They sign in on the same page with that password. They can look at everything and try what-ifs, but cannot change anything, and they do not see the Setup page. Changing or removing the view-only password signs them out immediately.</p>
+<p>Your admin password was created on first launch (change it any time in <strong>Setup → Security</strong>). Then add a <strong>view-only password</strong> for a spouse, advisor or accountant. They sign in on the same page with that password. They can look at everything and try what-ifs, but cannot change anything, and they do not see the Setup page. Changing or removing the view-only password signs them out immediately.</p>
 <h2>7. Privacy and safety</h2>
 <ul>
-<li>Your data lives in a database on your Mac (<code>data/retirement_plan.db</code>), plus backups.</li>
+<li>Your data lives in a database on your Mac (<code>data/retirement_plan.db</code>), plus backups you can restore from inside the app.</li>
 <li>Plaid passwords and email passwords are stored in the macOS Keychain.</li>
 <li>The app listens only on your Mac unless you change <strong>Network access</strong> in Setup, and then a password is required.</li>
 <li>FinSi never moves money or places trades.</li>
@@ -91,6 +96,10 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 <p><strong>Why does my chance of lasting change from day to day?</strong> Markets are simulated randomly, and your balances, spending and assumptions change. FinSi keeps its test runs consistent for the same inputs, so a change usually means something real changed. Look at "Since last month" on the Summary.</p>
 <p><strong>It says my mix is off but I hold bond funds.</strong> Funds are sorted by name and tag. If one is wrong, fix its tag in <strong>Positions</strong> or use the Data check's <em>Clear these tags</em> button.</p>
 <p><strong>Can I see everything in today's dollars?</strong> Yes. Use the dollars toggle on the Will my money last? tab.</p>
+<p><strong>I forgot my admin password.</strong> On the login page press <strong>Forgot your password?</strong> and type the recovery key you saved at first launch. You choose a new password and get a new recovery key. If you lost the recovery key too, there is no way back in from inside the app, because that is what keeps your numbers private. Your data file is still on your Mac (<code>data/retirement_plan.db</code>, or the folder you chose), and backups sit next to it. While you are still signed in, <strong>Setup → Security → Make a new recovery key</strong> replaces a lost key.</p>
+<p><strong>Is my data safe?</strong> It stays on your Mac, readable only by your user account, and the app sends nothing out on its own. Turn on FileVault (System Settings → Privacy &amp; Security) so the disk is encrypted if the Mac is lost. See <strong>Privacy &amp; terms</strong> at the bottom of any page.</p>
+<p><strong>How do I get a newer version?</strong> Setup → <strong>About, protection and updates</strong> → <strong>Check for updates</strong>. If something goes wrong, <strong>Download support report</strong> makes a file you can send for help. It leaves out balances, names and passwords.</p>
+<p><strong>How do I move to a new Mac?</strong> On the old Mac go to <strong>Setup → Move to another Mac</strong>, type your password and choose a passphrase for the file, and press <strong>Save transfer file</strong>. It holds your bank connections, login password, recovery key, data and backups, locked with that passphrase. Move the file to the new Mac (AirDrop or a USB stick), open the app, and on the welcome screen choose <strong>Moving from another Mac?</strong>. Pick the file, type the passphrase, and log in with your old password. Delete the file afterwards. From Terminal on a source install the same thing is <code>venv/bin/python scripts/transfer.py export</code> and <code>import FILE</code>.</p>
 <p><strong>How do I start over?</strong> Setup → Sample data → Remove sample data removes only the sample rows. Your own rows stay.</p>
 <hr />
 <p><em>Made-up sample data is used in all screenshots. Not financial, investment, tax or legal advice.</em></p>
