@@ -68,7 +68,7 @@ def _render_welcome_page(*, error: str | None = None) -> str:
 <h2 style="margin-top:0">Welcome! Let's set things up</h2>
 <p class="muted">Two quick things before you start. This only happens once.</p>
 {error_html}
-<form onsubmit="event.preventDefault();
+<form id="fr-form" onsubmit="event.preventDefault();
   var btn = this.querySelector('button[type=submit]');
   var msg = document.getElementById('fr-msg');
   msg.textContent = '';
@@ -76,7 +76,7 @@ def _render_welcome_page(*, error: str | None = None) -> str:
   fetch('/api/first-run', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{{body_fields}}})}})
     .then(function(resp) {{ return resp.json().then(function(d) {{ if (!resp.ok || !d.ok) throw new Error(d.error || 'Failed'); return d; }}); }})
-    .then(function() {{ location.href = '/'; }})
+    .then(function(d) {{ document.getElementById('fr-form').style.display = 'none'; document.getElementById('fr-key').textContent = d.recovery_key; document.getElementById('fr-done').style.display = 'block'; }})
     .catch(function(e) {{ btn.disabled = false; msg.textContent = e.message; }});">
   <div class="fr-step">1. Create your admin password</div>
   <p class="muted" style="margin:0">This protects your financial picture. Use at least 8 characters. There is no username, and nobody can reset it for you, so keep it somewhere safe.</p>
@@ -87,6 +87,14 @@ def _render_welcome_page(*, error: str | None = None) -> str:
   <p id="fr-msg" class="status-line status-err" role="alert"></p>
   <button type="submit" class="primary">Create password &amp; set up database</button>
 </form>
+<div id="fr-done" style="display:none">
+  <h3 style="margin-top:0">All set. One last thing: save your recovery key</h3>
+  <p>If you ever forget your password, this key is the only way back in. It is shown just this once, so write it down or save it in a password manager.</p>
+  <p style="font-size:18px; letter-spacing:1px;"><code id="fr-key"></code></p>
+  <p><button type="button" onclick="navigator.clipboard &amp;&amp; navigator.clipboard.writeText(document.getElementById('fr-key').textContent); this.textContent = 'Copied';">Copy key</button></p>
+  <label style="display:flex; gap:8px; align-items:center; font-size:13px;"><input type="checkbox" id="fr-saved" style="width:auto; margin:0" onchange="document.getElementById('fr-go').disabled = !this.checked;"> I saved my recovery key</label>
+  <button type="button" class="primary" id="fr-go" disabled style="width:100%; margin-top:12px; padding:11px;" onclick="location.href = '/'">Continue</button>
+</div>
 </div>
 {_disclaimer_html()}
 </body>

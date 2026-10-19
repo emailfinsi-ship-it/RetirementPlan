@@ -93,4 +93,5 @@ def complete(password: str, confirm: str | None, data_dir: str | None = None) ->
     config.ensure_directories()
     db.init_db()
     auth_store.set_password(value)
-    return {"data_dir": str(config.DATA_DIR), "kept_existing": keep_existing}
+    key = auth_store.new_recovery_key()
+    return {"data_dir": str(config.DATA_DIR), "kept_existing": keep_existing, "recovery_key": key}

@@ -20,3 +20,8 @@ PRODUCT_SUBLINE = "Track your wealth. Anticipate your needs. Retire with confide
 BUNDLE_ID = "com.finsi.app"
 
 INTERNAL_ID = "RetirementPlan"
+
+# Shown on the About card and the Mac app's Info.plist (build_mac_app.sh reads it).
+APP_VERSION = "1.1.0"
+# Where to send questions; leave empty until a real address exists.
+SUPPORT_EMAIL = ""

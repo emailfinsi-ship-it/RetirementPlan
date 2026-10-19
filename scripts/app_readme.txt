@@ -20,7 +20,7 @@ without losing anything. __APP_NAME__ makes automatic backups there.
 FIRST STEPS
   - The first time you open it, a welcome screen asks you to create an admin
     password and set up the database (you can pick where it is saved).
-    You do this once; after that you just log in. The password cannot be reset.
+    You do this once; after that you just log in. Save the recovery key it shows: it is the way back in if you forget the password.
   - Setup tab > Household: enter your name (and a partner's, or turn the
     second person off).
   - Add accounts, spending and income on the Asset and Income/Expense tabs.

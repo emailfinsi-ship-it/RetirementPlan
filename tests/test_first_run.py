@@ -121,6 +121,67 @@ class TestCompleteSetup(FirstRunBase):
         db.init_db()
 
 
+class TestRecoveryKey(FirstRunBase):
+    def _setup(self):
+        resp, text = self._raw("POST", "/api/first-run", {"password": "correct horse", "confirm": "correct horse"})
+        return json.loads(text)["recovery_key"]
+
+    def test_key_is_shown_once_in_a_friendly_format(self):
+        key = self._setup()
+        parts = key.split("-")
+        self.assertEqual([len(p) for p in parts], [4, 4, 4, 4, 4])
+        self.assertTrue(auth_store.has_recovery_key())
+        self.assertNotIn(key.replace("-", ""), json.dumps(auth_store._load_vault()))   # only a hash is stored
+
+    def test_forgot_page_and_login_link(self):
+        self._setup()
+        resp, page = self._raw("GET", "/forgot.html")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("Reset your password", page)
+        _, login = self._raw("GET", "/login.html")
+        self.assertIn("/forgot.html", login)
+
+    def test_reset_with_key_sets_new_password_and_new_key(self):
+        key = self._setup()
+        body = {"recovery_key": key.lower().replace("-", " "), "password": "brand new pass", "confirm": "brand new pass"}
+        resp, text = self._raw("POST", "/api/reset-password", body)
+        self.assertEqual(resp.status, 200, text)
+        new_key = json.loads(text)["recovery_key"]
+        self.assertNotEqual(new_key, key)
+        self.assertTrue(auth_store.verify_password("brand new pass"))
+        self.assertFalse(auth_store.verify_password("correct horse"))
+        resp, _ = self._raw("POST", "/api/reset-password", {**body, "password": "third password", "confirm": "third password"})
+        self.assertEqual(resp.status, 401)          # the used key no longer works
+
+    def test_wrong_key_and_mismatched_passwords_are_refused(self):
+        self._setup()
+        resp, _ = self._raw("POST", "/api/reset-password",
+                            {"recovery_key": "AAAA-AAAA-AAAA-AAAA-AAAA", "password": "brand new pass", "confirm": "brand new pass"})
+        self.assertEqual(resp.status, 401)
+        resp, _ = self._raw("POST", "/api/reset-password",
+                            {"recovery_key": "x", "password": "brand new pass", "confirm": "other other"})
+        self.assertEqual(resp.status, 400)
+        self.assertTrue(auth_store.verify_password("correct horse"))
+
+    def test_owner_can_make_a_new_key_with_password(self):
+        old = self._setup()
+        cookie = auth_store.issue_session_token("owner")
+        from source.webapp import dashboard
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
+        headers = {"Content-Type": "application/json", "Cookie": f"{dashboard.SESSION_COOKIE_NAME}={cookie}"}
+        conn.request("POST", "/api/recovery-key", body=json.dumps({"password": "wrong"}), headers=headers)
+        self.assertEqual(conn.getresponse().status, 401)
+        conn.close()
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self._HTTP_TIMEOUT)
+        conn.request("POST", "/api/recovery-key", body=json.dumps({"password": "correct horse"}), headers=headers)
+        resp = conn.getresponse()
+        new = json.loads(resp.read())["recovery_key"]
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(auth_store.verify_recovery_key(new))
+        self.assertFalse(auth_store.verify_recovery_key(old))
+
+
 class TestExistingInstall(FirstRunBase):
     def test_existing_database_is_kept_and_only_password_added(self):
         db.set_setup_complete(True)     # stands in for "already has the user's data"

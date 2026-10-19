@@ -7,6 +7,15 @@
 #   dist/<Brand>.app        the app, runnable as-is
 #   dist/<Brand>-mac.zip    the same thing zipped for sharing
 #
+# SIGNING AND NOTARIZING (so Macs open it with no warning). Needs an Apple
+# Developer account. One time:  xcrun notarytool store-credentials "finsi-notary"
+# (it asks for your Apple ID, team id and an app-specific password). Then:
+#   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+#   NOTARY_PROFILE="finsi-notary" bash scripts/build_mac_app.sh
+# Without those two variables the build still works, ad-hoc signed.
+# It also makes dist/<Brand>-<version>.dmg (drag-to-Applications installer)
+# and dist/latest.json (the file "Check for updates" reads once you host it).
+#
 # How the app works: Contents/MacOS/<Brand> is a tiny launcher. It starts the
 # bundled server in the background (if it isn't already running), then opens
 # the dashboard in the default browser. Opening the app again just opens the
@@ -20,7 +29,6 @@ set -e
 cd "$(dirname "$0")/.."
 source scripts/_pick_python.sh
 
-VERSION="1.0.0"
 PORT=8898
 SERVER_NAME="app-server"   # internal binary name; never shown, never brand-specific
 
@@ -37,6 +45,7 @@ echo "Building with $PYTHON_BIN..."
 
 brand() { "$PYTHON_BIN" -c "import runpy; print(runpy.run_path('source/common/branding.py')['$1'])"; }
 APP_NAME="$(brand PRODUCT_NAME)"
+VERSION="$(brand APP_VERSION)"
 BUNDLE_ID="$(brand BUNDLE_ID)"
 DATA_FOLDER="$(brand INTERNAL_ID)"
 echo "Brand: $APP_NAME ($BUNDLE_ID); data folder: ~/Library/Application Support/$DATA_FOLDER"
@@ -134,21 +143,67 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/$APP_NAME.icns"
 
-# Ad-hoc signature: not a developer identity (so macOS still asks you to
-# right-click > Open the first time), but Apple-silicon Macs refuse to run
-# completely unsigned code.
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "(codesign skipped -- the app should still run; right-click > Open the first time.)"
+ENTITLEMENTS=scripts/assets/entitlements.plist
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  echo "Signing with your Developer ID (hardened runtime)..."
+  # Sign every nested binary first, then the app itself.
+  find "$APP/Contents/Resources/server" -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0 |
+    xargs -0 -n1 codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" >/dev/null 2>&1 || true
+  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP"
+  codesign --verify --deep --strict "$APP" && echo "Signature OK."
+else
+  # Ad-hoc signature: not a developer identity (so macOS still asks you to
+  # right-click > Open the first time), but Apple-silicon Macs refuse to run
+  # completely unsigned code.
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "(codesign skipped -- the app should still run; right-click > Open the first time.)"
+fi
+
+notarize() {  # $1 = file to send to Apple (zip or dmg)
+  xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait
+}
+
+if [ -n "${SIGN_IDENTITY:-}" ] && [ -n "${NOTARY_PROFILE:-}" ]; then
+  echo "Sending the app to Apple for notarization (a few minutes)..."
+  ditto -c -k --keepParent "$APP" "build/notarize.zip"
+  notarize build/notarize.zip
+  xcrun stapler staple "$APP"
+fi
 
 sed -e "s/__APP_NAME__/$APP_NAME/g" -e "s/__DATA_FOLDER__/$DATA_FOLDER/g" -e "s/__SERVER_NAME__/$SERVER_NAME/g" scripts/app_readme.txt > "dist/README.txt"
 rm -f "dist/$APP_NAME-mac.zip"
 ditto -c -k --keepParent "$APP" "dist/$APP_NAME-mac.zip"
 
+echo "Making the installer (.dmg)..."
+DMG="dist/$APP_NAME-$VERSION.dmg"
+STAGE="build/dmg"
+rm -rf "$STAGE" "$DMG"; mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+cp "dist/README.txt" "$STAGE/Read me first.txt"
+hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+  if [ -n "${NOTARY_PROFILE:-}" ]; then
+    notarize "$DMG"
+    xcrun stapler staple "$DMG"
+  fi
+fi
+cat > dist/latest.json <<JSON
+{"version": "$VERSION", "url": "https://YOUR-SITE/$APP_NAME-$VERSION.dmg", "notes": "Describe what changed."}
+JSON
+
 echo
 echo "Done."
 echo "  dist/$APP_NAME.app        -- drag this into Applications"
 echo "  dist/$APP_NAME-mac.zip    -- the same, zipped"
+echo "  dist/$APP_NAME-$VERSION.dmg  -- the installer to share"
+echo "  dist/latest.json          -- upload next to the dmg; set its address in Setup > About"
 echo
-echo "First time: right-click $APP_NAME.app > Open > Open (macOS warns about an unidentified developer)."
+if [ -z "${SIGN_IDENTITY:-}" ]; then
+  echo "First time: right-click $APP_NAME.app > Open > Open (macOS warns about an unidentified developer)."
+  echo "(Set SIGN_IDENTITY and NOTARY_PROFILE to remove that warning; see the top of this script.)"
+fi
+echo "Check it on a clean setup:  python3 scripts/smoke_test.py --server dist/$SERVER_NAME/$SERVER_NAME"
 echo "Your data lives in ~/Library/Application Support/$DATA_FOLDER/ ."
 echo
 echo "To bring an existing source install's data across, QUIT the old dashboard, then run:"

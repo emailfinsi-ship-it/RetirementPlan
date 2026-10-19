@@ -79,6 +79,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
   {'<label>Confirm password<input type="password" name="confirm" required></label>' if first_time else ''}
   <button type="submit" class="primary">{submit_label}</button>
 </form>
+{'' if first_time else '<p style="margin:12px 0 0; font-size:13px;"><a href="/forgot.html">Forgot your password?</a></p>'}
 </div>
 {_disclaimer_html()}
 </body>

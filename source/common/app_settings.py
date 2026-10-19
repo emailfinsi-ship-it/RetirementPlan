@@ -138,3 +138,15 @@ def set_backup_keep(keep: int) -> None:
     data = _read()
     data["backup_keep"] = min(max(int(keep), 1), _MAX_BACKUP_KEEP)
     _write(data)
+
+
+def get_update_feed_url() -> str:
+    """Where "Check for updates" looks. Empty (the default) means the app never
+    contacts anyone about updates."""
+    return _read().get("update_feed_url") or ""
+
+
+def set_update_feed_url(url: str) -> None:
+    data = _read()
+    data["update_feed_url"] = (url or "").strip()
+    _write(data)

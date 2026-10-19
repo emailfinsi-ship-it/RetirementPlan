@@ -1401,7 +1401,8 @@ DISCLAIMER_TEXT = (
 def _disclaimer_html() -> str:
     """The one-line footer shown at the bottom of every page."""
     return (f'<p class="muted small site-disclaimer" style="margin:28px 0 70px; padding-top:10px; '
-            f'border-top:1px solid var(--border, #e5e5ea); text-align:center;">{html.escape(DISCLAIMER_TEXT)}</p>')
+            f'border-top:1px solid var(--border, #e5e5ea); text-align:center;">{html.escape(DISCLAIMER_TEXT)} '
+            f'<a href="/legal.html" style="color:inherit; text-decoration:underline;">Privacy &amp; terms</a></p>')
 
 
 def _shell(*, title: str, active: str, body: str) -> str:

@@ -34,7 +34,7 @@ from source.collector import link_item as plaid_link_item
 from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
-from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, production, secrets_store
 from source.importer import xlsx_import
 from source.reporting import benefits, excel_export, scenarios as scenarios_module, what_if
 from source.reporting.aggregate import (
@@ -79,6 +79,8 @@ from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
 from source.webapp.pages.welcome import _render_welcome_page
+from source.webapp.pages.forgot import _render_forgot_page
+from source.webapp.pages.legal import _render_legal_page
 from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
 from source.webapp.pages.real_estate import _render_real_estate_page
 from source.webapp.pages.real_expenditure import _render_real_expenditure_page
@@ -114,13 +116,13 @@ SESSION_COOKIE_NAME = "rp_session"
 # see _may_set_password below, it needs a narrower rule than "always
 # public", since a password change (as opposed to the very first
 # password being set) must require an existing session.
-_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js", "/welcome.html", "/api/first-run"}
+_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js", "/welcome.html", "/api/first-run", "/forgot.html", "/api/reset-password", "/legal.html"}
 
 
 # POST routes a view-only ("viewer") login may still use: they only calculate or
 # show something, and change nothing that is saved.
 _VIEWER_POSTS = {
-    "/api/logout", "/api/login", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
+    "/api/logout", "/api/login", "/api/reset-password", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
     "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode",
 }
 # Pages a viewer never sees (they hold settings and secrets).
@@ -428,6 +430,9 @@ class Handler(BaseHTTPRequestHandler):
                 # copy is already running. Reveals nothing but the product name.
                 self._send_json({"ok": True, "app": branding.PRODUCT_NAME})
                 return
+            if path == "/legal.html":
+                self._send_html(_render_legal_page())
+                return
             if path == "/welcome.html":
                 if first_run.required():
                     self._send_html(_render_welcome_page())
@@ -438,6 +443,9 @@ class Handler(BaseHTTPRequestHandler):
                 # Brand-new install: nothing else is usable until the admin
                 # password and the database exist.
                 self._send_redirect("/welcome.html")
+                return
+            if path == "/forgot.html":
+                self._send_html(_render_forgot_page())
                 return
             if path == "/login.html":
                 self._send_html(_render_login_page(first_time=not auth_store.is_password_set()))
@@ -461,6 +469,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_linked_positions_page())
             elif path == "/rebalance.html":
                 self._send_html(_render_rebalance_page())
+            elif path == "/diagnostics.txt":
+                if self._role() == "viewer":
+                    self._send_redirect("/summary.html")
+                    return
+                body = production.diagnostics_text().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{branding.INTERNAL_ID}-diagnostics.txt"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
             elif path == "/tutorial.html":
                 self._send_html(_render_tutorial_page())
             elif path.startswith("/tutorial/"):
@@ -569,6 +589,54 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if path == "/api/reset-password":
+                client_ip = self.client_address[0]
+                if _login_rate_limited(client_ip):
+                    self._send_json({"ok": False, "error": "Too many failed attempts -- wait a few minutes and try again."}, status=429)
+                    return
+                if not auth_store.is_password_set():
+                    self._send_json({"ok": False, "error": "No password set yet."}, status=400)
+                    return
+                new_password = payload.get("password") or ""
+                if payload.get("confirm") != new_password:
+                    self._send_json({"ok": False, "error": "Passwords don't match."}, status=400)
+                    return
+                if len(new_password.strip()) < 8:
+                    self._send_json({"ok": False, "error": "Password must be at least 8 characters."}, status=400)
+                    return
+                try:
+                    new_key = auth_store.reset_password_with_recovery_key(payload.get("recovery_key") or "", new_password)
+                except PermissionError as exc:
+                    _record_login_failure(client_ip)
+                    self._send_json({"ok": False, "error": str(exc)}, status=401)
+                    return
+                _clear_login_failures(client_ip)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._set_session_cookie()
+                body = json.dumps({"ok": True, "recovery_key": new_key}).encode("utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if path == "/api/check-update":
+                self._send_json(production.check_for_update())
+                return
+            if path == "/api/update-feed":
+                url = (payload.get("url") or "").strip()
+                if url and not url.lower().startswith("https://"):
+                    self._send_json({"ok": False, "error": "The update address must start with https://."}, status=400)
+                    return
+                app_settings.set_update_feed_url(url)
+                self._send_json({"ok": True})
+                return
+            if path == "/api/recovery-key":
+                if not auth_store.verify_password(payload.get("password") or ""):
+                    self._send_json({"ok": False, "error": "Wrong password."}, status=401)
+                    return
+                self._send_json({"ok": True, "recovery_key": auth_store.new_recovery_key()})
                 return
             if path == "/api/set-password":
                 # First-time setup (no password exists yet) reaches here
@@ -1206,6 +1274,7 @@ def run(*, open_browser: bool = True) -> None:
     if config.DEMO and not db.list_line_items("assets"):
         demo_data.seed_sample_household(with_history=True, with_linked=True)
         db.set_setup_complete(True)
+    production.protect_files()
     # First time the app is opened today, today gets a backup -- see
     # source.common.backup's module docstring for why this (rather than
     # a cron job or background thread) is the "automatic" mechanism.
@@ -1215,6 +1284,7 @@ def run(*, open_browser: bool = True) -> None:
         backup.ensure_daily_backup()
     except Exception as exc:
         print(f"Startup backup failed (continuing anyway): {exc}")
+    production.protect_files()     # includes the backup just taken
 
     # One net-worth-history data point for today, from whatever's already
     # in the database -- see aggregate.capture_net_worth_snapshot's own

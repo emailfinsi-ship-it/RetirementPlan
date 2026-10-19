@@ -6,6 +6,7 @@ from __future__ import annotations
 import html
 
 from source.webapp.pages.alerts_card import alerts_settings_card_html
+from source.webapp.pages.about_card import about_card_html
 from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
 from source.webapp.render_helpers import _shell
@@ -158,6 +159,8 @@ def _render_setup_page() -> str:
 {security_html}
 
 {alerts_settings_card_html()}
+
+{about_card_html()}
 
 <details class="advanced-group" id="advanced-settings" style="margin:16px 0;">
 <summary style="font-weight:650; font-size:15px; cursor:pointer;">Advanced settings <span class="muted">(data locations, category rules, automatic sync, property values, network access)</span></summary>
@@ -347,7 +350,33 @@ def _security_card_html(*, password_set: bool) -> str:
   <button type="submit" class="primary">{submit_label}</button>
 </form>
 <p class="muted">Changing the password logs out every other browser/device currently signed in -- useful if a session cookie ever ends up somewhere it shouldn't.</p>
+{_recovery_key_html(password_set)}
 {_viewer_login_html(password_set)}
+</div>
+"""
+
+
+def _recovery_key_html(password_set: bool) -> str:
+    """The way back in if the password is forgotten: a one-time key, shown
+    once, kept only as a hash."""
+    if not password_set:
+        return ""
+    has_key = auth_store.has_recovery_key()
+    status = ('<p class="status-line status-ok">A recovery key is saved. Keep your copy somewhere safe; it is the only way back in if you forget your password.</p>'
+              if has_key else '<p class="status-line status-warn">You have no recovery key yet. Make one now so a forgotten password is not the end of your access.</p>')
+    return f"""
+<h3 style="font-size:13px; margin:16px 0 4px;" id="recovery-key">Recovery key</h3>
+{status}
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/recovery-key', {{password: this.current.value}})
+    .then(function(d) {{ document.getElementById('rk-new').style.display = 'block'; document.getElementById('rk-value').textContent = d.recovery_key; }})
+    .catch(function(e) {{ alert(e.message); }});">
+  <label>Your password<input name="current" type="password" required autocomplete="current-password"></label>
+  <button type="submit" class="primary">{'Make a new recovery key' if has_key else 'Make a recovery key'}</button>
+</form>
+<div id="rk-new" style="display:none; margin-top:8px;">
+  <p>Write this down or store it in a password manager. It is shown only now, and any older key stops working.</p>
+  <p style="font-size:18px; letter-spacing:1px;"><code id="rk-value"></code></p>
 </div>
 """
 

@@ -66,6 +66,9 @@ def _empty_vault() -> dict:
         "viewer_hash": "",
         "viewer_salt": "",
         "viewer_iterations": 0,
+        "recovery_hash": "",
+        "recovery_salt": "",
+        "recovery_iterations": 0,
     }
 
 
@@ -142,6 +145,52 @@ def verify_password(candidate: str) -> bool:
     """True for the OWNER password (the one that can change things)."""
     vault = _load_vault()
     return _check(candidate, vault.get("password_hash", ""), vault.get("password_salt", ""), vault.get("password_iterations", 0))
+
+
+# ---- the recovery key ----
+# A one-time key shown at first launch. It is the only way back in if the
+# password is forgotten, and it is stored only as a hash, so it can never be
+# shown again -- using it (or asking for a new one) replaces it.
+
+_RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I mix-ups
+
+
+def _normalize_key(raw: str) -> str:
+    return "".join(ch for ch in (raw or "").upper() if ch.isalnum())
+
+
+def has_recovery_key() -> bool:
+    return bool(_load_vault().get("recovery_hash"))
+
+
+def new_recovery_key() -> str:
+    """Makes a fresh recovery key, stores its hash (replacing any old one) and
+    returns it ONCE, formatted like XXXX-XXXX-XXXX-XXXX-XXXX."""
+    import secrets as _secrets
+
+    raw = "".join(_secrets.choice(_RECOVERY_ALPHABET) for _ in range(20))
+    salt = os.urandom(16)
+    vault = _load_vault()
+    vault["recovery_hash"] = hashlib.pbkdf2_hmac("sha256", raw.encode("ascii"), salt, _PBKDF2_ITERATIONS).hex()
+    vault["recovery_salt"] = salt.hex()
+    vault["recovery_iterations"] = _PBKDF2_ITERATIONS
+    _save_vault(vault)
+    return "-".join(raw[i:i + 4] for i in range(0, 20, 4))
+
+
+def verify_recovery_key(candidate: str) -> bool:
+    vault = _load_vault()
+    return _check(_normalize_key(candidate), vault.get("recovery_hash", ""),
+                  vault.get("recovery_salt", ""), vault.get("recovery_iterations", 0))
+
+
+def reset_password_with_recovery_key(candidate: str, new_password: str) -> str:
+    """Sets a new password when the recovery key is right, signs out every old
+    session, and returns a NEW recovery key (the used one stops working)."""
+    if not verify_recovery_key(candidate):
+        raise PermissionError("That recovery key is not right.")
+    set_password(new_password)        # also rotates the session secret
+    return new_recovery_key()
 
 
 # ---- the optional view-only ("viewer") login ----
