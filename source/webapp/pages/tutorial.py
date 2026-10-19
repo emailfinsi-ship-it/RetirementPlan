@@ -37,9 +37,10 @@ def _render_tutorial_page() -> str:
   <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-light.mp4'; v.play();">Quick silent tour (light, captions only)</button>
 </p>
 </div>
-<div class="card tut-guide" id="guide">
-<h3 class="sub" style="margin-top:0">User guide</h3>
+<details class="card tut-guide" id="guide">
+<summary style="font-weight:650; font-size:15px; cursor:pointer;">User guide <span class="muted">(click to open)</span></summary>
 {_guide_html()}
-</div>
+</details>
+<script>if (location.hash === '#guide') document.getElementById('guide').open = true;</script>
 """
     return _shell(title="Tutorial", active="tutorial.html", body=body)

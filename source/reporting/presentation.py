@@ -78,14 +78,15 @@ def verdict_sentence(result: dict, assumptions: dict, yearly_spending: float, mo
     """One plain sentence: chance the money lasts, to when, and the
     spending it covers. `money` is the page's currency formatter."""
     rate = result.get("success_rate", 0.0)
-    out_of_100 = None if rate >= 0.995 else round(rate * 100)
+    runs = int(result.get("iterations") or 1000)
     end_year, age = last_year_and_age(result, assumptions)
     until = (
         f"to age {age} ({end_year})" if age is not None and 0 < age < 130
         else f"through {end_year}" if end_year else "through the plan"
     )
     spend = f", while covering about {money(yearly_spending)} a year of spending" if yearly_spending > 0 else ""
-    lead = "In more than 99 of 100" if out_of_100 is None else f"In {out_of_100} of 100"
+    # Say it in the real number of runs (e.g. 1,000), so it matches "based on 1,000 simulated paths".
+    lead = (f"In more than 99% of {runs:,}" if rate >= 0.995 else f"In {round(rate * runs):,} of {runs:,}")
     return f"{lead} market simulations your savings last {until}{spend}."
 
 
