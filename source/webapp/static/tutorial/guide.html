@@ -9,14 +9,35 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 <li>Your browser opens the dashboard. To try it with made-up data first, open <strong>Setup → Sample data</strong> and press <strong>Load sample household</strong> (and <strong>Add sample linked accounts</strong> for pretend bank and brokerage accounts). Press <strong>Remove sample data</strong> before you enter your own numbers.</li>
 </ol>
 <p>After an update, restart the dashboard and refresh the page (Cmd+Shift+R).</p>
-<h2>2. The big idea in 60 seconds</h2>
+<h2>2. Set it up (about 10 minutes)</h2>
+<p><strong>Step 1: the setup wizard.</strong> Open <strong>Setup</strong> and press <strong>Run the setup wizard</strong>. It asks, one short step at a time: who the plan is for (your name, your partner's, or turn the second person off), birth years and the year you plan to retire, the growth and inflation you expect (6% and 3% are a reasonable start), and how to bring in your accounts. You can change every answer later.</p>
+<p><img loading="lazy" alt="Setup wizard" src="/tutorial/screenshots/00-wizard.jpg" /></p>
+<p><strong>Step 2: bring in your accounts.</strong> Do either or both.</p>
+<p><em>Connect with Plaid</em> gives you live balances, holdings and spending:</p>
+<ol>
+<li>Make a free developer account at plaid.com and copy your <strong>Client ID</strong> and <strong>Secret</strong>. The <em>sandbox</em> environment has fake test banks, so you can try everything safely. Real banks need Plaid's <em>production</em> environment, which Plaid turns on for your account (check Plaid's current terms).</li>
+<li>On <strong>Setup → Plaid API keys</strong>, paste the Client ID and Secret, choose the environment and press <strong>Save</strong>. They are stored only in your Mac's Keychain.</li>
+</ol>
+<p><img loading="lazy" alt="Plaid API keys" src="/tutorial/screenshots/00-plaid-keys.jpg" /></p>
+<ol>
+<li>On <strong>Setup → Connect an account</strong>, type a short name (for example <code>wells_fargo_checking</code>), choose what to pull (<code>investments</code>, <code>transactions</code>; tick <em>Full account number</em> for checking or savings) and press <strong>Connect</strong>. Plaid's secure window opens in a new tab. Log in to your bank there. Your bank password never passes through FinSi.</li>
+</ol>
+<p><img loading="lazy" alt="Connect an account" src="/tutorial/screenshots/00-connect-account.jpg" /></p>
+<ol>
+<li>Repeat for each bank or brokerage. After that, <strong>Sync now</strong> refreshes everything, and the app also syncs by itself.</li>
+</ol>
+<p><em>Or type it in yourself.</em> Press <strong>+ Add</strong> (bottom right of any page) and choose an asset, a debt, an expense, income or a property. No bank connection is needed.</p>
+<p><strong>Step 3: tell FinSi how to treat each account.</strong> On <strong>Assets</strong>, tick <strong>In the plan?</strong> for the money the plan may spend, and set the <strong>Tax treatment</strong> (taxable, tax-deferred such as a 401(k), or Roth) and the <strong>Owner</strong>. A linked account that is not counted yet shows a <strong>Classify</strong> button on <strong>Linked Accounts</strong>.</p>
+<p><strong>Step 4: protect it.</strong> Set a password in <strong>Setup → Security</strong>, especially before you share your Mac or allow network access. You can add a view-only password too (section 6).</p>
+<p><strong>Just looking around?</strong> Press <strong>Load sample household</strong> in the wizard or on Setup to fill in a made-up family, and <strong>Remove sample data</strong> when you are ready for your own.</p>
+<h2>3. The big idea in 60 seconds</h2>
 <ul>
 <li><strong>Chance your money lasts.</strong> FinSi replays your plan through 1,000 possible good and bad market futures. "982 of 1,000" means your savings lasted to the end in 982 of those 1,000 runs. Aim for about 85% or more.</li>
 <li><strong>Financial independence.</strong> Savings compared with about 25 times the yearly spending your income does not already cover.</li>
 <li><strong>Safe spending.</strong> The most you could spend each year and still keep your chance of lasting at the level you choose.</li>
 <li><strong>Real numbers.</strong> You can see everything in today's dollars or future dollars (a toggle on the Will my money last? tab).</li>
 </ul>
-<h2>3. A tour of every tab</h2>
+<h2>4. A tour of every tab</h2>
 <h3>Summary — your whole picture</h3>
 <p><img loading="lazy" alt="Summary" src="/tutorial/screenshots/01-summary.jpg" /></p>
 <p>Top to bottom: <strong>Alerts</strong> (only when something needs a look), whether your plan is <strong>on track</strong>, <strong>Where you stand</strong> (progress to independence, safe spending, what changed since last month and <em>which accounts moved most</em>), your net worth over time, a <strong>Data check</strong>, and <strong>What should I do next?</strong>, a short numbered list with the most important step first. Every item has an <strong>Open</strong> link to the right tab.</p>
@@ -47,26 +68,26 @@ It pulls your accounts, income and spending into one place, tests your plan agai
 <p><img loading="lazy" alt="Setup" src="/tutorial/screenshots/11-setup.jpg" /></p>
 <ul>
 <li><strong>Household</strong>: names of the people in the plan (a one-person plan works too).</li>
-<li><strong>Link accounts</strong> with Plaid, set a <strong>password</strong>, and optionally a <strong>view-only password</strong> (see section 5).</li>
+<li><strong>Link accounts</strong> with Plaid, set a <strong>password</strong>, and optionally a <strong>view-only password</strong> (see section 6).</li>
 <li><strong>Alerts &amp; weekly email</strong>: turn on a weekly summary email and Mac notifications.</li>
 <li><strong>Backups</strong>: a copy of your data is made daily. Press <strong>Test latest backup</strong> to prove it opens correctly.</li>
 </ul>
-<h2>4. Alerts, Data check and next steps</h2>
+<h2>5. Alerts, Data check and next steps</h2>
 <ul>
 <li><strong>Alerts</strong> appear when your chance of lasting drops 5 points or more in a week (or is low), when a data problem needs fixing, when one holding or sector dominates, or when your mix drifts 10+ points from your goal. Press <strong>Dismiss</strong> to hide one; it comes back only if the problem goes away and returns.</li>
 <li><strong>Data check</strong> looks for things that quietly skew your numbers: a negative cash balance (margin), a fund with the wrong sector tag, accounts that have not synced in a week, holdings with no cost basis, missing or old backups. Some come with a one-click fix.</li>
 <li><strong>Weekly email</strong>: in <strong>Setup → Alerts &amp; weekly email</strong> enter your email, your email server and an <em>app password</em> (Gmail and iCloud require one; you create it in your account's security settings). Press <strong>Send test email</strong>. The password is kept in your Mac's Keychain, never in the database.</li>
 </ul>
-<h2>5. Sharing safely: view-only login</h2>
+<h2>6. Sharing safely: view-only login</h2>
 <p>Set your own password first (<strong>Setup → Security</strong>), then add a <strong>view-only password</strong> for a spouse, advisor or accountant. They sign in on the same page with that password. They can look at everything and try what-ifs, but cannot change anything, and they do not see the Setup page. Changing or removing the view-only password signs them out immediately.</p>
-<h2>6. Privacy and safety</h2>
+<h2>7. Privacy and safety</h2>
 <ul>
 <li>Your data lives in a database on your Mac (<code>data/retirement_plan.db</code>), plus backups.</li>
 <li>Plaid passwords and email passwords are stored in the macOS Keychain.</li>
 <li>The app listens only on your Mac unless you change <strong>Network access</strong> in Setup, and then a password is required.</li>
 <li>FinSi never moves money or places trades.</li>
 </ul>
-<h2>7. Common questions</h2>
+<h2>8. Common questions</h2>
 <p><strong>Why does my chance of lasting change from day to day?</strong> Markets are simulated randomly, and your balances, spending and assumptions change. FinSi keeps its test runs consistent for the same inputs, so a change usually means something real changed. Look at "Since last month" on the Summary.</p>
 <p><strong>It says my mix is off but I hold bond funds.</strong> Funds are sorted by name and tag. If one is wrong, fix its tag in <strong>Positions</strong> or use the Data check's <em>Clear these tags</em> button.</p>
 <p><strong>Can I see everything in today's dollars?</strong> Yes. Use the dollars toggle on the Will my money last? tab.</p>

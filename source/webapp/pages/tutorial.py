@@ -33,8 +33,8 @@ def _render_tutorial_page() -> str:
 <h3 class="sub" style="margin-top:0">Watch the tour</h3>
 <video class="tut-video" id="tut-video" controls preload="metadata" src="/tutorial/tour-dark.mp4"></video>
 <p class="small muted" style="margin:8px 0 0">
-  <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-dark.mp4'; v.play();">Narrated tour (dark, with voice-over)</button>
-  <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-light.mp4'; v.play();">Quick silent tour (light, captions only)</button>
+  <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-dark.mp4'; v.play();">Narrated tour: setup, then every tab (dark, voice-over)</button>
+  <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-light.mp4'; v.play();">Silent tabs-only tour (light, captions only)</button>
 </p>
 </div>
 <details class="card tut-guide" id="guide">
