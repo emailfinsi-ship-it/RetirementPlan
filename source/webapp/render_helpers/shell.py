@@ -1331,6 +1331,18 @@ def _header_sync_html() -> str:
     )
 
 
+DISCLAIMER_TEXT = (
+    "For planning and education only. Not financial, investment, tax or legal advice. "
+    "Projections are estimates, not guarantees; talk to a qualified professional before making decisions."
+)
+
+
+def _disclaimer_html() -> str:
+    """The one-line footer shown at the bottom of every page."""
+    return (f'<p class="muted small site-disclaimer" style="margin:28px 0 70px; padding-top:10px; '
+            f'border-top:1px solid var(--border, #e5e5ea); text-align:center;">{html.escape(DISCLAIMER_TEXT)}</p>')
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1338,7 +1350,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_demo_banner_html() + _subnav_html(active) + _motto_html(active) + body, current_year=current_year,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_demo_banner_html() + _subnav_html(active) + _motto_html(active) + body + _disclaimer_html(), current_year=current_year,
         product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_header_sync_html() + THEME_TOGGLE_HTML,
     )
 

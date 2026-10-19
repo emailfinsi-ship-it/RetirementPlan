@@ -45,13 +45,14 @@ THEME_INIT_SCRIPT = """<script>
   function hidden() { try { return localStorage.getItem('rp-hide') === '1'; } catch (e) { return false; } }
   if (hidden()) document.documentElement.classList.add('hide-money');
   var MONEY = /-?\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[KMB]?/g;
-  function tagMoney() {
-    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  function tagMoney(root) {
+    root = root || document.body;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var nodes = [], n;
     while ((n = walker.nextNode())) { nodes.push(n); }
     nodes.forEach(function (node) {
       var parent = node.parentNode;
-      if (!parent || /^(SCRIPT|STYLE|TEXTAREA|OPTION|TITLE)$/i.test(parent.nodeName)) return;
+      if (!parent || /^(SCRIPT|STYLE|TEXTAREA|OPTION|TITLE)$/i.test(parent.nodeName) || (parent.classList && parent.classList.contains('mny'))) return;
       if (!MONEY.test(node.nodeValue)) { MONEY.lastIndex = 0; return; }
       MONEY.lastIndex = 0;
       if (parent.namespaceURI === 'http://www.w3.org/2000/svg') { parent.classList.add('mny'); return; }
@@ -65,7 +66,59 @@ THEME_INIT_SCRIPT = """<script>
       parent.replaceChild(frag, node);
     });
   }
-  document.addEventListener('DOMContentLoaded', function () { tagMoney(); window.rpHideSync(); });
+  // Dollar-amount inputs (what-if, assumptions, balances...) are blurred too:
+  // any text/number box whose name, id or label looks like money.
+  var MONEY_FIELD = /amount|balance|spend|income|saving|value|cost|price|salary|wage|withdraw|payment|contribution|expense|dollar|worth|equity|\\$/i;
+  var NOT_MONEY_FIELD = /pct|percent|year|age\\b|rate|iteration|seed|ticker|name|password|email|note|%/i;
+  function tagMoneyInputs(root) {
+    (root.querySelectorAll ? root.querySelectorAll('input') : []).forEach(function (el) {
+      if (el.hasAttribute('data-money') || !/^(text|number|)$/i.test(el.type || '')) return;
+      var lab = el.closest('label'), label = lab ? lab.textContent : '';
+      var key = (el.name || '') + ' ' + (el.id || '') + ' ' + (el.getAttribute('data-field') || '');
+      if ((MONEY_FIELD.test(key) || /\\$/.test(label)) && !NOT_MONEY_FIELD.test(key) && !/%/.test(label)) el.setAttribute('data-money', '1');
+    });
+  }
+  // Hover tooltips (SVG <title> and title="" attributes) would still spell out
+  // the dollars, so they are masked while balances are hidden and restored after.
+  function maskTitles(root, hide) {
+    root = root || document.body;
+    var scan = root.querySelectorAll ? Array.prototype.slice.call(root.querySelectorAll('title, [title], [data-orig-title]')) : [];
+    if (root.nodeType === 1) scan.push(root);
+    scan.forEach(function (el) {
+      if (el.nodeName.toLowerCase() === 'title') {
+        if (!el.closest('svg')) return;
+        var orig = el.getAttribute('data-orig');
+        if (hide && orig === null && /\\$\\s?\\d/.test(el.textContent)) {
+          el.setAttribute('data-orig', el.textContent);
+          el.textContent = el.textContent.replace(/\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[KMB]?/g, '$***');
+        } else if (!hide && orig !== null) { el.textContent = orig; el.removeAttribute('data-orig'); }
+      } else {
+        var t = el.getAttribute('title'), o = el.getAttribute('data-orig-title');
+        if (hide && o === null && t && /\\$\\s?\\d/.test(t)) {
+          el.setAttribute('data-orig-title', t);
+          el.setAttribute('title', t.replace(/\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[KMB]?/g, '$***'));
+        } else if (!hide && o !== null) { el.setAttribute('title', o); el.removeAttribute('data-orig-title'); }
+      }
+    });
+  }
+  function tagAll(root) { tagMoney(root); tagMoneyInputs(root); maskTitles(root, hidden()); }
+  document.addEventListener('DOMContentLoaded', function () {
+    tagAll(document.body); window.rpHideSync();
+    // Figures filled in later by scripts (safe spending, what-if, analyses...) get tagged as they appear.
+    var pending = false, queue = [];
+    new MutationObserver(function (muts) {
+      muts.forEach(function (m) { m.addedNodes.forEach(function (nd) { if (nd.nodeType === 1 || nd.nodeType === 3) queue.push(nd); }); });
+      if (pending || !queue.length) return;
+      pending = true;
+      setTimeout(function () {
+        var items = queue; queue = []; pending = false;
+        items.forEach(function (nd) {
+          if (nd.nodeType === 3) { if (nd.parentNode && nd.parentNode.nodeType === 1) tagMoney(nd.parentNode); }
+          else if (nd.isConnected) tagAll(nd);
+        });
+      }, 30);
+    }).observe(document.body, {childList: true, subtree: true});
+  });
   window.rpHideSync = function () {
     var b = document.getElementById('hide-toggle');
     if (!b) return;
@@ -77,6 +130,7 @@ THEME_INIT_SCRIPT = """<script>
     var next = !hidden();
     try { if (next) localStorage.setItem('rp-hide', '1'); else localStorage.removeItem('rp-hide'); } catch (e) {}
     document.documentElement.classList.toggle('hide-money', next);
+    maskTitles(document.body, next);
     window.rpHideSync();
   };
   window.rpThemeSync = function () {

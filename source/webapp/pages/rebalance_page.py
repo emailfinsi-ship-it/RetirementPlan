@@ -33,8 +33,7 @@ def _round(amount: float) -> float:
 
 
 def _mix_text(rows: list[dict], key: str) -> str:
-    parts = [f"{r[key]:.0f}% {r['cls'].lower()}" for r in rows if r[key] >= 0.5]
-    return ", ".join(parts) or "nothing"
+    return ", ".join(f"{r[key]:.0f}% {r['cls'].lower()}" for r in rows)
 
 
 def _bar(rows: list[dict]) -> str:
@@ -118,7 +117,8 @@ def _grouping_html(positions: list[dict], overrides: dict) -> str:
 
 
 def _render_rebalance_page() -> str:
-    positions = [p for p in linked_data.read_linked_portfolio_positions() if (p.get("market_value") or 0) > 0]
+    # Skip holdings worth under a dollar: an account that shows as $0 has nothing to rebalance.
+    positions = [p for p in linked_data.read_linked_portfolio_positions() if (p.get("market_value") or 0) >= 1]
     head = ('<h2 style="margin-top:0">Rebalance</h2>'
             '<p class="muted">Keeping the right mix of stocks, bonds and cash helps protect your retirement. '
             'Below, each account tells you what to do, if anything. These are suggestions only &mdash; '
@@ -130,11 +130,20 @@ def _render_rebalance_page() -> str:
     target = saved or rebalance.suggested_target(_age(db.get_assumptions()))
     overrides = rebalance.get_overrides()
     goal_src = ("the goal you saved" if saved else "a starting mix picked for your age &mdash; change it below if you like")
-    goal_text = ", ".join(f"{target[c]:.0f}% {c.lower()}" for c in rebalance.CLASSES if target[c] > 0)
+    goal_text = ", ".join(f"{target[c]:.0f}% {c.lower()}" for c in rebalance.CLASSES)
+    overall = rebalance.build_plan(positions, target, overrides)
+    tiles = "".join(
+        f'<div class="tile"><div class="label"><span style="display:inline-block; width:10px; height:10px; border-radius:2px; '
+        f'background:{_COLORS[r["cls"]]}; margin-right:6px;"></span>{r["cls"]}</div>'
+        f'<div class="value">{r["pct"]:.0f}%</div>'
+        f'<div class="muted small">{_money(r["value"])} &middot; goal {r["target_pct"]:.0f}%</div></div>'
+        for r in overall["rows"]
+    )
     goal = f"""<div class="card">
-<h3 class="sub" style="margin-top:0">Your goal</h3>
-<p style="margin:0">{goal_text}</p>
-<p class="muted small" style="margin:2px 0 8px">This is {goal_src}.</p>
+<h3 class="sub" style="margin-top:0">Your mix today <span class="muted" style="font-weight:normal">&middot; all linked accounts, {_money(overall['total'])}</span></h3>
+{_bar(overall['rows'])}
+<div class="tiles" style="margin-top:10px">{tiles}</div>
+<p class="muted small" style="margin:10px 0 8px">Your goal is {goal_text}. This is {goal_src}.</p>
 <details class="how-it-works"><summary>Change my goal</summary>{_goal_form(target)}</details>
 </div>"""
     accounts: dict[str, list[dict]] = {}
@@ -144,7 +153,7 @@ def _render_rebalance_page() -> str:
         accounts.setdefault(key, []).append(p)
         labels.setdefault(key, " - ".join(x for x in (p.get("institution"), p.get("account")) if x) or "Account")
     order = sorted(accounts, key=lambda k: -sum(p["market_value"] for p in accounts[k]))
-    cards = "".join(_account_card(labels[k], accounts[k], target, overrides) for k in order)
+    cards = "".join(_account_card(labels[k], accounts[k], target, overrides) for k in order if sum(p["market_value"] for p in accounts[k]) >= 1)
     legend = "".join(
         f'<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;"><span style="width:10px; height:10px; border-radius:2px; background:{_COLORS[c]}"></span>{c}</span>'
         for c in rebalance.CLASSES
@@ -154,5 +163,5 @@ def _render_rebalance_page() -> str:
 <div class="muted small" style="margin:4px 0 8px">{legend}</div>
 {cards}
 {_grouping_html(positions, overrides)}
-<p class="muted small">General information, not personal investment, tax or legal advice. Gains shown are estimates from your cost basis.</p>"""
+<p class="muted small">Taxable gains shown are estimates from your cost basis.</p>"""
     return _shell(title="Rebalance", active="rebalance.html", body=body)

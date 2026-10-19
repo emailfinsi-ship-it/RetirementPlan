@@ -80,7 +80,10 @@ class TestRebalanceCard(DashboardTestCase):
         body = self._get("/rebalance.html").read().decode("utf-8")
         self.assertIn("<h2", body)
         self.assertIn("Rebalance", body)
-        self.assertIn("Your goal", body)
+        self.assertIn("Your mix today", body)
+        for c in ("Stocks", "Bonds", "Cash", "Other"):
+            self.assertIn(f"</span>{c}</div>", body)
+        self.assertIn("Your goal is", body)
         self.assertIn("Pick a mix for my age", body)
         self.assertIn("Roth IRA", body)
         self.assertIn("starting mix picked for your age", body)
@@ -112,6 +115,28 @@ class TestRebalanceCard(DashboardTestCase):
         self.assertIn("Roth IRA", body)
         self.assertIn("Brokerage", body)
         self.assertIn("taxable", body)
+
+    def test_disclaimer_footer_on_every_page(self):
+        for path in ("/summary.html", "/rebalance.html", "/linked-positions.html", "/expense.html", "/monte-carlo.html", "/setup.html", "/login.html"):
+            with self.subTest(path=path):
+                body = self._get(path).read().decode("utf-8")
+                self.assertIn("Not financial, investment, tax or legal advice", body)
+
+    def test_hide_balances_script_covers_late_content_and_tooltips(self):
+        body = self._get("/rebalance.html").read().decode("utf-8")
+        self.assertIn("new MutationObserver", body)  # figures filled in by scripts get hidden too
+        self.assertIn("maskTitles", body)  # hover tooltips are masked as well
+        self.assertIn("tagMoneyInputs", body)
+
+    def test_zero_value_account_is_left_out(self):
+        db.upsert_plaid_account(item_key="rb_item", account={"account_id": "z1", "name": "Empty Brokerage", "type": "investment",
+                                                             "subtype": "brokerage", "balances": {"current": 0.2}})
+        db.upsert_plaid_holding(item_key="rb_item", holding={
+            "account_id": "z1", "security_id": "zc", "ticker_symbol": "CUR", "security_name": "Cash",
+            "security_type": "cash", "quantity": 1, "institution_price": 0.2, "institution_value": 0.2, "cost_basis": 0.2})
+        body = self._get("/rebalance.html").read().decode("utf-8")
+        self.assertNotIn("Empty Brokerage", body)
+        self.assertIn("Roth IRA", body)
 
     def test_endpoints(self):
         status, _ = self._post("/api/target-allocation", {"Stocks": 60, "Bonds": 30, "Cash": 5, "Other": 0})

@@ -12,6 +12,7 @@ import html
 
 from source.common import branding
 
+from source.webapp.render_helpers.shell import _disclaimer_html
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT
 
 
@@ -79,6 +80,7 @@ def _render_login_page(*, error: str | None = None, first_time: bool = False) ->
   <button type="submit" class="primary">{submit_label}</button>
 </form>
 </div>
+{_disclaimer_html()}
 </body>
 </html>
 """
