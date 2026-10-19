@@ -6,7 +6,9 @@ from __future__ import annotations
 import html
 
 from source.common import linked_data
+from source.common import db
 from source.reporting.portfolio_checkup import portfolio_checkup
+from source.webapp.pages.rebalance_card import rebalance_card_html
 from source.webapp.render_helpers import (
     _bar_chart_html,
     _donut_chart_html,
@@ -141,6 +143,7 @@ def _render_linked_positions_page() -> str:
         for p in linked_positions
     ) or '<tr><td colspan="9" class="muted">No linked portfolio positions yet -- connect a Plaid investments account on Setup.</td></tr>'
     market_value_total = sum(p["market_value"] or 0 for p in linked_positions)
+    rebalance_html = rebalance_card_html(linked_positions, db.get_assumptions())
     checkup = portfolio_checkup(linked_positions)
     checkup_html = ""
     if checkup["findings"]:
@@ -160,6 +163,7 @@ def _render_linked_positions_page() -> str:
 <p class="muted">Investment holdings pulled directly from Plaid for accounts that requested the "investments" product, each time this page loads. Industry is auto-classified for equities from Yahoo Finance during sync ("Sync now" below) -- Plaid has no industry data, so a cash position, ETF, mutual fund, or anything not yet classified shows as "Unclassified"/"Unknown"; check the box next to one or more rows below and use the bar that appears to tag them yourself. Sector normally rolls each industry up to one of Yahoo Finance's ~11 broad sectors, for a coarser view than the full industry list -- but a mutual fund, ETF, or target-date fund never gets an industry in the first place (it holds many at once), so it stays in "Unknown" forever unless you tag its sector directly with the "Set sector" bar. Click a slice, bar, or legend entry in any chart below to filter the list to just that type, institution, sector, or industry; click it again (or "Clear all") to reset. See <a href="/portfolio-positions.html">portfolio-positions.html</a> for the standalone export.</p>
 {_sync_now_button_html()}
 {checkup_html}
+{rebalance_html}
 <div class="group-section">
 {type_chart_html}
 {institution_chart_html}

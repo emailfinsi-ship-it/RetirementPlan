@@ -190,6 +190,11 @@ def read_linked_portfolio_positions() -> list:
         item = items_by_key.get(account.get("item_key"), {})
         result.append({
             "security_id": h["security_id"],
+            "account_id": h["account_id"],
+            # "tax_deferred" / "roth" when the account's own subtype says so,
+            # otherwise "taxable" (a plain brokerage, or an unrecognized type).
+            "tax_treatment": detected_tax_treatment(account.get("subtype")) or "taxable",
+            "cost_basis": h["cost_basis"],
             "institution": item.get("institution_name") or "",
             "account": account.get("official_name") or account.get("name") or "",
             "security_name": h["security_name"] or "",

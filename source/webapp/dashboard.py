@@ -630,6 +630,26 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True, **what_if.run_custom_what_if(build_summary(), payload, db.dollars_mode())})
                 else:
                     self._send_json({"ok": True, "results": what_if.run_what_ifs(build_summary())})
+            elif path == "/api/target-allocation":
+                from source.reporting import rebalance
+                from source.webapp.pages.rebalance_card import _age
+
+                if payload.get("use_suggested"):
+                    target = rebalance.set_target(rebalance.suggested_target(_age(db.get_assumptions())))
+                else:
+                    target = rebalance.set_target(payload)
+                self._send_json({"ok": True, "target": target})
+            elif path == "/api/rebalance-accounts":
+                from source.reporting import rebalance
+
+                accounts = payload.get("accounts")
+                rebalance.set_scope(accounts if isinstance(accounts, list) else [])
+                self._send_json({"ok": True})
+            elif path == "/api/asset-class":
+                from source.reporting import rebalance
+
+                rebalance.set_override(str(payload.get("security_id") or ""), str(payload.get("asset_class") or ""))
+                self._send_json({"ok": True})
             elif path == "/api/safe-spending":
                 try:
                     target = float(payload.get("target") or 0.9)
