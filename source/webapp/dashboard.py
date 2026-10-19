@@ -34,7 +34,7 @@ from source.collector import link_item as plaid_link_item
 from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
-from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, linked_data, secrets_store
+from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, secrets_store
 from source.importer import xlsx_import
 from source.reporting import benefits, excel_export, scenarios as scenarios_module, what_if
 from source.reporting.aggregate import (
@@ -78,6 +78,7 @@ from source.webapp.pages.rebalance_page import _render_rebalance_page
 from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
+from source.webapp.pages.welcome import _render_welcome_page
 from source.webapp.pages.monte_carlo_page import _render_monte_carlo_page
 from source.webapp.pages.real_estate import _render_real_estate_page
 from source.webapp.pages.real_expenditure import _render_real_expenditure_page
@@ -113,7 +114,7 @@ SESSION_COOKIE_NAME = "rp_session"
 # see _may_set_password below, it needs a narrower rule than "always
 # public", since a password change (as opposed to the very first
 # password being set) must require an existing session.
-_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js"}
+_PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js", "/welcome.html", "/api/first-run"}
 
 
 # POST routes a view-only ("viewer") login may still use: they only calculate or
@@ -427,6 +428,17 @@ class Handler(BaseHTTPRequestHandler):
                 # copy is already running. Reveals nothing but the product name.
                 self._send_json({"ok": True, "app": branding.PRODUCT_NAME})
                 return
+            if path == "/welcome.html":
+                if first_run.required():
+                    self._send_html(_render_welcome_page())
+                else:
+                    self._send_redirect("/")
+                return
+            if first_run.required():
+                # Brand-new install: nothing else is usable until the admin
+                # password and the database exist.
+                self._send_redirect("/welcome.html")
+                return
             if path == "/login.html":
                 self._send_html(_render_login_page(first_time=not auth_store.is_password_set()))
                 return
@@ -495,6 +507,31 @@ class Handler(BaseHTTPRequestHandler):
             # nothing to have logged in with). The moment a password
             # exists, changing it goes through the same 401 gate as
             # everything else below, same as any other write.
+            if first_run.required() and path != "/api/first-run":
+                self._send_json({"ok": False, "error": "Finish the first-time setup first."}, status=403)
+                return
+            if path == "/api/first-run":
+                if not first_run.required():
+                    self._send_json({"ok": False, "error": "Setup is already done."}, status=400)
+                    return
+                host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+                if host not in ("127.0.0.1", "localhost", "::1"):
+                    self._send_json({"ok": False, "error": "First-time setup must be done on this computer."}, status=403)
+                    return
+                try:
+                    result = first_run.complete(payload.get("password") or "", payload.get("confirm"), payload.get("data_dir"))
+                except ValueError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=400)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._set_session_cookie()
+                body = json.dumps({"ok": True, **result}).encode("utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             setting_first_password = path == "/api/set-password" and not auth_store.is_password_set()
             if (
                 not setting_first_password
@@ -1161,6 +1198,9 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
 
 
 def run(*, open_browser: bool = True) -> None:
+    # Real launches (Mac app or from source) ask for an admin password and
+    # database setup first; tests and the throwaway demo never do.
+    first_run.enforce(not config.DEMO)
     config.ensure_directories()
     db.init_db()
     if config.DEMO and not db.list_line_items("assets"):
