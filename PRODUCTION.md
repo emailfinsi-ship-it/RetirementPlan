@@ -17,7 +17,7 @@ What the app now does by itself, and what only you can do.
 | Version | `APP_VERSION` in `source/common/branding.py` (shown in the app, the Mac app and the .dmg name). |
 | Automatic tests | `.github/workflows/tests.yml` runs every test plus the fresh-install check on Linux and Mac for each push. |
 | Fresh-install check | `python3 scripts/smoke_test.py` (add `--server dist/app-server/app-server` for the built app). Uses a throwaway home and keychain name, so it is safe on your Mac. |
-| Installer | `bash scripts/build_mac_app.sh` now also makes `dist/<Brand>-<version>.dmg` and `dist/latest.json`. |
+| Installer | `bash scripts/build_mac_app.sh` now also makes `dist/<Brand>-<version>-apple-chip.dmg` (or `-intel.dmg`; an app only runs on the kind of Mac it was built on, so build once on each) and `dist/latest.json`. |
 
 ## Steps only you can do
 

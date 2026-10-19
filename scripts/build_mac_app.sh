@@ -91,26 +91,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -R dist/$SERVER_NAME "$APP/Contents/Resources/server"
 
-cat > "$APP/Contents/MacOS/$APP_NAME" <<LAUNCHER
-#!/bin/bash
-# Starts the bundled server if it isn't running, then opens the dashboard.
-URL="http://127.0.0.1:$PORT/"
-HERE="\$(cd "\$(dirname "\$0")" && pwd)"
-SERVER="\$HERE/../Resources/server/$SERVER_NAME"
-LOG_DIR="\$HOME/Library/Application Support/$DATA_FOLDER/logs"
-
-healthy() { curl -fs --max-time 2 "\${URL}api/health" >/dev/null 2>&1; }
-
-if ! healthy; then
-  mkdir -p "\$LOG_DIR"
-  nohup "\$SERVER" --no-browser >> "\$LOG_DIR/launch.log" 2>&1 &
-  for _ in \$(seq 1 80); do
-    sleep 0.5
-    healthy && break
-  done
-fi
-open "\$URL"
-LAUNCHER
+sed -e "s#@PORT@#$PORT#g" -e "s#@SERVER_NAME@#$SERVER_NAME#g" \
+    -e "s#@DATA_FOLDER@#$DATA_FOLDER#g" -e "s#@APP_NAME@#$APP_NAME#g" \
+    scripts/assets/launcher.sh > "$APP/Contents/MacOS/$APP_NAME"
 chmod +x "$APP/Contents/MacOS/$APP_NAME"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -174,7 +157,8 @@ rm -f "dist/$APP_NAME-mac.zip"
 ditto -c -k --keepParent "$APP" "dist/$APP_NAME-mac.zip"
 
 echo "Making the installer (.dmg)..."
-DMG="dist/$APP_NAME-$VERSION.dmg"
+ARCH_LABEL="$([ "$(uname -m)" = "arm64" ] && echo apple-chip || echo intel)"
+DMG="dist/$APP_NAME-$VERSION-$ARCH_LABEL.dmg"
 STAGE="build/dmg"
 rm -rf "$STAGE" "$DMG"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
@@ -189,14 +173,14 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   fi
 fi
 cat > dist/latest.json <<JSON
-{"version": "$VERSION", "url": "https://YOUR-SITE/$APP_NAME-$VERSION.dmg", "notes": "Describe what changed."}
+{"version": "$VERSION", "url": "https://YOUR-SITE/$APP_NAME-$VERSION-$ARCH_LABEL.dmg", "notes": "Describe what changed."}
 JSON
 
 echo
 echo "Done."
 echo "  dist/$APP_NAME.app        -- drag this into Applications"
 echo "  dist/$APP_NAME-mac.zip    -- the same, zipped"
-echo "  dist/$APP_NAME-$VERSION.dmg  -- the installer to share"
+echo "  $DMG  -- the installer to share (only runs on $ARCH_LABEL Macs; build on the other kind for those)"
 echo "  dist/latest.json          -- upload next to the dmg; set its address in Setup > About"
 echo
 if [ -z "${SIGN_IDENTITY:-}" ]; then

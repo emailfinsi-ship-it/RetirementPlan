@@ -12,6 +12,12 @@ __APP_NAME__ -- QUICK START
 
 4. To stop it: Setup tab > "Quit __APP_NAME__".
 
+APPLE CHIP vs INTEL
+  An app only runs on the kind of Mac it was built on (Apple chip or Intel).
+  If you see "Bad CPU type in executable" in the log, or a message about the
+  wrong chip, build the app on that Mac: bash scripts/build_mac_app.sh
+  (the installer name says which kind it is).
+
 WHERE YOUR DATA LIVES
   ~/Library/Application Support/__DATA_FOLDER__/   (data, backups, logs, exports)
 Nothing is stored inside the app, so you can replace or delete the app

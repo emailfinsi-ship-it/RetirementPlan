@@ -12,6 +12,7 @@ from datetime import datetime
 
 from source.common import auth_store, branding, config, db
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
+from source.webapp import explain
 
 
 # Eight top-level tabs. Four of them hold two related pages each (the
@@ -1411,8 +1412,9 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # Variable-category auto-inflate JS the Expense/Income tables' own
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
+    annotated_body, explain_targets = explain.annotate(body, active)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + body + _disclaimer_html(), current_year=current_year,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets), current_year=current_year,
         product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML,
     )
 
