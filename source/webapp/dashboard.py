@@ -88,6 +88,7 @@ from source.webapp.pages.real_expenditure import _render_real_expenditure_page
 from source.webapp.pages.setup import _render_setup_page
 from source.webapp.pages.report import _render_report_page
 from source.webapp.pages.setup_wizard import _render_wizard_page
+from source.webapp import warm
 from source.webapp.pages.summary import _render_summary_page
 
 # Every name imported above from render_helpers/pages.* is a re-export:
@@ -520,6 +521,12 @@ class Handler(BaseHTTPRequestHandler):
     # -- POST --
 
     def do_POST(self):  # noqa: N802 -- stdlib method name
+        try:
+            self._handle_post()
+        finally:
+            warm.schedule()   # anything saved may change the numbers; get the slow pages ready
+
+    def _handle_post(self):
         path = urlparse(self.path).path
         try:
             payload = self._read_json()
@@ -1389,6 +1396,8 @@ def run(*, open_browser: bool = True) -> None:
         bind_host = "127.0.0.1"
 
     server = ThreadingHTTPServer((bind_host, PORT), Handler)
+    warm.enable(not config.DEMO)
+    warm.schedule(delay=1.0)
     url = f"http://127.0.0.1:{PORT}/" if bind_host == "127.0.0.1" else f"http://{bind_host}:{PORT}/ (and http://127.0.0.1:{PORT}/)"
     print(f"{branding.PRODUCT_NAME} dashboard running at {url}")
     if open_browser:

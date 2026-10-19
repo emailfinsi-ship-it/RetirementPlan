@@ -11,9 +11,12 @@ same" simulation.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
+import threading
+from collections import OrderedDict
 from datetime import date
 
 from source.reporting.monte_carlo.assumptions import (
@@ -233,10 +236,77 @@ def stable_simulation_seed(
 
 
 
+# --- Remembering finished runs ----------------------------------------------
+# A seeded run is fully decided by its inputs, so the same inputs always give
+# the same answer. The Monte Carlo tab runs ~16 of them (the main one, the
+# S&P history one and the "what matters most" sweep), about 5 seconds in all,
+# every time it opens. When this is switched on (dashboard.run() does it; the
+# tests never do) a finished run is kept in memory and handed back instantly
+# next time. Anything unseeded is never remembered.
+
+_MEMO_MAX = 64
+_memo: "OrderedDict[str, dict]" = OrderedDict()
+_memo_lock = threading.Lock()
+_memo_on = False
+
+
+def enable_memo(on: bool = True) -> None:
+    global _memo_on
+    _memo_on = bool(on)
+    if not on:
+        clear_memo()
+
+
+def clear_memo() -> None:
+    with _memo_lock:
+        _memo.clear()
+
+
+def _memo_key(method: str, *, starting_balance, expenses, income, assumptions, pools, rng) -> str | None:
+    if not _memo_on or rng is None:
+        return None
+    try:
+        payload = json.dumps(
+            {"m": method, "sb": starting_balance, "ex": expenses, "in": income, "as": assumptions, "po": pools,
+             "day": date.today().isoformat()},
+            sort_keys=True, default=str,
+        )
+        state = hashlib.sha256(repr(rng.getstate()).encode("utf-8")).hexdigest()
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256((payload + state).encode("utf-8")).hexdigest()
+
+
+def _memo_get(key: str | None):
+    if key is None:
+        return None
+    with _memo_lock:
+        hit = _memo.get(key)
+        if hit is None:
+            return None
+        _memo.move_to_end(key)
+        return copy.deepcopy(hit)
+
+
+def _memo_put(key: str | None, result: dict) -> None:
+    if key is None:
+        return
+    with _memo_lock:
+        _memo[key] = copy.deepcopy(result)
+        _memo.move_to_end(key)
+        while len(_memo) > _MEMO_MAX:
+            _memo.popitem(last=False)
+
+
 def run_simulation(
     *, starting_balance: float, expenses: list, assumptions: dict, income: list | None = None, rng=None,
     pools: dict | None = None,
 ) -> dict:
+    key = _memo_key("gaussian", starting_balance=starting_balance, expenses=expenses, income=income or [],
+                    assumptions=assumptions, pools=pools, rng=rng)
+    cached = _memo_get(key)
+    if cached is not None:
+        return cached
     expected_return = float(assumptions.get("expected_return") or 0.06)
     volatility = float(assumptions.get("return_volatility") or 0.12)
     result = _run_random_simulation(
@@ -244,6 +314,7 @@ def run_simulation(
         rng=rng or random.Random(), draw_return=lambda r: r.gauss(expected_return, volatility), pools=pools,
     )
     result["method"] = "gaussian"
+    _memo_put(key, result)
     return result
 
 
@@ -266,6 +337,11 @@ def run_historical_bootstrap_simulation(
     what markets have actually done, independent of what you assumed.
     (_SP500_ANNUAL_RETURNS is looked up at call time, not def time, so
     it being defined later in this module is fine.)"""
+    key = _memo_key("bootstrap", starting_balance=starting_balance, expenses=expenses, income=income or [],
+                    assumptions=assumptions, pools=pools, rng=rng)
+    cached = _memo_get(key)
+    if cached is not None:
+        return cached
     historical_returns = list(_SP500_ANNUAL_RETURNS.values())
     result = _run_random_simulation(
         starting_balance=starting_balance, expenses=expenses, assumptions=assumptions, income=income or [],
@@ -273,4 +349,5 @@ def run_historical_bootstrap_simulation(
     )
     result["method"] = "sp500_historical_bootstrap"
     result["sample_size"] = len(historical_returns)
+    _memo_put(key, result)
     return result
