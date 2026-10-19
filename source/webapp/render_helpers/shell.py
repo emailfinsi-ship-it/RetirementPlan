@@ -7,6 +7,7 @@ inline JS the pages' onclick/onchange handlers call into), and the
 from __future__ import annotations
 
 import html
+import threading
 from datetime import datetime
 
 from source.common import auth_store, branding, config, db
@@ -1286,6 +1287,55 @@ def _logout_html() -> str:
     )
 
 
+_request = threading.local()
+
+
+def set_request_role(role: str) -> None:
+    """Called by the dashboard at the start of each request so pages can
+    tell whether the person is the owner or a view-only viewer."""
+    _request.role = role
+
+
+def is_viewer() -> bool:
+    return getattr(_request, "role", "owner") == "viewer"
+
+
+_VIEWER_CSS = """<style>
+html.viewer .fab-add, html.viewer #bulk-bar, html.viewer .li-del, html.viewer .modal-overlay,
+html.viewer nav a[href="/setup.html"], html.viewer .subnav a[href="/setup.html"] { display: none !important; }
+html.viewer td input, html.viewer td select, html.viewer td textarea, html.viewer .tile input { pointer-events: none; border-color: transparent; background: transparent; }
+.viewer-banner { background: #fff4d6; color: #5c4400; border: 1px solid #f0d78a; border-radius: 10px; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+</style><script>document.documentElement.classList.add('viewer');</script>"""
+
+
+def _viewer_banner_html() -> str:
+    if not is_viewer():
+        return ""
+    return (_VIEWER_CSS + '<div class="viewer-banner"><strong>View-only.</strong> You are signed in as a viewer: '
+            "you can look at everything and try what-ifs, but nothing you do here is saved.</div>")
+
+
+def _alert_bell_html() -> str:
+    """A bell with the number of open alerts (see source.reporting.alerts);
+    clicking it jumps to the Alerts card on the Summary. Hidden when there
+    is nothing to look at."""
+    try:
+        from source.reporting import alerts
+
+        n = alerts.count()
+    except Exception:
+        return ""
+    if not n:
+        return ""
+    return (f'<a href="/summary.html#alerts" id="alert-bell" title="{n} thing(s) need a look -- open the Alerts" '
+            'style="text-decoration:none"><button type="button" aria-label="Alerts" style="position:relative">'
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>'
+            '<path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>'
+            f'<span style="position:absolute;top:-6px;right:-6px;background:#d70015;color:#fff;border-radius:10px;'
+            f'font-size:10px;font-weight:700;padding:1px 5px;line-height:1.3">{n}</span></button></a>')
+
+
 def _owner_options_html() -> str:
     """<option> list for the shared "+ Add" modal's Owner dropdown -- the
     household's own names, and no second person when there isn't one."""
@@ -1361,8 +1411,8 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_demo_banner_html() + _subnav_html(active) + _motto_html(active) + body + _disclaimer_html(), current_year=current_year,
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_header_sync_html() + THEME_TOGGLE_HTML,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + body + _disclaimer_html(), current_year=current_year,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML,
     )
 
 

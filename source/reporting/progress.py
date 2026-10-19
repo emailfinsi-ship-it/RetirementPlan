@@ -79,7 +79,8 @@ def _parse(day: str) -> date | None:
         return None
 
 
-def since_then(snapshots: list[dict], current: dict, history: dict, today: date | None = None, days: int = 30) -> dict | None:
+def since_then(snapshots: list[dict], current: dict, history: dict, today: date | None = None, days: int = 30,
+               asset_rows: list[dict] | None = None) -> dict | None:
     """Compare now against the snapshot nearest to `days` ago (the oldest
     one if the history is shorter, as long as it is at least 2 days old).
     `current` is today's build_summary(). Returns None when there is no
@@ -109,4 +110,35 @@ def since_then(snapshots: list[dict], current: dict, history: dict, today: date 
         first = min((d, v) for d, v in ((_parse(k), v) for k, v in history.items()) if d)
         if (today - first[0]).days >= 2:
             rate_then = first[1]
-    return {"since": base_date, "net_change": d_net, "parts": parts, "rate_then": rate_then}
+    return {"since": base_date, "net_change": d_net, "parts": parts, "rate_then": rate_then,
+            "movers": biggest_movers(asset_rows or [], base_date)}
+
+
+def biggest_movers(rows: list[dict], base_date: date, limit: int = 3) -> list[dict]:
+    """The accounts that moved the most since `base_date`, from the per-row
+    daily balance snapshots: [{"name", "change"}], biggest swing first. A row
+    is skipped when there is no snapshot within 3 days of the base date
+    (it is new, or its history starts later) so a new account is never
+    reported as "up" by its whole balance."""
+    by_row: dict = {}
+    for r in rows:
+        d = _parse(r["snapshot_date"])
+        if d:
+            by_row.setdefault(r["asset_id"], []).append((d, float(r["balance"] or 0), r.get("name") or ""))
+    movers = []
+    for points in by_row.values():
+        points.sort(key=lambda x: x[0])
+        latest = points[-1]
+        before = [p for p in points if p[0] <= base_date]
+        if before:
+            base = before[-1]
+        else:
+            after = [p for p in points if p[0] > base_date]
+            base = after[0] if after and (after[0][0] - base_date).days <= 3 else None
+        if base is None or base is latest:
+            continue
+        change = latest[1] - base[1]
+        if abs(change) >= 1.0:
+            movers.append({"name": latest[2] or "An account", "change": change})
+    movers.sort(key=lambda m: -abs(m["change"]))
+    return movers[:limit]

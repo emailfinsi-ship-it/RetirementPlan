@@ -180,3 +180,68 @@ def ensure_daily_backup() -> Path | None:
         prune_backups()
         return None
     return create_backup(reason="startup")
+
+
+_KEY_TABLES = ("assets", "real_estate", "expenses", "income", "plaid_items", "plaid_accounts", "plaid_holdings")
+
+
+def _table_counts(conn) -> dict:
+    counts = {}
+    for table in _KEY_TABLES:
+        try:
+            counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        except sqlite3.DatabaseError:
+            counts[table] = None
+    return counts
+
+
+def verify_backup(path: Path) -> dict:
+    """Opens one backup read-only and checks it is a healthy SQLite file with
+    the plan's tables in it. {"ok", "filename", "integrity", "counts", "error"}."""
+    result = {"ok": False, "filename": Path(path).name, "integrity": "", "counts": {}, "error": ""}
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            result["integrity"] = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
+            result["counts"] = _table_counts(conn)
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as exc:
+        result["error"] = str(exc)
+        return result
+    missing = [t for t, n in result["counts"].items() if n is None]
+    if result["integrity"] != "ok":
+        result["error"] = f"SQLite integrity check said: {result['integrity']}"
+    elif missing:
+        result["error"] = "Missing tables: " + ", ".join(missing)
+    else:
+        result["ok"] = True
+    return result
+
+
+def verify_latest() -> dict:
+    """Health of the newest backup: age, whether it opens and passes the
+    integrity check, and how it compares with the live database.
+    {"exists", "ok", "age_days", "filename", "when", "error", "behind"} where
+    `behind` lists tables with more rows now than in the backup (normal when
+    you have edited since: informational only)."""
+    backups = list_backups()
+    if not backups:
+        return {"exists": False, "ok": False, "age_days": None, "filename": "", "when": "", "error": "No backup yet.", "behind": []}
+    latest = backups[0]
+    checked = verify_backup(Path(latest["path"]))
+    age_days = max(0.0, (time.time() - Path(latest["path"]).stat().st_mtime) / 86400.0)
+    behind = []
+    try:
+        live = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
+        try:
+            live_counts = _table_counts(live)
+        finally:
+            live.close()
+        for table, n in live_counts.items():
+            if n is not None and checked["counts"].get(table) is not None and n > checked["counts"][table]:
+                behind.append(table)
+    except sqlite3.DatabaseError:
+        pass
+    return {"exists": True, "ok": checked["ok"], "age_days": age_days, "filename": latest["filename"],
+            "when": latest["modified_at"], "error": checked["error"], "behind": behind}

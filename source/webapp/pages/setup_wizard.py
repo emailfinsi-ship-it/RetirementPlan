@@ -155,7 +155,7 @@ def _wizard_card_html() -> str:
     saveStep(cur).then(function() {{ show(cur + 1); }}).catch(function(e) {{ alert(e.message); }});
   }};
   window.wizardLoadSample = function() {{
-    postJSON('/api/sample-data', {{}}).then(function() {{
+    postJSON('/api/sample-data', {{with_linked: true}}).then(function() {{
       return postJSON('/api/setup-complete', {{}});
     }}).then(function() {{ location.href = '/summary.html'; }}).catch(function(e) {{ alert(e.message); }});
   }};

@@ -114,6 +114,7 @@ def _empty_vault() -> dict:
         "plaid_profiles": {name: _empty_profile() for name in PROFILES},
         "access_tokens": {},
         "rentcast_api_key": "",
+        "smtp_password": "",
     }
 
 
@@ -123,7 +124,7 @@ def _vault_has_any_secret(vault: dict) -> bool:
             return True
         if any(str(v).strip() for v in (profile.get("secrets") or {}).values()):
             return True
-    if str(vault.get("rentcast_api_key") or "").strip():
+    if str(vault.get("rentcast_api_key") or "").strip() or str(vault.get("smtp_password") or "").strip():
         return True
     return any(str(v).strip() for v in (vault.get("access_tokens") or {}).values())
 
@@ -150,6 +151,7 @@ def _normalize_vault(raw: dict) -> dict:
         }
     vault["access_tokens"] = dict(raw.get("access_tokens") or {})
     vault["rentcast_api_key"] = str(raw.get("rentcast_api_key") or "")
+    vault["smtp_password"] = str(raw.get("smtp_password") or "")
     return vault
 
 
@@ -289,6 +291,28 @@ def delete_rentcast_api_key() -> None:
 def has_rentcast_api_key() -> bool:
     with _lock:
         return bool(str(_load_vault_unlocked().get("rentcast_api_key") or "").strip())
+
+
+def set_smtp_password(password: str) -> None:
+    """The e-mail account password (or app password) used for the weekly
+    digest -- kept in the same Keychain vault, never in the database."""
+    with _lock:
+        vault = _load_vault_unlocked()
+        vault["smtp_password"] = password or ""
+        if _vault_has_any_secret(vault):
+            _save_vault_unlocked(vault)
+        else:
+            _delete_vault_item()
+            clear_vault_cache()
+
+
+def get_smtp_password() -> str:
+    with _lock:
+        return str(_load_vault_unlocked().get("smtp_password") or "")
+
+
+def has_smtp_password() -> bool:
+    return bool(get_smtp_password())
 
 
 def set_item_access_token(item_key: str, token: str) -> None:

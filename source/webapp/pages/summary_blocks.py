@@ -5,8 +5,10 @@ does the money come from, what should I do next, can I trust it."""
 from __future__ import annotations
 
 import html
+import json
 from datetime import date
 
+from source.common import db
 from source.reporting import presentation as pres
 from source.reporting.monte_carlo import render_fan_svg
 from source.webapp.render_helpers import _money, _pct
@@ -432,7 +434,7 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
     ss_box = f"""<div class="box"><h3>How much can I safely spend?</h3>
 {safe_spending_html()}
 <p class="small muted" style="margin:6px 0 0">Based on your simulation. <a href="/monte-carlo.html#safe-spending">Change the confidence level</a>.</p></div>"""
-    change = progress.since_then(snapshots, s, history)
+    change = progress.since_then(snapshots, s, history, asset_rows=db.list_asset_balance_snapshots())
     if change:
         d = change["net_change"]
         word = "up" if d >= 0 else "down"
@@ -440,6 +442,12 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
         items = "".join(
             f'<li>{html.escape(name)}: {"+" if v >= 0 else "&minus;"}{_money(abs(v))}</li>' for name, v in change["parts"]
         )
+        why_line = ""
+        if change.get("movers"):
+            moves = "; ".join(
+                f'{html.escape(m["name"])} {"up" if m["change"] >= 0 else "down"} {_money(abs(m["change"]))}'
+                for m in change["movers"])
+            why_line = f'<p class="small" style="margin:6px 0 0"><strong>Biggest moves:</strong> {moves}.</p>'
         rate_line = ""
         rate_then = change["rate_then"]
         if rate_then is not None:
@@ -450,7 +458,7 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
         change_box = f"""<div class="box"><h3>Since {since}</h3>
 <div class="big">{"+" if d >= 0 else "&minus;"}{_money(abs(d))}</div>
 <p class="small muted" style="margin:0">Net worth is {word} {_money(abs(d))}.</p>
-<ul>{items}</ul>{rate_line}</div>"""
+<ul>{items}</ul>{why_line}{rate_line}</div>"""
     else:
         change_box = """<div class="box"><h3>Since last month</h3>
 <p class="small muted" style="margin:0">Your history builds up automatically, one point a day. Check back in a couple of days to see what changed.</p></div>"""
@@ -462,27 +470,55 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
 """
 
 
-def next_steps_html(items: list[dict], can_vary_retirement: bool = True, growth_pct: float = 6.0) -> str:
-    """The Summary's closing "What should I do next?" card: just the
-    missing-input checks. The interactive what-if lives with the
-    Assumptions on the Will my money last? tab (see whatif_form_html), so the
-    two ways of changing the plan sit in one place."""
-    if items:
-        rows = "".join(
-            f'<li class="{"status-warn" if i["level"] == "warn" else "muted"}">{html.escape(i["text"])} '
-            f'<a href="{html.escape(i["href"])}">Fix</a></li>'
-            for i in items
+def alerts_card_html(alerts: list[dict]) -> str:
+    """Open alerts (see source.reporting.alerts) with a Dismiss button each.
+    Renders nothing when there are none, so a quiet plan stays quiet."""
+    if not alerts:
+        return ""
+    rows = ""
+    for a in alerts:
+        aid = html.escape(json.dumps(a["id"]), quote=True)
+        rows += (
+            f'<li class="{"status-warn" if a["level"] == "warn" else "muted"}"><strong>{html.escape(a["title"])}</strong>'
+            f'<div class="small muted" style="margin-top:2px">{html.escape(a["detail"])} '
+            f'<a href="{html.escape(a["href"])}">Open</a> '
+            f'<button type="button" class="chip" onclick="postJSON(\'/api/alerts-dismiss\', {{id: {aid}}})'
+            f'.then(function() {{ location.reload(); }});">Dismiss</button></div></li>'
         )
-        checks = f'<ul style="margin:6px 0 0 18px; padding:0; font-size:13px;">{rows}</ul>'
-        heading = f"Things to check ({len(items)})"
-    else:
-        checks = '<p class="status-line status-ok">Nothing missing &mdash; every input the plan relies on is filled in.</p>'
-        heading = "Things to check"
     return f"""
-<div class="card">
+<div class="card" id="alerts">
+<h3 class="sub" style="margin-top:0">Alerts ({len(alerts)})</h3>
+<ul style="margin:6px 0 0 18px; padding:0; font-size:13px;">{rows}</ul>
+</div>"""
+
+
+def next_steps_html(actions: list[dict]) -> str:
+    """The Summary's "What should I do next?" card: a short numbered list,
+    most important first (see source.reporting.advice). Nothing is changed
+    from here; each step opens the tab where it can be dealt with."""
+    if actions:
+        rows = ""
+        for a in actions:
+            why = f'<div class="small muted" style="margin-top:2px">{html.escape(a["why"])}</div>' if a.get("why") else ""
+            rows += (
+                f'<li class="ns-item"><span class="ns-num {"ns-warn" if a["level"] == "warn" else ""}">{a["rank"]}</span>'
+                f'<div><strong>{html.escape(a["title"])}</strong> '
+                f'<a href="{html.escape(a["href"])}">Open</a>{why}</div></li>'
+            )
+        body = (
+            '<style>.ns-list{list-style:none;margin:8px 0 0;padding:0}.ns-item{display:flex;gap:10px;align-items:flex-start;'
+            'padding:8px 0;border-top:1px solid var(--line,#e5e7eb);font-size:14px}.ns-item:first-child{border-top:0}'
+            '.ns-num{flex:0 0 24px;height:24px;border-radius:50%;background:#e5e7eb;color:#374151;font-weight:700;'
+            'font-size:12px;display:flex;align-items:center;justify-content:center}.ns-num.ns-warn{background:#fde68a;color:#7c2d12}</style>'
+            f'<ol class="ns-list">{rows}</ol>'
+        )
+    else:
+        body = '<p class="status-line status-ok">&#10003; Nothing needs your attention right now. Nice work.</p>'
+    return f"""
+<div class="card" id="next-steps">
 <h2 style="margin-top:0">What should I do next?</h2>
-<h3 class="sub">{heading}</h3>
-{checks}
+<p class="muted small" style="margin:0">Most important first.</p>
+{body}
 <p class="muted small" style="margin:10px 0 0">Want to test a change before committing to it? Try a what-if next to your
 <a href="/monte-carlo.html#assumptions">Assumptions</a>.</p>
 </div>
@@ -529,3 +565,32 @@ dollars shown are {"today&#x27;s" if mode == "today" else "future (inflated)"}. 
 <br>Projections are estimates, not guarantees, and this is not financial advice.
 </div>
 """
+
+
+def data_check_card_html(issues: list[dict]) -> str:
+    """The Summary's "Data check": problems that quietly skew the numbers, each
+    with what is wrong, what to do, and a one-click fix where one is safe."""
+    if not issues:
+        return """
+<div class="card" id="data-check">
+<h3 class="sub" style="margin-top:0">Data check</h3>
+<p class="status-line status-ok" style="margin:0">&#10003; No data problems found. Your balances, tags and backups look healthy.</p>
+</div>"""
+    rows = ""
+    for i in issues:
+        fix = ""
+        if i.get("fix"):
+            f = i["fix"]
+            payload = html.escape(json.dumps(f["payload"]), quote=True)
+            fix = (f' <button type="button" class="chip" onclick="postJSON(\'{html.escape(f["url"])}\', {payload})'
+                   f'.then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">{html.escape(f["label"])}</button>')
+        rows += (
+            f'<li class="{"status-warn" if i["level"] == "warn" else "muted"}"><strong>{html.escape(i["title"])}</strong>'
+            f'<div class="small muted" style="margin-top:2px">{html.escape(i["detail"])} '
+            f'<a href="{html.escape(i["href"])}">Open</a>{fix}</div></li>'
+        )
+    return f"""
+<div class="card" id="data-check">
+<h3 class="sub" style="margin-top:0">Data check ({len(issues)})</h3>
+<ul class="dc-list" style="margin:6px 0 0 18px; padding:0; font-size:13px;">{rows}</ul>
+</div>"""

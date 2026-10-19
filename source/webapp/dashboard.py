@@ -67,6 +67,7 @@ from source.webapp.render_helpers import (
     _shell,
     _sync_now_button_html,
 )
+from source.webapp.render_helpers.shell import set_request_role
 from source.webapp.pages.asset import _group_by_category, _render_asset_page, _sync_linked_institution_fields
 from source.webapp.pages.budget_vs_actual import _render_budget_vs_actual_page
 from source.webapp.pages.drawdown_planning import _render_drawdown_planning_page
@@ -112,6 +113,16 @@ SESSION_COOKIE_NAME = "rp_session"
 # public", since a password change (as opposed to the very first
 # password being set) must require an existing session.
 _PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker.js"}
+
+
+# POST routes a view-only ("viewer") login may still use: they only calculate or
+# show something, and change nothing that is saved.
+_VIEWER_POSTS = {
+    "/api/logout", "/api/login", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
+    "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode",
+}
+# Pages a viewer never sees (they hold settings and secrets).
+_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html"}
 
 
 def _is_public_path(path: str) -> bool:
@@ -314,8 +325,15 @@ class Handler(BaseHTTPRequestHandler):
     def _has_valid_session(self) -> bool:
         return auth_store.verify_session_token(self._session_cookie())
 
-    def _set_session_cookie(self) -> str:
-        token = auth_store.issue_session_token()
+    def _role(self) -> str:
+        """"owner" or "viewer". With no password set there is no login, and the
+        person at the keyboard is the owner."""
+        if not auth_store.is_password_set():
+            return "owner"
+        return auth_store.session_role(self._session_cookie()) or "viewer"  # least privilege if anything is unclear
+
+    def _set_session_cookie(self, role: str = "owner") -> str:
+        token = auth_store.issue_session_token(role)
         # HttpOnly (JS on the page can't read it -- irrelevant to an XSS
         # bug this app doesn't have, but free defense-in-depth) and
         # SameSite=Lax (a cross-site POST/fetch never attaches it, which
@@ -338,6 +356,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802 -- stdlib method name
         path = urlparse(self.path).path
+        set_request_role(self._role())
         try:
             if path == "/manifest.json":
                 self._send_static_file("manifest.json", "application/manifest+json")
@@ -360,6 +379,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if auth_store.is_password_set() and not self._has_valid_session():
                 self._send_redirect("/login.html")
+                return
+            if path in _OWNER_ONLY_PAGES and self._role() == "viewer":
+                self._send_redirect("/summary.html")
                 return
             if path == "/" and db.setup_needed():
                 # Brand-new install: land on the setup wizard, not an empty Summary.
@@ -425,6 +447,9 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 self._send_json({"ok": False, "error": "Not logged in."}, status=401)
                 return
+            if self._role() == "viewer" and path not in _VIEWER_POSTS:
+                self._send_json({"ok": False, "error": "You are signed in as a viewer, so this is view-only. Nothing was changed."}, status=403)
+                return
             if path == "/api/login":
                 client_ip = self.client_address[0]
                 if _login_rate_limited(client_ip):
@@ -436,14 +461,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not auth_store.is_password_set():
                     self._send_json({"ok": False, "error": "No password set yet."}, status=400)
                     return
-                if not auth_store.verify_password(payload.get("password") or ""):
+                role = auth_store.login_role(payload.get("password") or "")
+                if role is None:
                     _record_login_failure(client_ip)
                     self._send_json({"ok": False, "error": "Wrong password."}, status=401)
                     return
                 _clear_login_failures(client_ip)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self._set_session_cookie()
+                self._set_session_cookie(role)
                 body = json.dumps({"ok": True}).encode("utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
@@ -475,6 +501,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if path == "/api/viewer-password":
+                if payload.get("remove"):
+                    auth_store.clear_viewer_password()
+                else:
+                    auth_store.set_viewer_password(payload.get("password") or "")
+                self._send_json({"ok": True, "set": auth_store.is_viewer_password_set()})
                 return
             if path == "/api/logout":
                 self.send_response(200)
@@ -615,7 +648,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     if db.setup_needed() is False and not demo_data.has_sample_data():
                         raise ValueError("Sample data can only be loaded into an empty plan.")
-                    demo_data.seed_sample_household()
+                    demo_data.seed_sample_household(with_linked=bool(payload.get("with_linked")))
                     self._send_json({"ok": True})
             elif path == "/api/legacy-whatif":
                 if payload.get("clear"):
@@ -650,6 +683,30 @@ class Handler(BaseHTTPRequestHandler):
 
                 target = rebalance.set_risk(str(payload.get("level") or ""), _age(db.get_assumptions()))
                 self._send_json({"ok": True, "target": target})
+            elif path == "/api/clear-sector-tags":
+                ids = [str(x) for x in (payload.get("security_ids") or []) if str(x)]
+                db.clear_security_sectors(ids)
+                db.clear_security_industries(ids)
+                self._send_json({"ok": True, "cleared": len(ids)})
+            elif path == "/api/alerts-dismiss":
+                from source.reporting import alerts
+
+                if payload.get("all"):
+                    alerts.dismiss_all()
+                else:
+                    alerts.dismiss(str(payload.get("id") or ""))
+                self._send_json({"ok": True})
+            elif path == "/api/alert-settings":
+                from source.reporting import alerts
+
+                self._send_json({"ok": True, "settings": alerts.save_settings(payload)})
+            elif path == "/api/alert-test-email":
+                from source.reporting import alerts
+
+                alerts.send_test()
+                self._send_json({"ok": True})
+            elif path == "/api/backup-verify":
+                self._send_json({"ok": True, **backup.verify_latest()})
             elif path == "/api/asset-class":
                 from source.reporting import rebalance
 
@@ -1038,13 +1095,19 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
             last_captured = capture_daily_snapshots_if_new_day(last_captured)
         except Exception as exc:
             print(f"Daily snapshot failed (will retry): {exc}")
+        try:
+            from source.reporting import alerts
+
+            alerts.run_daily_job()
+        except Exception as exc:
+            print(f"Daily alerts check failed (will retry): {exc}")
 
 
 def run(*, open_browser: bool = True) -> None:
     config.ensure_directories()
     db.init_db()
     if config.DEMO and not db.list_line_items("assets"):
-        demo_data.seed_sample_household(with_history=True)
+        demo_data.seed_sample_household(with_history=True, with_linked=True)
         db.set_setup_complete(True)
     # First time the app is opened today, today gets a backup -- see
     # source.common.backup's module docstring for why this (rather than

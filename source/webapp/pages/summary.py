@@ -7,9 +7,10 @@ import html
 
 import random
 
-from source.common import db
+from source.common import backup, db, linked_data
 from source.reporting.aggregate import build_summary
 from source.reporting.plan_health import plan_health_items
+from source.reporting import advice, alerts, data_check
 from source.reporting import presentation as pres, progress
 from source.reporting.monte_carlo import _resolve_retirement_year, run_simulation, stable_simulation_seed
 from source.reporting.monte_carlo.drawdown_schedule import deterministic_drawdown_schedule
@@ -91,10 +92,16 @@ def _render_summary_page() -> str:
             + blocks.projection_card_html(s, display_result, mode, retirement_year)
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
         )
-    next_steps = "" if v["empty_plan"] else blocks.next_steps_html(
-        plan_health_items(s))
+    positions = [] if v["empty_plan"] else linked_data.read_linked_portfolio_positions()
+    data_issues = [] if v["empty_plan"] else data_check.run_checks(s, positions, backup.verify_latest())
+    data_check_html = "" if v["empty_plan"] else blocks.data_check_card_html(data_issues)
+    next_steps = "" if v["empty_plan"] else blocks.next_steps_html(advice.build_actions(
+        s, display_result["success_rate"], positions, data_issues, plan_health_items(s)))
 
+    alerts_html = ""
     if not v["empty_plan"]:
+        alerts_html = blocks.alerts_card_html(alerts.refresh(alerts.evaluate(
+            s, display_result["success_rate"], positions, data_issues, progress.plan_check_history())))
         progress.record_plan_check(display_result["success_rate"])
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
@@ -105,9 +112,11 @@ def _render_summary_page() -> str:
     )
 
     body = f"""
+{alerts_html}
 {top_html}
 {history_html}
 {_summary_insight_html(s)}
+{data_check_html}
 {next_steps}
 {blocks.footer_html(s, linked_summary, mode)}
 """

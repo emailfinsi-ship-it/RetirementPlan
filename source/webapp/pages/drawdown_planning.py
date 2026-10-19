@@ -345,6 +345,50 @@ def _this_years_plan_html(rows: list[dict]) -> str:
 """
 
 
+def _best_order_card_html(s: dict, schedule_assumptions: dict, rows: list[dict]) -> str:
+    """"Which account to take it from this year": the usual order (brokerage
+    first) next to the cheapest split for the year, with the tax saved."""
+    from source.reporting.withdrawal_order import MIN_SAVING, best_split_this_year
+
+    if not rows:
+        return ""
+    r = best_split_this_year(pools=s["drawdown_pools"], expenses=s["expenses"], income=s["income_for_simulation"],
+                             assumptions=schedule_assumptions, year=rows[0]["year"])
+    if r is None:
+        return ""
+    usual, best = r["usual"], r["best"]
+    names = (("taxable", "Brokerage (taxable)"), ("tax_deferred", "401(k) / IRA (tax-deferred)"), ("roth", "Roth"))
+
+    def cell(split: dict, key: str) -> str:
+        amount = split[key] + (r["rmd"] if key == "tax_deferred" else 0.0)
+        return _money(amount) if amount >= 1 else "&ndash;"
+
+    body_rows = "".join(
+        f'<tr><td>{label}</td><td class="num">{cell(usual, key)}</td><td class="num">{cell(best, key)}</td></tr>'
+        for key, label in names
+    )
+    body_rows += (f'<tr><td><strong>Estimated tax this year</strong></td><td class="num"><strong>{_money(usual["tax"])}</strong></td>'
+                  f'<td class="num"><strong>{_money(best["tax"])}</strong></td></tr>')
+    if not r["apply_tax"]:
+        verdict = "Turn on &ldquo;Apply drawdown tax&rdquo; in the Assumptions to see which split costs less tax."
+    elif r["saved"] >= MIN_SAVING:
+        verdict = (f'<strong>The suggested split saves about {_money(r["saved"])} in tax this year.</strong> '
+                   "It fills your cheaper tax brackets with 401(k)/IRA money instead of selling only brokerage holdings.")
+    else:
+        verdict = "<strong>The usual order is already about the cheapest for this year</strong> &mdash; no change needed."
+    rmd_note = (f" Includes a required withdrawal (RMD) of {_money(r['rmd'])} from your 401(k)/IRA." if r["rmd"] > 0 else "")
+    return f"""
+<div class="card" id="withdrawal-order">
+<h2 style="margin-top:0">Which account should I take it from in {r['year']}?</h2>
+<p class="muted small" style="margin-top:0">You need about {_money(r['need'])} from your investments after other income.{rmd_note}
+&ldquo;Usual order&rdquo; spends brokerage first. &ldquo;Suggested&rdquo; is the split with the least tax for this year.</p>
+<table><thead><tr><th></th><th class="num">Usual order</th><th class="num">Suggested</th></tr></thead><tbody>{body_rows}</tbody></table>
+<p style="margin:8px 0 0">{verdict}</p>
+<p class="muted small" style="margin:6px 0 0">Looks at this year&rsquo;s tax only. Taking more from a 401(k)/IRA now also lowers the forced withdrawals later, which is often a plus but is not counted here. An estimate &mdash; check with a tax professional before acting.</p>
+</div>
+"""
+
+
 def _visible_schedule_rows(schedule: dict) -> list[dict]:
     """The rows _year_by_year_table_html actually renders -- shared here so
     _this_years_plan_html's "first visible row" agrees with the table
@@ -547,6 +591,7 @@ set on the Will my money last? tab). Each year withdraws Taxable first, then Tax
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
+{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
 {rental_tax_note}{_year_by_year_table_html(schedule)}
 <p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).
 Looking to also minimize what an heir owes in tax, or considering a Roth conversion? See the

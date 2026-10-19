@@ -214,6 +214,8 @@ def sync_all() -> dict:
     total_numbers = 0
     total_transactions = 0
     for item_row in items:
+        if item_row.get("environment") == "sample":
+            continue  # pretend accounts from the sample household: nothing to fetch
         try:
             accounts, holdings, numbers, transactions = _sync_one_item(item_row)
             total_accounts += accounts

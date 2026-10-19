@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 
+from source.webapp.pages.alerts_card import alerts_settings_card_html
 from source.collector import auto_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, plaid_categorize, secrets_store
 from source.webapp.render_helpers import _shell
@@ -67,6 +68,14 @@ def _render_setup_page() -> str:
         f"{len(backups)} backup{'s' if len(backups) != 1 else ''} on disk, most recent {html.escape(backups[0]['modified_at'])}."
         if backups else "No backups yet."
     )
+
+    health = backup.verify_latest()
+    if not health["exists"]:
+        backup_health_line = "Health: no backup to check yet."
+    elif health["ok"]:
+        backup_health_line = f"Health: latest backup is {health['age_days']:.0f} day(s) old and opens correctly."
+    else:
+        backup_health_line = f"Health: PROBLEM with the latest backup &mdash; {html.escape(health['error'])}"
 
     password_set = auth_store.is_password_set()
     bind_host = app_settings.get_bind_host()
@@ -148,6 +157,8 @@ def _render_setup_page() -> str:
 
 {security_html}
 
+{alerts_settings_card_html()}
+
 <details class="advanced-group" id="advanced-settings" style="margin:16px 0;">
 <summary style="font-weight:650; font-size:15px; cursor:pointer;">Advanced settings <span class="muted">(data locations, category rules, automatic sync, property values, network access)</span></summary>
 <h2>Data &amp; output locations</h2>
@@ -163,6 +174,9 @@ def _render_setup_page() -> str:
 <summary style="font-weight:600;">Backups ({len(backups)})</summary>
 <p class="muted">A timestamped copy of retirement_plan.db is taken automatically the first time you open this app each day, and again right before every workbook import -- the two moments most likely to need a way back. Backups live in {html.escape(str(backup.backup_dir()))}, keeping the most recent {backup.keep_count()} (older ones are deleted automatically). There's no in-app restore yet -- to roll back, close this app and copy the backup file you want over data/retirement_plan.db by hand.</p>
 <p class="status-line">{backup_status_line}</p>
+<p class="small" id="backup-health">{backup_health_line}
+  <button type="button" class="chip" onclick="var b = this; b.disabled = true; postJSON('/api/backup-verify', {{}}).then(function(r) {{ b.disabled = false; document.getElementById('backup-health-result').textContent = r.ok ? ('Passed: ' + r.filename + ' opens correctly and passes SQLite\\'s integrity check.') : ('Problem: ' + (r.error || 'could not be opened')); }}).catch(function(e) {{ b.disabled = false; alert(e.message); }});">Test latest backup</button>
+  <span id="backup-health-result" class="muted"></span></p>
 <form class="inline" onsubmit="event.preventDefault();
   var btn = this.querySelector('button');
   btn.disabled = true; btn.textContent = 'Backing up...';
@@ -215,11 +229,20 @@ def _sample_data_card_html() -> str:
 
     if not demo_data.has_sample_data():
         return ""
-    return """
+    linked = demo_data.has_sample_linked()
+    linked_note = (
+        "Pretend linked accounts (a brokerage and a bank, with holdings and a year of transactions) are loaded too."
+        if linked else
+        "You can also add pretend linked accounts, holdings and a year of transactions to try every tab."
+    )
+    add_button = "" if linked else (
+        """<button type="button" class="primary" onclick="postJSON('/api/sample-data', {with_linked: true}).then(function() { location.reload(); }).catch(function(e) { alert(e.message); });">Add sample linked accounts</button> """
+    )
+    return f"""
 <div class="card" id="sample-data">
 <h2 style="margin-top:0">Sample data</h2>
-<p class="muted">The example household (Alex and Sam) is loaded so you can look around. Remove it before entering your own numbers -- only the sample rows are deleted, anything you typed stays. Names and assumptions it set can be changed above and on the Will my money last? page.</p>
-<button type="button" onclick="if (confirm('Remove the sample household rows?')) { postJSON('/api/sample-data', {action: 'remove'}).then(function() { location.reload(); }).catch(function(e) { alert(e.message); }); }">Remove sample data</button>
+<p class="muted">The example household (Alex and Sam) is loaded so you can look around. {linked_note} Remove it before entering your own numbers -- only the sample rows are deleted, anything you typed stays. Names and assumptions it set can be changed above and on the Will my money last? page.</p>
+{add_button}<button type="button" onclick="if (confirm('Remove the sample household rows and sample accounts?')) {{ postJSON('/api/sample-data', {{action: 'remove'}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }}); }}">Remove sample data</button>
 </div>
 """
 
@@ -324,7 +347,34 @@ def _security_card_html(*, password_set: bool) -> str:
   <button type="submit" class="primary">{submit_label}</button>
 </form>
 <p class="muted">Changing the password logs out every other browser/device currently signed in -- useful if a session cookie ever ends up somewhere it shouldn't.</p>
+{_viewer_login_html(password_set)}
 </div>
+"""
+
+
+def _viewer_login_html(password_set: bool) -> str:
+    """A second, view-only password -- someone who signs in with it can look at
+    everything and try what-ifs, but cannot change or save anything."""
+    if not password_set:
+        return ('<h3 style="font-size:13px; margin:16px 0 4px;">View-only login</h3>'
+                '<p class="muted">Set your own password above first. Then you can add a second, view-only password '
+                'for a spouse, advisor or accountant.</p>')
+    on = auth_store.is_viewer_password_set()
+    status = ('<p class="status-line status-ok">A view-only password is set. Anyone who signs in with it can look but not change anything.</p>'
+              if on else '<p class="muted">Give a spouse, advisor or accountant a password that lets them look at everything but change nothing. '
+              'They sign in on the same login page with this password instead of yours.</p>')
+    remove = ('<button type="button" onclick="postJSON(\'/api/viewer-password\', {{remove: true}}).then(function() {{ location.reload(); }})'
+              '.catch(function(e) {{ alert(e.message); }});">Remove it</button>') if on else ""
+    return f"""
+<h3 style="font-size:13px; margin:16px 0 4px;" id="viewer-login">View-only login</h3>
+{status}
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/viewer-password', {{password: this.viewer_password.value}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>{'New view-only password' if on else 'View-only password'} (8+ characters, different from yours)<input name="viewer_password" type="password" required minlength="8" autocomplete="new-password"></label>
+  <button type="submit" class="primary">{'Change' if on else 'Set view-only password'}</button>
+  {remove}
+</form>
 """
 
 

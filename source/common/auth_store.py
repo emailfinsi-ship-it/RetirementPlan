@@ -63,6 +63,9 @@ def _empty_vault() -> dict:
         "password_salt": "",
         "password_iterations": 0,
         "session_secret": "",
+        "viewer_hash": "",
+        "viewer_salt": "",
+        "viewer_iterations": 0,
     }
 
 
@@ -123,18 +126,64 @@ def set_password(new_password: str) -> None:
     _save_vault(vault)
 
 
-def verify_password(candidate: str) -> bool:
-    vault = _load_vault()
-    if not vault.get("password_hash"):
+def _check(candidate: str, hash_hex: str, salt_hex: str, iterations) -> bool:
+    if not hash_hex:
         return False
     try:
-        salt = bytes.fromhex(vault["password_salt"])
-        iterations = int(vault["password_iterations"])
-        expected = bytes.fromhex(vault["password_hash"])
-    except (ValueError, KeyError):
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(hash_hex)
+        digest = hashlib.pbkdf2_hmac("sha256", (candidate or "").encode("utf-8"), salt, int(iterations))
+    except (ValueError, TypeError):
         return False
-    digest = hashlib.pbkdf2_hmac("sha256", (candidate or "").encode("utf-8"), salt, iterations)
     return hmac.compare_digest(digest, expected)
+
+
+def verify_password(candidate: str) -> bool:
+    """True for the OWNER password (the one that can change things)."""
+    vault = _load_vault()
+    return _check(candidate, vault.get("password_hash", ""), vault.get("password_salt", ""), vault.get("password_iterations", 0))
+
+
+# ---- the optional view-only ("viewer") login ----
+# A second password that can look at everything but change nothing (handy for
+# a spouse, an advisor or an accountant). It has its own hash, and its
+# sessions are signed with a key that depends on it, so changing or removing
+# the viewer password signs every viewer out at once.
+
+def is_viewer_password_set() -> bool:
+    return bool(_load_vault().get("viewer_hash"))
+
+
+def set_viewer_password(new_password: str) -> None:
+    value = (new_password or "").strip()
+    if len(value) < 8:
+        raise ValueError("The viewer password must be at least 8 characters.")
+    if not is_password_set():
+        raise ValueError("Set your own login password first; the viewer password is a second one next to it.")
+    if verify_password(value):
+        raise ValueError("The viewer password must be different from your own password.")
+    salt = os.urandom(16)
+    vault = _load_vault()
+    vault["viewer_hash"] = hashlib.pbkdf2_hmac("sha256", value.encode("utf-8"), salt, _PBKDF2_ITERATIONS).hex()
+    vault["viewer_salt"] = salt.hex()
+    vault["viewer_iterations"] = _PBKDF2_ITERATIONS
+    _save_vault(vault)
+
+
+def clear_viewer_password() -> None:
+    vault = _load_vault()
+    vault["viewer_hash"], vault["viewer_salt"], vault["viewer_iterations"] = "", "", 0
+    _save_vault(vault)
+
+
+def login_role(candidate: str) -> str | None:
+    """"owner", "viewer" or None for a password typed on the login page."""
+    if verify_password(candidate):
+        return "owner"
+    vault = _load_vault()
+    if _check(candidate, vault.get("viewer_hash", ""), vault.get("viewer_salt", ""), vault.get("viewer_iterations", 0)):
+        return "viewer"
+    return None
 
 
 def _session_secret() -> bytes:
@@ -145,37 +194,48 @@ def _session_secret() -> bytes:
     return bytes.fromhex(secret)
 
 
-def issue_session_token() -> str:
+def _signing_key(role: str) -> bytes:
+    secret = _session_secret()
+    if role == "viewer":
+        # Depends on the viewer password's hash: change or remove it and old viewer cookies stop verifying.
+        return hmac.new(secret, ("viewer:" + (_load_vault().get("viewer_hash") or "none")).encode("utf-8"), hashlib.sha256).digest()
+    return secret
+
+
+def issue_session_token(role: str = "owner") -> str:
     """A fresh signed session cookie value, valid for
-    _SESSION_LIFETIME_SECONDS from now. Call after verify_password
+    _SESSION_LIFETIME_SECONDS from now. Call after the password check
     succeeds (see source.webapp.dashboard's /api/login handler)."""
-    payload = json.dumps({"exp": int(time.time()) + _SESSION_LIFETIME_SECONDS}).encode("utf-8")
+    role = "viewer" if role == "viewer" else "owner"
+    payload = json.dumps({"exp": int(time.time()) + _SESSION_LIFETIME_SECONDS, "role": role}).encode("utf-8")
     payload_b64 = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    signature = hmac.new(_session_secret(), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+    signature = hmac.new(_signing_key(role), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{payload_b64}.{signature}"
 
 
-def verify_session_token(token: str | None) -> bool:
-    """True if `token` is a session cookie value this vault's current
-    session_secret actually signed, and it hasn't expired yet. False for
-    anything else (missing cookie, tampered value, expired, or no
-    password set at all -- e.g. right after a password change, every
-    previously-issued cookie stops verifying immediately since
-    session_secret rotated)."""
+def session_role(token: str | None) -> str | None:
+    """"owner" or "viewer" for a valid, unexpired session cookie value,
+    else None (missing, tampered, expired, or signed before the password
+    last changed). Cookies from before roles existed count as owner."""
     if not token or "." not in token:
-        return False
+        return None
     payload_b64, _, signature = token.partition(".")
-    try:
-        secret = _session_secret()
-    except RuntimeError:
-        return False
-    expected_signature = hmac.new(secret, payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, expected_signature):
-        return False
     try:
         padded = payload_b64 + "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded))
         exp = int(payload["exp"])
-    except (ValueError, KeyError, json.JSONDecodeError):
-        return False
-    return time.time() < exp
+        role = "viewer" if payload.get("role") == "viewer" else "owner"
+        key = _signing_key(role)
+    except (ValueError, KeyError, TypeError, RuntimeError, json.JSONDecodeError):
+        return None
+    expected_signature = hmac.new(key, payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+    if role == "viewer" and not is_viewer_password_set():
+        return None
+    return role if time.time() < exp else None
+
+
+def verify_session_token(token: str | None) -> bool:
+    """True if `token` is a valid session cookie of either role (see session_role)."""
+    return session_role(token) is not None
