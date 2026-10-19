@@ -41,7 +41,9 @@ def _table_html(person: dict) -> str:
 <div style="overflow-x:auto"><table>
 <thead><tr><th>Claim at</th><th>First year</th><th class="num">% of full benefit</th><th class="num">Per year</th>
 <th class="num">Total by age 85</th><th class="num">Break-even vs. 62 (age)</th></tr></thead>
-<tbody>{''.join(rows)}</tbody></table></div>"""
+<tbody>{''.join(rows)}</tbody></table></div>
+<p style="margin:10px 0 4px"><button type="button" class="primary" id="claim-btn-{person['key']}" onclick="analyzeClaiming('{person['key']}')">Which age is best for {html.escape(person['name'])}, based on my plan?</button></p>
+<div id="claim-result-{person['key']}"></div>"""
 
 
 def social_security_medicare_card_html(assumptions: dict) -> str:
@@ -98,6 +100,32 @@ Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
 {status}
 {"".join(_table_html(p) for p in people)}
 <script>
+function analyzeClaiming(key) {{
+  var btn = document.getElementById('claim-btn-' + key), out = document.getElementById('claim-result-' + key);
+  var label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Running your plan nine times...';
+  postJSON('/api/benefits/claiming-analysis', {{person: key}}).then(function(d) {{
+    var byAge = {{}}; d.rows.forEach(function(r) {{ byAge[r.age] = r; }});
+    var rec = byAge[d.recommended_age], first = byAge[62], best = byAge[d.best_odds_age], chosen = d.chosen_age ? byAge[d.chosen_age] : null;
+    var msg = 'For ' + d.person + ', claiming at <strong>' + rec.age + '</strong> looks best in your plan: a ' + wiPct(rec.success_rate) +
+      ' chance your money lasts and a typical ending balance of ' + wiMoney(rec.median) + ', versus ' + wiPct(first.success_rate) + ' and ' + wiMoney(first.median) +
+      ' if claiming at 62. It pays ' + wiMoney(rec.annual) + ' a year in today&#39;s dollars from ' + rec.start_year + '.';
+    if (d.best_odds_age !== d.recommended_age) {{ msg += ' The very highest odds are at age ' + best.age + ' (' + wiPct(best.success_rate) + ').'; }}
+    if (chosen && d.chosen_age !== d.recommended_age) {{ msg += ' You currently have ' + chosen.age + ' selected (' + wiPct(chosen.success_rate) + ' chance).'; }}
+    if (d.rows.every(function(r) {{ return r.success_rate >= 0.99; }})) {{ msg += ' Your plan is strong enough that the claiming age barely changes whether the money lasts, so it comes down to preference: more income sooner, or a larger check later (and for couples, a larger survivor benefit).'; }}
+    var rows = d.rows.map(function(r) {{
+      var tags = (r.age === d.recommended_age ? ' <span class="status-ok">suggested</span>' : '') + (r.age === d.chosen_age ? ' <span class="muted">(your choice)</span>' : '');
+      return '<tr' + (r.age === d.recommended_age ? ' style="font-weight:600;"' : '') + '><td>' + r.age + tags + '</td><td class="num">' + wiMoney(r.annual) + '</td><td class="num">' +
+        wiPct(r.success_rate) + '</td><td class="num">' + wiMoney(r.median) + '</td><td class="num">' + wiMoney(r.p10) + '</td></tr>';
+    }}).join('');
+    var survivor = d.married ? '<p class="muted small">For couples, the larger benefit also becomes the surviving spouse&#39;s benefit, so delaying the higher earner&#39;s claim often matters more than this single-person comparison shows. Survivor benefits are not modelled here.</p>' : '';
+    out.innerHTML = '<div class="card" style="margin:8px 0"><p style="margin-top:0">' + msg + '</p>' +
+      '<table><thead><tr><th>Claim at</th><th class="num">Per year</th><th class="num">Chance money lasts</th><th class="num">Typical ending balance</th><th class="num">Cautious ending balance</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<p style="margin:10px 0 4px"><button type="button" onclick="var s = document.querySelector(\\'[name=ss_claim_age_' + key + ']\\'); s.value = ' + d.recommended_age + '; s.scrollIntoView({{block: \\'center\\'}});">Use ' + d.recommended_age + ' in the form above</button> <span class="muted small">then Save &amp; apply</span></p>' +
+      '<p class="muted small">Every age runs your whole plan on the same random markets, so only the claiming age differs. Balances are in today&#39;s dollars. Estimates, not advice: taxes on benefits, spousal benefits and health are not modelled, and your own Social Security statement has the real amounts.</p>' + survivor + '</div>';
+    btn.disabled = false; btn.textContent = label;
+  }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = label; }});
+}}
 function saveBenefits(apply) {{
   var fields = {{}};
   new FormData(document.getElementById('benefits-form')).forEach(function(value, key) {{ fields[key] = value; }});

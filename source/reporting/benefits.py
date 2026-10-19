@@ -137,6 +137,18 @@ def planner_people(assumptions: dict) -> list[dict]:
     return out
 
 
+def social_security_row(person: dict, claim_age: int, this_year: int) -> dict:
+    """The Income-row fields for one person claiming at `claim_age`."""
+    claim = min(70, max(62, int(claim_age)))
+    return {
+        "name": f"Social Security ({person['name']})", "category": "Social Security",
+        "annual_amount": round(person["benefit"] * benefit_factor(person["birth_year"], claim), 2),
+        "start_year": person["birth_year"] + claim, "end_year": None,
+        "base_year": this_year, "inflates": 1, "source": BENEFITS_SOURCE, "include_in_monte_carlo": 1,
+        "notes": f"Claiming at {claim}; full-retirement-age benefit {person['benefit']:,.0f}/yr in today's dollars.",
+    }
+
+
 def planned_rows(assumptions: dict, this_year: int | None = None) -> dict:
     """{"income": [...], "expenses": [...]} -- the Income / Expense rows the
     saved planner inputs describe (field dicts for db.add_line_item)."""
@@ -145,14 +157,7 @@ def planned_rows(assumptions: dict, this_year: int | None = None) -> dict:
     income, expenses = [], []
     for p in people:
         if p["birth_year"] and p["benefit"] and p["claim_age"]:
-            claim = min(70, max(62, p["claim_age"]))
-            income.append({
-                "name": f"Social Security ({p['name']})", "category": "Social Security",
-                "annual_amount": round(p["benefit"] * benefit_factor(p["birth_year"], claim), 2),
-                "start_year": p["birth_year"] + claim, "end_year": None,
-                "base_year": this_year, "inflates": 1, "source": BENEFITS_SOURCE, "include_in_monte_carlo": 1,
-                "notes": f"Claiming at {claim}; full-retirement-age benefit {p['benefit']:,.0f}/yr in today's dollars.",
-            })
+            income.append(social_security_row(p, p["claim_age"], this_year))
     magi = _number(assumptions.get("medicare_magi"))
     if magi is not None:
         married = len(people) > 1 and bool(people[1]["birth_year"])
@@ -198,3 +203,64 @@ def apply_benefits_plan(assumptions: dict, this_year: int | None = None) -> dict
                 db.delete_line_item(section, row["id"])
                 removed.append(row["name"])
     return {"created": created, "updated": updated, "removed": removed}
+
+
+def analyze_claiming(summary: dict, person_key: str, iterations: int = 300) -> dict:
+    """Runs the plan's own Monte Carlo once per claiming age 62-70 for one
+    person (everyone else held at their chosen claiming age, or 67), with
+    the same random market paths each time so only the claiming age differs.
+    Returns {"person", "rows": [{"age", "start_year", "annual", "success_rate",
+    "median", "p10"}], "best_odds_age", "recommended_age", "chosen_age"} with
+    balances in today's dollars."""
+    import random
+
+    from source.reporting import presentation as pres
+    from source.reporting.monte_carlo import run_simulation, stable_simulation_seed
+
+    assumptions = dict(summary["assumptions"])
+    assumptions["iterations"] = min(int(float(assumptions.get("iterations") or iterations)), iterations)
+    people = planner_people(assumptions)
+    target = next((p for p in people if p["key"] == person_key), None)
+    if not target or not (target["birth_year"] and target["benefit"]):
+        raise ValueError("Enter this person's birth year and Social Security benefit first.")
+    this_year = int(summary.get("this_year") or date.today().year)
+    base_income = [
+        r for r in summary["income_for_simulation"]
+        if not (r.get("source") == BENEFITS_SOURCE and str(r.get("name") or "").startswith("Social Security"))
+    ]
+    expenses, pools, balance = summary["expenses"], summary["retirement_pools"], summary["net_liquid_asset"]
+
+    def income_for(age: int) -> list:
+        rows = list(base_income)
+        for p in people:
+            if not (p["birth_year"] and p["benefit"]):
+                continue
+            rows.append(social_security_row(p, age if p["key"] == person_key else (p["claim_age"] or 67), this_year))
+        return rows
+
+    seed = stable_simulation_seed(
+        starting_balance=balance, expenses=expenses, income=income_for(67), assumptions=assumptions, pools=pools,
+    )
+    out = []
+    for age in CLAIM_AGES:
+        raw = run_simulation(
+            starting_balance=balance, expenses=expenses, income=income_for(age), assumptions=assumptions,
+            pools=pools, rng=random.Random(seed),
+        )
+        shown = pres.convert_result(raw, assumptions, this_year, "today")
+        out.append({
+            "age": age, "start_year": target["birth_year"] + age,
+            "annual": round(target["benefit"] * benefit_factor(target["birth_year"], age), 2),
+            "success_rate": raw["success_rate"], "median": shown["median_ending_balance"], "p10": shown["p10_ending_balance"],
+        })
+    best_rate = max(r["success_rate"] for r in out)
+    best_odds = max((r for r in out if r["success_rate"] >= best_rate - 1e-9), key=lambda r: (r["median"], r["age"]))
+    # Recommended: highest typical balance among ages whose odds are within a
+    # point of the best -- do not give up reliability for a bigger typical case.
+    near = [r for r in out if r["success_rate"] >= best_rate - 0.01]
+    recommended = max(near, key=lambda r: (r["median"], r["age"]))
+    return {
+        "person": target["name"], "key": person_key, "rows": out,
+        "best_odds_age": best_odds["age"], "recommended_age": recommended["age"],
+        "chosen_age": target["claim_age"], "married": len([p for p in people if p["birth_year"]]) > 1,
+    }

@@ -569,6 +569,8 @@ class Handler(BaseHTTPRequestHandler):
                         updates[key] = raw
                 db.set_assumptions(updates)
                 self._send_json({"ok": True})
+            elif path == "/api/benefits/claiming-analysis":
+                self._send_json({"ok": True, **benefits.analyze_claiming(build_summary(), str(payload.get("person") or "self"))})
             elif path == "/api/benefits/apply":
                 # Social Security & Medicare planner (Income/Expense tab):
                 # writes the saved planner inputs as ordinary rows.
