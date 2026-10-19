@@ -34,7 +34,18 @@ def _holding_label(p: dict) -> str:
 
 def check_positions(positions: list[dict]) -> list[dict]:
     issues: list[dict] = []
-    negatives = [p for p in positions if (p.get("market_value") or 0) < 0]
+    loans = [p for p in positions if rebalance.is_margin_loan(p)]
+    if loans:
+        s = rebalance.margin_loan_summary(positions)
+        issues.append({
+            "id": "margin-loan", "level": "info",
+            "title": f"Margin loan tagged: {_money(s['loan'])} borrowed ({s['pct_of_holdings']:.0f}% of your holdings)",
+            "detail": f"Your holdings add up to {_money(s['holdings'])}; after the loan you own {_money(s['net'])}. "
+                      "Your stock/bond/cash mix is worked out on the holdings before the loan, so it shows what you are really exposed to. "
+                      "A loan makes losses bigger in a downturn.",
+            "href": "/rebalance.html", "fix": None,
+        })
+    negatives = [p for p in positions if (p.get("market_value") or 0) < 0 and not rebalance.is_margin_loan(p)]
     if negatives:
         total = sum(p["market_value"] for p in negatives)
         where = ", ".join(sorted({f"{p.get('institution') or ''} {p.get('account') or ''}".strip() for p in negatives}))
@@ -42,7 +53,8 @@ def check_positions(positions: list[dict]) -> list[dict]:
             "id": "negative-holdings", "level": "info",
             "title": f"{len(negatives)} holding{'s' if len(negatives) != 1 else ''} with a negative value ({_money(total)} below zero)",
             "detail": f"Usually a margin loan or an overdrawn cash line in {where}. It is left out of your stock/bond/cash mix, "
-                      "so your real mix may differ. If it is a loan, you could also list it under Liabilities.",
+                      "so your real mix may differ. If it is a margin loan, open Linked Positions and press \"Mark as margin loan\" on that row. "
+                      "Do not also add it under Liabilities if the account balance on Linked Accounts is already after the loan.",
             "href": "/linked-positions.html", "fix": None,
         })
     mismatched = []

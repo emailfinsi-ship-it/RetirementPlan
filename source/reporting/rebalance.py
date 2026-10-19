@@ -125,6 +125,32 @@ def suggested_target(age: int | None) -> dict:
     return {"Stocks": stocks, "Bonds": 100.0 - stocks - cash, "Cash": cash, "Other": 0.0}
 
 
+MARGIN_TAG = "Margin loan"
+
+
+def is_margin_loan(position: dict) -> bool:
+    """A negative holding the owner tagged as a margin loan (sector tag
+    "Margin loan"; any capitalisation)."""
+    tag = (position.get("manual_sector") or "").strip().lower()
+    return (position.get("market_value") or 0) < 0 and tag in ("margin loan", "margin", "loan")
+
+
+def margin_loan_summary(positions: list[dict]) -> dict | None:
+    """What is borrowed against the holdings, or None when nothing is tagged.
+    "holdings" is everything you hold before the loan; "net" is what you own
+    after it (the account balances already come out at this figure)."""
+    loans = [p for p in positions if is_margin_loan(p)]
+    if not loans:
+        return None
+    loan = -sum(p["market_value"] for p in loans)
+    holdings = sum(p["market_value"] for p in positions if (p.get("market_value") or 0) > 0)
+    net = holdings - loan
+    where = sorted({f"{p.get('institution') or ''} {p.get('account') or ''}".strip() for p in loans} - {""})
+    return {"loan": loan, "holdings": holdings, "net": net,
+            "pct_of_holdings": (loan / holdings * 100.0) if holdings > 0 else 0.0,
+            "where": where}
+
+
 def classify(position: dict, overrides: dict | None = None) -> str:
     if overrides and position.get("security_id") in overrides:
         return overrides[position["security_id"]]

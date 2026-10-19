@@ -179,9 +179,23 @@ def _grouping_html(positions: list[dict], overrides: dict) -> str:
 <table><thead><tr><th>Holding</th><th>Account</th><th class="num">Value</th><th>Group</th></tr></thead><tbody>{rows}</tbody></table></details>"""
 
 
+def _margin_card(summary: dict | None) -> str:
+    if not summary:
+        return ""
+    where = f" ({html.escape(', '.join(summary['where']))})" if summary["where"] else ""
+    return f"""<div class="card" id="margin-loan">
+<h3 class="sub" style="margin-top:0">Margin loan{where}</h3>
+<p style="margin:0 0 6px">You have borrowed <strong>{_money(summary['loan'])}</strong> against your holdings, which is {summary['pct_of_holdings']:.0f}% of them.</p>
+<p style="margin:0 0 6px">Your holdings add up to {_money(summary['holdings'])}. After the loan you own <strong>{_money(summary['net'])}</strong>.</p>
+<p class="muted small" style="margin:0">The mixes below are worked out on the holdings before the loan, so they show what you are really exposed to. Borrowing makes a market drop hurt more: a 10% fall in your holdings is a {summary['holdings'] * 0.10 / summary['net'] * 100 if summary['net'] > 0 else 0:.0f}% fall in what you own.</p>
+</div>"""
+
+
 def _render_rebalance_page() -> str:
+    all_positions = linked_data.read_linked_portfolio_positions()
+    margin = rebalance.margin_loan_summary(all_positions)
     # Skip holdings worth under a dollar: an account that shows as $0 has nothing to rebalance.
-    positions = [p for p in linked_data.read_linked_portfolio_positions() if (p.get("market_value") or 0) >= 1]
+    positions = [p for p in all_positions if (p.get("market_value") or 0) >= 1]
     head = ('<h2 style="margin-top:0">Risk &amp; Suggestions</h2>'
             '<p class="muted">Pick how much risk you are comfortable with. Below, each account tells you what to do, '
             'if anything, to match it. These are suggestions only &mdash; this app never buys or sells for you.</p>')
@@ -220,6 +234,7 @@ def _render_rebalance_page() -> str:
 .inst-row {{ padding:8px 0; border-bottom:1px solid var(--border); }} .inst-row:last-child {{ border-bottom:0; }}
 </style>
 {risk_card}
+{_margin_card(margin)}
 {inst_card}
 <h3 class="sub">What to do in each account</h3>
 <div class="muted small" style="margin:4px 0 8px">{legend}</div>

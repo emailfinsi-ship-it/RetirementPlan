@@ -7,6 +7,7 @@ import html
 
 from source.common import linked_data
 from source.common import db
+from source.reporting import rebalance
 from source.reporting.portfolio_checkup import portfolio_checkup
 from source.webapp.render_helpers import (
     _bar_chart_html,
@@ -109,7 +110,7 @@ def _render_linked_positions_page() -> str:
     # bulk-classify input below the same way known_industries is, so a
     # second fund gets tagged with the exact same label as the first
     # rather than a near-duplicate ("Diversified" vs "diversified").
-    known_sectors = sorted(set(_SECTOR_INDUSTRIES) | {p["manual_sector"].strip() for p in linked_positions if p["manual_sector"]})
+    known_sectors = sorted(set(_SECTOR_INDUSTRIES) | {"Margin loan"} | {p["manual_sector"].strip() for p in linked_positions if p["manual_sector"]})
     sector_datalist_html = "".join(f"<option>{html.escape(s)}</option>" for s in known_sectors)
 
     def _market_value_cell(p) -> str:
@@ -128,6 +129,22 @@ def _render_linked_positions_page() -> str:
             f'<span class="muted" style="font-size:10px;" title="{title}">(vested)</span></td>'
         )
 
+    def _security_cell(p) -> str:
+        name = html.escape(p["security_name"])
+        if (p["market_value"] or 0) >= 0 or not p["security_id"]:
+            return f"<td>{name}</td>"
+        if rebalance.is_margin_loan(p):
+            return f'<td>{name} <span class="status-ok" style="font-size:11px;">Margin loan</span></td>'
+        sid = html.escape(p["security_id"], quote=True)
+        tick = html.escape(p["ticker"] or "", quote=True)
+        return (
+            f'<td>{name} <button type="button" class="loan-btn" style="font-size:11px; padding:2px 8px;" '
+            f'title="This negative amount is money borrowed against your account" '
+            f"onclick=\"postJSON('/api/classify-sector', {{items: [{{security_id: this.dataset.sid, ticker: this.dataset.tick}}], "
+            f"sector: 'Margin loan'}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});\" "
+            f'data-sid="{sid}" data-tick="{tick}">Mark as margin loan</button></td>'
+        )
+
     linked_positions_html = "".join(
         f'<tr data-type="{html.escape(p["type_chart_label"])}" data-institution="{html.escape(p["institution"])}" '
         f'data-industry="{html.escape(_industry_attr(p))}" data-sector="{html.escape(p["sector"])}" '
@@ -135,7 +152,7 @@ def _render_linked_positions_page() -> str:
         f'<td class="check-col"><input type="checkbox" class="position-check" '
         f'data-security-id="{html.escape(p["security_id"] or "")}" data-ticker="{html.escape(p["ticker"])}"></td>'
         f'<td>{html.escape(p["institution"])}</td><td>{html.escape(p["account"])}</td>'
-        f'<td>{html.escape(p["security_name"])}</td><td>{html.escape(p["ticker"])}</td>'
+        f'{_security_cell(p)}<td>{html.escape(p["ticker"])}</td>'
         f'<td>{html.escape(p["type_chart_label"])}</td><td>{html.escape(p["industry"] or "Unclassified")}</td>'
         f'{_market_value_cell(p)}'
         f'<td>{html.escape(p["position_as_of"])}</td></tr>'
