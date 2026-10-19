@@ -33,6 +33,17 @@ class LauncherTemplateTests(unittest.TestCase):
     def test_build_script_uses_template(self):
         self.assertIn("scripts/assets/launcher.sh", (ROOT / "scripts" / "build_mac_app.sh").read_text())
 
+    def test_build_forces_wheel_and_selftests(self):
+        text = (ROOT / "scripts" / "build_mac_app.sh").read_text()
+        self.assertIn("--only-binary=:all: cryptography", text)
+        self.assertIn("--selftest", text)
+
+    def test_selftest_flag_exits_cleanly(self):
+        out = subprocess.run(["python3", str(ROOT / "run_app.py"), "--selftest"],
+                             capture_output=True, text=True, cwd=str(ROOT))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("selftest ok", out.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

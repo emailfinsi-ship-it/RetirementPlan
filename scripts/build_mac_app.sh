@@ -54,7 +54,13 @@ BUILD_VENV=.build_venv
 rm -rf "$BUILD_VENV"
 "$PYTHON_BIN" -m venv "$BUILD_VENV"
 echo "Installing build dependencies..."
+"$BUILD_VENV/bin/python" -m pip install -q --upgrade pip
+# cryptography must come as a ready-made wheel (it carries its own OpenSSL). Built
+# from source it links the Mac's OpenSSL and the app then fails with
+# "Symbol not found: _SSL_get0_group_name".
+"$BUILD_VENV/bin/python" -m pip install -q --only-binary=:all: cryptography
 "$BUILD_VENV/bin/python" -m pip install --no-compile -q -r requirements.txt "pyinstaller>=6.10"
+"$BUILD_VENV/bin/python" -m pip install -q --only-binary=:all: cryptography
 
 echo "Running PyInstaller (a few minutes)..."
 rm -rf build dist "$SERVER_NAME.spec"
@@ -82,6 +88,13 @@ rm -rf build dist "$SERVER_NAME.spec"
 
 if [ ! -x "dist/$SERVER_NAME/$SERVER_NAME" ]; then
   echo "PyInstaller finished but dist/$SERVER_NAME/$SERVER_NAME wasn't produced -- scroll up for the actual error." >&2
+  exit 1
+fi
+
+echo "Checking the built program starts..."
+if ! "dist/$SERVER_NAME/$SERVER_NAME" --selftest; then
+  echo "The built program failed its start-up check (see the error above)." >&2
+  echo "Send that text along if you ask for help." >&2
   exit 1
 fi
 
