@@ -60,7 +60,7 @@ PAGE_SHELL = """<!doctype html>
 <style>{css}</style>
 {theme_head_script}
 </head>
-<body data-current-year="{current_year}">
+<body data-current-year="{current_year}" data-view="{view_mode}" data-tour="{tour}">
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
   <div style="display:flex; align-items:center; gap:12px;">
     <img src="/icons/logo.svg" alt="" width="84" height="84" style="border-radius:18px; flex:none;">
@@ -153,6 +153,53 @@ function postJSON(url, body) {{
       }});
     }});
 }}
+var RP_TOUR = [
+  {{sel: 'nav a[href="/summary.html"]', title: 'Summary', text: 'Start here. It tells you in plain words whether your money is on track.'}},
+  {{sel: 'nav a[href="/asset.html"]', title: 'Assets', text: 'What you own and what you owe.'}},
+  {{sel: 'nav a[href="/expense.html"]', title: 'Income & Expenses', text: 'What comes in and what goes out each year.'}},
+  {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Will my money last?', text: 'Your chance of the money lasting. This is also where you enter Social Security.'}},
+  {{sel: '.view-toggle', title: 'Simple or Full', text: 'Simple keeps the basics in short sentences. Full shows every tool.'}},
+  {{sel: '.ex-btn', title: 'The little i', text: 'Tap an i next to any title to read the full explanation.'}},
+  {{sel: '#whatif-quick', title: 'What if...?', text: 'Try a change and see its effect. Nothing is saved.'}}
+];
+function startTour() {{
+  var steps = RP_TOUR.filter(function(s) {{ var el = document.querySelector(s.sel); return el && el.offsetParent !== null; }});
+  if (!steps.length) {{ return; }}
+  var i = 0, box = document.createElement('div'), mark = null;
+  box.id = 'rp-tour';
+  box.style.cssText = 'position:absolute; z-index:100001; max-width:290px; background:var(--surface,#fff); color:var(--ink,#1d1d1f); border:1px solid var(--border,#d2d2d7); border-radius:14px; padding:14px 16px; box-shadow:0 14px 36px rgba(0,0,0,.28); font-size:14px; line-height:1.4;';
+  document.body.appendChild(box);
+  function done() {{
+    if (mark) {{ mark.style.outline = ''; mark.style.outlineOffset = ''; }}
+    box.remove();
+    postJSON('/api/tour-seen', {{}}).catch(function() {{}});
+  }}
+  function show() {{
+    if (mark) {{ mark.style.outline = ''; mark.style.outlineOffset = ''; }}
+    var s = steps[i]; mark = document.querySelector(s.sel);
+    mark.style.outline = '3px solid #0071e3'; mark.style.outlineOffset = '3px';
+    mark.scrollIntoView({{block: 'center', behavior: 'smooth'}});
+    box.innerHTML = '<div style="font-weight:700; margin-bottom:4px;">' + s.title + '</div><div>' + s.text + '</div>' +
+      '<div style="display:flex; gap:8px; align-items:center; margin-top:12px;"><span class="muted small">' + (i + 1) + ' of ' + steps.length + '</span><span style="flex:1"></span>' +
+      '<button type="button" id="tour-skip">Skip</button>' +
+      (i > 0 ? '<button type="button" id="tour-back">Back</button>' : '') +
+      '<button type="button" class="primary" id="tour-next">' + (i === steps.length - 1 ? 'Done' : 'Next') + '</button></div>';
+    document.getElementById('tour-skip').onclick = done;
+    if (i > 0) {{ document.getElementById('tour-back').onclick = function() {{ i--; show(); }}; }}
+    document.getElementById('tour-next').onclick = function() {{ if (i === steps.length - 1) {{ done(); }} else {{ i++; show(); }} }};
+    setTimeout(function() {{
+      var r = mark.getBoundingClientRect(), top = r.bottom + window.scrollY + 12, left = Math.max(10, Math.min(r.left + window.scrollX, window.innerWidth - 310));
+      box.style.top = top + 'px'; box.style.left = left + 'px';
+    }}, 350);
+  }}
+  show();
+}}
+document.addEventListener('DOMContentLoaded', function() {{
+  if (document.body.getAttribute('data-tour') === 'auto') {{ setTimeout(startTour, 900); }}
+}});
+function setViewMode(mode) {{
+  postJSON('/api/view-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
+}}
 function setDollarsMode(mode) {{
   postJSON('/api/dollars-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
 }}
@@ -194,6 +241,30 @@ function runWhatIf(btn) {{
       '</tbody></table><p class="muted small" style="margin-top:0">Ending balances at the end of your plan horizon. Nothing is saved; this only compares.</p>';
     btn.disabled = false; btn.textContent = 'Compare';
   }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = 'Compare'; }});
+}}
+function wiSay(where, html) {{ document.getElementById(where).innerHTML = html; }}
+function wiQuick(btn, spend, retire) {{
+  var card = document.getElementById('whatif-quick'), out = 'whatif-quick-result';
+  var label = btn.textContent;
+  btn.disabled = true; wiSay(out, '<span class="muted">Working it out...</span>');
+  postJSON('/api/what-if', {{custom: true, spend_change_pct: spend, retire_shift_years: retire, expected_return_pct: card.getAttribute('data-growth')}}).then(function(d) {{
+    var b = d.base, w = d.whatif, pts = Math.round((w.success_rate - b.success_rate) * 1000) / 10;
+    var change = Math.abs(pts) < 0.05 ? 'no real change' : (pts > 0 ? 'up ' : 'down ') + Math.abs(pts).toFixed(1) + ' points';
+    wiSay(out, '<strong>' + label + ':</strong> your chance of lasting goes from <strong>' + wiPct(b.success_rate) + '</strong> to <strong>' + wiPct(w.success_rate) +
+      '</strong> (' + change + '). The typical ending balance goes from ' + wiMoney(b.median) + ' to ' + wiMoney(w.median) + '.');
+    btn.disabled = false;
+  }}).catch(function(e) {{ wiSay(out, '<span class="status-warn">' + e.message + '</span>'); btn.disabled = false; }});
+}}
+function wiClaim(btn, age) {{
+  var out = 'whatif-quick-result';
+  btn.disabled = true; wiSay(out, '<span class="muted">Running your plan for each claiming age...</span>');
+  postJSON('/api/benefits/claiming-analysis', {{person: 'self'}}).then(function(d) {{
+    var byAge = {{}}; d.rows.forEach(function(r) {{ byAge[r.age] = r; }});
+    var now = byAge[d.chosen_age || d.recommended_age], then = byAge[age];
+    wiSay(out, '<strong>Claim Social Security at ' + age + ':</strong> your chance of lasting goes from <strong>' + wiPct(now.success_rate) + '</strong> (claiming at ' + now.age +
+      ') to <strong>' + wiPct(then.success_rate) + '</strong>. It pays ' + wiMoney(then.annual) + ' a year in today&#39;s dollars from ' + then.start_year + '. Change your age on the Will my money last? tab.');
+    btn.disabled = false;
+  }}).catch(function(e) {{ wiSay(out, '<span class="status-warn">' + e.message + '</span>'); btn.disabled = false; }});
 }}
 function loadSafeSpending(target) {{
   var el = document.getElementById('ss-text'); if (!el) {{ return; }}
@@ -1240,6 +1311,34 @@ def _nav_icon_html(href: str) -> str:
     )
 
 
+# Tabs tucked away in the Simple view (a "More tools" button takes their place);
+# hidden by a CSS rule on their href in styles.py, so the markup itself never changes.
+ADVANCED_TABS = frozenset({"drawdown-planning.html"})
+
+_MORE_TOOLS_HTML = (
+    '<a href="#" class="more-tools simple-only" onclick="setViewMode(\'full\'); return false;" '
+    'title="Show every tool: drawdown and legacy planning, advanced settings and full explanations">'
+    '<span class="ni" style="--c1:#bcc1ca; --c2:#646a76"><svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<circle cx="6" cy="12" r="1.6" fill="#fff"/><circle cx="12" cy="12" r="1.6" fill="#fff"/>'
+    '<circle cx="18" cy="12" r="1.6" fill="#fff"/></svg></span><span class="nl">More tools</span></a>'
+)
+
+
+def _view_toggle_html() -> str:
+    """Segmented "Simple | Full" control in the page header."""
+    mode = db.view_mode()
+
+    def btn(value: str, label: str) -> str:
+        on = " on" if mode == value else ""
+        return f'<button type="button" class="seg{on}" onclick="setViewMode(\'{value}\')">{label}</button>'
+
+    return (
+        '<div class="seg-group view-toggle" role="group" aria-label="How much to show" '
+        'title="Simple shows the everyday pages in short sentences. Full shows every tool and the full explanations.">'
+        + btn("simple", "Simple") + btn("full", "Full") + "</div>"
+    )
+
+
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
@@ -1251,7 +1350,7 @@ def _nav_html(active: str) -> str:
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS
-    )
+    ) + _MORE_TOOLS_HTML
 
 
 def _subnav_html(active: str) -> str:
@@ -1406,6 +1505,13 @@ def _disclaimer_html() -> str:
             f'<a href="/legal.html" style="color:inherit; text-decoration:underline;">Privacy &amp; terms</a></p>')
 
 
+def _tour_state(active: str) -> str:
+    """"auto" on the Summary of a set-up plan that has never seen the tour, else "off"."""
+    if active != "summary.html" or db.tour_seen() or db.setup_needed():
+        return "off"
+    return "auto"
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1413,9 +1519,10 @@ def _shell(*, title: str, active: str, body: str) -> str:
     # cells use, without every page having to know about that modal.
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     annotated_body, explain_targets = explain.annotate(body, active)
+    annotated_body, explain_extra = explain.condense(annotated_body)
     return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets), current_year=current_year,
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML,
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + _view_toggle_html() + THEME_TOGGLE_HTML,
     )
 
 

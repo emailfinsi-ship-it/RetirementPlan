@@ -8,7 +8,7 @@ import html
 from source.common import linked_data
 from source.reporting import real_link
 from source.reporting.aggregate import build_summary
-from source.webapp.pages.benefits_card import double_social_security_html, social_security_medicare_card_html
+from source.webapp.pages.benefits_card import double_social_security_html
 from source.reporting.monte_carlo import annual_line_item_total, effective_line_item_amount
 from source.webapp.render_helpers import (
     _donut_chart_html,
@@ -85,7 +85,7 @@ def _render_expense_page() -> str:
   </div>
 </div>
 {double_social_security_html(s["income"], assumptions)}
-{social_security_medicare_card_html(assumptions)}
+<div class="card" id="ss-pointer"><p style="margin:0"><strong>Social Security and Medicare</strong> are set on the <a href="/monte-carlo.html#benefits-planner">Will my money last?</a> tab. Rows marked &ldquo;set by the planner&rdquo; below change when you change them there.</p></div>
 <div class="group-section">
 {income_chart_html}
 {expense_chart_html}
@@ -202,22 +202,40 @@ def _line_item_section_html(
         )
 
     def row_html(e):
-        name_cell = _editable_text_cell(section, e["id"], "name", e["name"])
-        category_cell = _editable_category_cell(section, e["id"], e["category"], current_year=this_year)
-        amount_cell = (
-            _editable_number_cell(section, e["id"], "annual_amount", e["annual_amount"], width="100%", money=True)
-            + _inflation_note_html(e, this_year, inflation_rate)
-        )
-        start_cell = _editable_number_cell(
-            section, e["id"], "start_year", e["start_year"], width="62px", step="1", blank_if_none=True,
-        )
-        end_cell = _editable_number_cell(
-            section, e["id"], "end_year", e["end_year"], width="62px", step="1", blank_if_none=True,
-        )
-        base_year_cell = _editable_number_cell(
-            section, e["id"], "base_year", e["base_year"], width="100%", step="1", blank_if_none=True,
-        )
-        notes_cell = _editable_text_cell(section, e["id"], "notes", e["notes"])
+        # Rows the Social Security planner writes are read-only here: it
+        # replaces them every time it saves, so an edit would be lost.
+        locked = e.get("source") == "benefits-planner"
+
+        def plain(value, *, money=False):
+            if value in (None, ""):
+                return ""
+            return html.escape(_money(value) if money else str(value))
+
+        if locked:
+            name_cell = plain(e["name"])
+            category_cell = plain(e["category"])
+            amount_cell = plain(e["annual_amount"], money=True) + _inflation_note_html(e, this_year, inflation_rate)
+            start_cell = plain(e["start_year"])
+            end_cell = plain(e["end_year"])
+            base_year_cell = plain(e["base_year"])
+            notes_cell = html.escape(e["notes"] or "")
+        else:
+            name_cell = _editable_text_cell(section, e["id"], "name", e["name"])
+            category_cell = _editable_category_cell(section, e["id"], e["category"], current_year=this_year)
+            amount_cell = (
+                _editable_number_cell(section, e["id"], "annual_amount", e["annual_amount"], width="100%", money=True)
+                + _inflation_note_html(e, this_year, inflation_rate)
+            )
+            start_cell = _editable_number_cell(
+                section, e["id"], "start_year", e["start_year"], width="62px", step="1", blank_if_none=True,
+            )
+            end_cell = _editable_number_cell(
+                section, e["id"], "end_year", e["end_year"], width="62px", step="1", blank_if_none=True,
+            )
+            base_year_cell = _editable_number_cell(
+                section, e["id"], "base_year", e["base_year"], width="100%", step="1", blank_if_none=True,
+            )
+            notes_cell = _editable_text_cell(section, e["id"], "notes", e["notes"])
         # Both ends blank means "applies every year" -- say so rather than
         # leaving two empty boxes that read as missing data.
         every_year_note = (
@@ -225,6 +243,8 @@ def _line_item_section_html(
             if e["start_year"] in (None, "") and e["end_year"] in (None, "") else ""
         )
         imported_tag = (
+            '<div class="li-sub">set by the planner &middot; <a href="/monte-carlo.html#benefits-planner">change</a></div>'
+            if locked else
             f'<div class="li-sub">{html.escape(e["source"])}</div>' if e.get("source") and e["source"] != "manual" else ""
         )
         mc_td = (

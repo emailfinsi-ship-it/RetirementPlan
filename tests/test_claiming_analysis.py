@@ -38,6 +38,6 @@ class TestClaimingAnalysis(DashboardTestCase):
         status, d = self._post("/api/benefits/claiming-analysis", {"person": "self"})
         self.assertEqual(status, 200)
         self.assertEqual(len(d["rows"]), 9)
-        body = self._get("/expense.html").read().decode("utf-8")
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertIn("analyzeClaiming('self')", body)
         self.assertIn("based on my plan?", body)

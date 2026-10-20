@@ -260,15 +260,20 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("after property costs", body)
         self.assertIn("Loan ends", body)
 
-    def test_income_tab_has_the_social_security_and_medicare_planner(self):
+    def test_money_last_tab_has_the_social_security_planner(self):
         db.set_assumptions({"birth_year": "1965", "ss_benefit_self": "30000", "ss_claim_age_self": "67"})
         try:
-            body = self._get("/expense.html").read().decode("utf-8")
+            body = self._get("/monte-carlo.html").read().decode("utf-8")
+            income_tab = self._get("/expense.html").read().decode("utf-8")
         finally:
             db.set_assumptions({"birth_year": "", "ss_benefit_self": "", "ss_claim_age_self": ""})
-        self.assertIn("Social Security &amp; Medicare planner", body)
+        self.assertIn('id="benefits-planner"', body)
+        self.assertIn("<h2 style=\"margin-top:0\">Social Security</h2>", body)
         self.assertIn("claiming age comparison", body)
         self.assertIn("function saveBenefits(", body)
+        # One place only: the Income tab points at it instead of repeating the form.
+        self.assertNotIn('id="benefits-form"', income_tab)
+        self.assertIn('id="ss-pointer"', income_tab)
 
     def test_benefits_apply_endpoint_writes_the_rows(self):
         db.set_assumptions({"birth_year": "1965", "ss_benefit_self": "30000", "ss_claim_age_self": "67", "medicare_magi": "100000"})
@@ -1140,8 +1145,8 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
 
 class TestAssetPageSummaryTables(DashboardTestCase):
     """The two top-of-page summary tables on the Assets tab: a per-category
-    breakdown ending in Net Liquid Asset (every asset row checked "In
-    Monte Carlo?", net of liabilities), and a rollup of Net Liquid Asset
+    breakdown ending in Investable savings (every asset row checked "In
+    Monte Carlo?", net of liabilities), and a rollup of Investable savings
     + real estate's effective equity into Total Asset."""
 
     def tearDown(self):
@@ -1155,13 +1160,13 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        # The rollup table (Net Liquid Asset -> Total Asset) now renders
+        # The rollup table (Investable savings -> Total Asset) now renders
         # above this category table, so find the category table's own
         # "Summary" label div (not the nav bar's "Summary" link, nor the
-        # rollup table's own "Net Liquid Asset" row before it) and its
+        # rollup table's own "Investable savings" row before it) and its
         # tfoot after that point.
         start = body.index(">Summary</div>")
-        summary = body[start : body.index("Net Liquid Asset</td><td class=\"num\">", start) + 60]
+        summary = body[start : body.index("Investable savings</td><td class=\"num\">", start) + 60]
         self.assertIn("<td>401k</td><td class=\"num\">$100,000</td>", summary)
         self.assertIn("<td>Liquid</td><td class=\"num\">$50,000</td>", summary)
         self.assertIn("<td>Insurance</td><td class=\"num\">$20,000</td>", summary)
@@ -1176,14 +1181,14 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         body = resp.read().decode("utf-8")
         # 100,000 + 50,000 - 5,000 = 145,000 -- Insurance's 20,000 is
         # unchecked, so the total must not equal 165,000.
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$145,000</td>", body)
+        self.assertIn("Investable savings</td><td class=\"num\">$145,000</td>", body)
         self.assertNotIn("$165,000", body)
 
     def test_an_unchecked_row_is_excluded_from_net_liquid_asset(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0</td>", body)
+        self.assertIn("Investable savings</td><td class=\"num\">$0</td>", body)
 
     def test_rollup_table_totals_net_liquid_asset_and_real_estate_equity(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
@@ -1192,7 +1197,7 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
         self.assertIn("Effective Equity on Real Estate</td><td class=\"num\">$200,000</td>", body)
-        # Net Liquid Asset (150,000) + RE equity (200,000) = 350,000.
+        # Investable savings (150,000) + RE equity (200,000) = 350,000.
         self.assertIn("Total Asset</td><td class=\"num\">$350,000</td>", body)
 
     def test_rollup_table_uses_the_live_loan_balance_for_effective_equity(self):
@@ -1221,7 +1226,7 @@ class TestAssetPageSummaryTables(DashboardTestCase):
     def test_empty_state_shows_zero_net_liquid_asset_and_total_asset(self):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Net Liquid Asset</td><td class=\"num\">$0</td>", body)
+        self.assertIn("Investable savings</td><td class=\"num\">$0</td>", body)
         self.assertIn("Total Asset</td><td class=\"num\">$0</td>", body)
 
     def test_summary_table_subtotals_match_each_category_detail_tables_own_subtotal(self):
@@ -1238,7 +1243,7 @@ class TestAssetPageSummaryTables(DashboardTestCase):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000, "include_in_monte_carlo": 1})
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertLess(body.index("Total Asset</td>"), body.index("Net Liquid Asset = the balance"))
+        self.assertLess(body.index("Total Asset</td>"), body.index("Investable savings = the balance"))
 
 
 class TestAssetPageIncludeInMonteCarloCheckbox(DashboardTestCase):
@@ -2860,12 +2865,12 @@ class TestAssumptionsEndpoint(DashboardTestCase):
 
 
 class TestMonteCarloStartingBalance(DashboardTestCase):
-    """The Monte Carlo tab's starting balance is Net Liquid Asset -- 401k +
+    """The Monte Carlo tab's starting balance is Investable savings -- 401k +
     Liquid, net of liabilities -- not full net worth: real estate equity
     and other Asset-tab categories (Insurance, etc.) aren't money you'd
     draw down in retirement, and liabilities (a loan, a credit card
     balance, ...) do reduce what's actually available, per the user's
-    "montecarlo simulations should be on 'Net Liquid Asset'" request. The
+    "montecarlo simulations should be on 'Investable savings'" request. The
     Summary tab's "What if: expected return" card runs the same
     simulation and must show the same starting balance, so the two tabs
     stay in sync with each other."""
@@ -2916,9 +2921,9 @@ class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
     sum(pools.values()) -- which includes the opted-in real estate
     equity as a 4th pool (see source.reporting.monte_carlo.
     _run_random_simulation's own comment) -- but the Monte Carlo and
-    Summary pages' intro text still only quoted Net Liquid Asset, understating
+    Summary pages' intro text still only quoted Investable savings, understating
     the money actually being simulated. Fixed by a "Starting balance"
-    tile (Net Liquid Asset + opted-in real estate) and updated copy on
+    tile (Investable savings + opted-in real estate) and updated copy on
     both pages."""
 
     def setUp(self):
@@ -2934,8 +2939,8 @@ class TestMonteCarloStartingBalanceWithOptedInRealEstate(DashboardTestCase):
     def test_monte_carlo_page_starting_balance_tile_includes_opted_in_real_estate(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        # Net Liquid Asset (150,000) + opted-in equity (500,000 - 200,000
-        # = 300,000) = 450,000 -- not just the 150,000 Net Liquid Asset.
+        # Investable savings (150,000) + opted-in equity (500,000 - 200,000
+        # = 300,000) = 450,000 -- not just the 150,000 Investable savings.
         self.assertIn('<div class="label">Starting balance</div><div class="value">$450,000</div>', body)
         self.assertIn('<div class="label">Real estate (opted in)</div><div class="value">$300,000</div>', body)
 
@@ -3085,7 +3090,7 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
             "<td>401k</td><td class=\"num\">$100,000</td>",
             "<td>Liquid</td><td class=\"num\">$50,000</td>",
             "<td>Insurance</td><td class=\"num\">$20,000</td>",
-            "Net Liquid Asset</td><td class=\"num\">$145,000</td>",
+            "Investable savings</td><td class=\"num\">$145,000</td>",
             "Total Asset</td><td class=\"num\">$345,000</td>",
         ):
             self.assertIn(expected, asset_body)
@@ -3101,7 +3106,7 @@ class TestSummaryPageAssetTotals(DashboardTestCase):
     def test_rollup_table_renders_above_the_category_summary_table(self):
         self._seed()
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertLess(body.index("Total Asset</td>"), body.index("Net Liquid Asset = the balance"))
+        self.assertLess(body.index("Total Asset</td>"), body.index("Investable savings = the balance"))
 
 
 class TestGaussianSimulationTiles(DashboardTestCase):
@@ -3588,7 +3593,7 @@ class TestMonteCarloPoolsAndRmd(DashboardTestCase):
         # source.reporting.aggregate.effective_tax_treatment uses.
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Tax-deferred (401k/Traditional)", body)
+        self.assertIn("Pre-tax (401k / traditional IRA)", body)
         self.assertIn("Roth (tax-free)", body)
         self.assertIn("Taxable (brokerage)", body)
         self.assertIn(dashboard._money(400_000), body)
@@ -4907,7 +4912,7 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
 
 class TestAssetPageNetWorthHistory(DashboardTestCase):
     """The Assets tab's over-time chart (see source.webapp.pages.asset.
-    _liquid_and_total_points): Net Liquid Asset, one point per captured
+    _liquid_and_total_points): Investable savings, one point per captured
     day, laid out by real elapsed time on a y-axis fitted to the data."""
 
     def tearDown(self):
@@ -4950,7 +4955,7 @@ class TestAssetPageNetWorthHistory(DashboardTestCase):
         self._snap(100_000.0, "2026-09-01", liabilities=10_000.0, re_equity=500_000.0)
         self._snap(120_000.0, "2026-09-02", liabilities=10_000.0, re_equity=500_000.0)
         body = self._get("/asset.html").read().decode("utf-8")
-        self.assertIn('"name": "Net Liquid Asset"', body)
+        self.assertIn('"name": "Investable savings"', body)
         self.assertIn('["2026-09-01", 90000.0], ["2026-09-02", 110000.0]', body)
 
     def test_a_second_capture_the_same_day_replaces_that_days_point(self):

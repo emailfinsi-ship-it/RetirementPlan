@@ -747,7 +747,7 @@ _NW_EXPLORER_JS = """
   } catch (e) {}
 
   // Picking either real-estate line switches the headline total from Net
-  // Liquid Asset to Total Asset (Net Liquid Asset + real estate equity).
+  // Liquid Asset to Total Asset (Investable savings + real estate equity).
   function anyRe() { return !!(data.total && Object.keys(reSel).some(function (k) { return reSel[k]; })); }
   function totalDef() { return anyRe() ? data.total : data.liquid; }
 
@@ -973,7 +973,7 @@ def _net_worth_explorer_html(
 ) -> str:
     """The Assets tab's one over-time chart. The headline line is Net Liquid
     Asset by default; picking either real-estate line (value / equity)
-    switches it to Total Asset (Net Liquid Asset + real estate equity,
+    switches it to Total Asset (Investable savings + real estate equity,
     `total_points`) -- the same two figures the rollup table above sums.
     Toggle chips plot individual assets next to it (colored in the same
     fixed palette order as the donut charts), with "All"/"None" shortcuts
@@ -988,7 +988,7 @@ def _net_worth_explorer_html(
         label, up = _nw_change(points)
         return {"name": name, "points": [[d, v] for d, v in points], "change": label, "up": up}
 
-    liquid = total_def("Net Liquid Asset", liquid_points)
+    liquid = total_def("Investable savings", liquid_points)
     total = total_def("Total Asset", total_points) if total_points and real_estate else None
     payload = {
         "liquid": liquid,

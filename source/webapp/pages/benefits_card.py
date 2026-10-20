@@ -1,6 +1,8 @@
-"""The Income & Expenses tab's "Social Security & Medicare planner" card --
-inputs, a claiming-age comparison per person, and the Medicare/IRMAA tier
-for the income entered. Calculations live in source.reporting.benefits."""
+"""The "Social Security" card on the Will my money last? tab -- two plain
+questions per person (monthly amount on the SSA statement, age to start), a
+claiming-age comparison per person, and the Medicare/IRMAA settings under
+Advanced. Saving writes the Income/Expenses rows the plan uses. Calculations
+live in source.reporting.benefits."""
 
 from __future__ import annotations
 
@@ -37,6 +39,7 @@ def _table_html(person: dict) -> str:
             f"<td class=\"num\">{be}</td></tr>"
         )
     return f"""
+<details class="how-it-works" style="margin-top:10px;"><summary>{html.escape(person['name'])}: compare start ages</summary>
 <h3 style="font-size:13px; margin-bottom:0;">{html.escape(person['name'])}: claiming age comparison
 <span class="muted">(full retirement age {benefits.fra_text(person['birth_year'])})</span></h3>
 <div style="overflow-x:auto"><table>
@@ -44,7 +47,8 @@ def _table_html(person: dict) -> str:
 <th class="num">Total by age 85</th><th class="num">Break-even vs. 62 (age)</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 <p style="margin:10px 0 4px"><button type="button" class="primary" id="claim-btn-{person['key']}" onclick="analyzeClaiming('{person['key']}')">Which age is best for {html.escape(person['name'])}, based on my plan?</button></p>
-<div id="claim-result-{person['key']}"></div>"""
+<div id="claim-result-{person['key']}"></div>
+</details>"""
 
 
 def double_social_security_html(income_rows: list, assumptions: dict) -> str:
@@ -81,13 +85,16 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
         )
     planned = benefits.planned_rows(assumptions)
     status = ""
-    if planned["income"] or planned["expenses"]:
-        names = ", ".join(r["name"] for r in planned["income"] + planned["expenses"])
-        status = f'<p class="muted">"Save &amp; apply" will create or update these rows: {html.escape(names)}.</p>'
+    ss_lines = [
+        f'{html.escape(r["name"])}: {_money(r["annual_amount"])} a year from {r["start_year"]} (today\'s dollars)'
+        for r in planned["income"] if r.get("annual_amount") and r.get("start_year")
+    ]
+    if ss_lines:
+        status = '<p class="status-line status-ok" style="margin:10px 0 0"><strong>In your plan:</strong> ' + "; ".join(ss_lines) + ".</p>"
     missing = [f"{p['name']}'s birth year" for p in people if not p["birth_year"]]
     missing_text = (
-        f'<p class="status-line status-warn">Set {" and ".join(missing)} on the Will my money last? tab\'s Assumptions '
-        "for the matching person's rows and tables.</p>" if missing else ""
+        f'<p class="status-line status-warn">Add {" and ".join(missing)} under Assumptions below so the amounts start in the right year.</p>'
+        if missing else ""
     )
 
     def monthly(key: str) -> str:
@@ -99,32 +106,30 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
 
     def person_fields(p: dict) -> str:
         return (
-            f'<label>{html.escape(p["name"])}: benefit per month at full retirement age (as on your ssa.gov statement, today\'s dollars)'
+            f'<label>{html.escape(p["name"])}: benefit per month at full retirement age'
             f'<input name="ss_benefit_{p["key"]}" type="text" inputmode="decimal" autocomplete="off" placeholder="monthly amount, e.g. 3,500" '
             f'value="{monthly("ss_benefit_" + p["key"])}"></label>'
             f'<label>{html.escape(p["name"])}: claim at age{_claim_select("ss_claim_age_" + p["key"], p["claim_age"])}</label>'
         )
 
     return f"""
-<details class="how-it-works card" id="benefits-planner" style="padding:12px 16px;">
-<summary style="font-weight:600;">Social Security &amp; Medicare planner</summary>
-<p class="muted">Pick when each of you claims Social Security and see what it does to the yearly benefit; then
-"Save &amp; apply" writes the result onto the tables below as ordinary rows (Social Security under Income, Medicare
-under Expenses), so the money-lasts forecast, Drawdown and Legacy all pick it up. Benefits are in today's dollars and grow with
-the Inflation assumption. The comparison ignores taxes, spousal and survivor benefits, and discounting. Medicare
-premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY, cents=True)}/mo)
-and one income estimate; the real IRMAA rule looks at your income from two years earlier and can change each year. Add your
-Part D plan and Medigap premiums under "Other monthly Medicare costs". The Social Security rows it writes are replaced each time you "Save &amp; apply", so to change an amount, change the benefit or claiming age here rather than editing the row.</p>
+<div class="card" id="benefits-planner">
+<h2 style="margin-top:0">Social Security</h2>
+<p class="muted">Type the monthly amount from your ssa.gov statement and the age you plan to start. Your plan uses it right away. Pick when each of you claims Social Security and see what it does to the yearly benefit. Saving writes the result onto the Income &amp; Expenses tables as ordinary rows (Social Security under Income, Medicare under Expenses), so the money-lasts forecast, Drawdown and Legacy all pick it up. Benefits are in today's dollars and grow with the Inflation assumption. The comparison ignores taxes, spousal and survivor benefits, and discounting. These rows are replaced each time you save, so to change an amount, change the benefit or claiming age here rather than editing the row on the Income tab.</p>
 {missing_text}
-<form class="inline" id="benefits-form" onsubmit="event.preventDefault();">
+<form class="inline" id="benefits-form" onsubmit="event.preventDefault(); saveBenefits(true);">
   {"".join(person_fields(p) for p in people)}
-  <label>Expected retirement income for Medicare (MAGI, $/yr)<input name="medicare_magi" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 150,000" value="{html.escape(str(magi_raw or ''))}"></label>
-  <label>Other monthly Medicare costs per person ($)<input name="medicare_other_monthly" type="text" inputmode="decimal" autocomplete="off" placeholder="Part D plan, Medigap" value="{_value(assumptions, 'medicare_other_monthly')}"></label>
-  <button type="button" onclick="saveBenefits(false)">Save</button>
-  <button type="button" class="primary" onclick="saveBenefits(true)">Save &amp; apply to the tables</button>
+  <details class="adv-only" style="flex:1 1 100%;"><summary style="cursor:pointer; color:var(--brand); font-size:12px; font-weight:500;">Medicare costs (optional)</summary>
+    <p class="muted">Medicare premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY, cents=True)}/mo) and one income estimate; the real IRMAA rule looks at your income from two years earlier and can change each year. Add your Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+      <label>Expected retirement income for Medicare (MAGI, $/yr)<input name="medicare_magi" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 150,000" value="{html.escape(str(magi_raw or ''))}"></label>
+      <label>Other monthly Medicare costs per person ($)<input name="medicare_other_monthly" type="text" inputmode="decimal" autocomplete="off" placeholder="Part D plan, Medigap" value="{_value(assumptions, 'medicare_other_monthly')}"></label>
+    </div>
+  </details>
+  <button type="submit" class="primary">Save</button>
 </form>
-{tier_text}
 {status}
+<div class="adv-only">{tier_text}</div>
 {"".join(_table_html(p) for p in people)}
 <script>
 function analyzeClaiming(key) {{
@@ -187,5 +192,5 @@ function saveBenefits(apply) {{
   }}
 }})();
 </script>
-</details>
+</div>
 """

@@ -105,7 +105,7 @@ from source.common.db.owners import (
 )
 from source.common.db.meta import (
     dollars_mode, get_meta, legacy_whatif, set_dollars_mode, set_legacy_whatif, set_meta, set_setup_complete,
-    setup_complete, setup_needed,
+    setup_complete, setup_needed, set_tour_seen, set_view_mode, tour_seen, view_mode,
 )
 from source.common.db.plaid import (
     account_balances_from_payload,
@@ -184,6 +184,10 @@ __all__ = [
     "set_meta",
     "dollars_mode",
     "set_dollars_mode",
+    "set_tour_seen",
+    "set_view_mode",
+    "tour_seen",
+    "view_mode",
     "legacy_whatif",
     "set_legacy_whatif",
     "set_setup_complete",

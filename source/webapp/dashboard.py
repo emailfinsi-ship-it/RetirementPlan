@@ -126,7 +126,7 @@ _PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker
 # show something, and change nothing that is saved.
 _VIEWER_POSTS = {
     "/api/logout", "/api/login", "/api/reset-password", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
-    "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode",
+    "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
 _OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html"}
@@ -872,6 +872,12 @@ class Handler(BaseHTTPRequestHandler):
                     spec = normalize_custom_strategy(payload)
                     db.set_legacy_whatif(spec)
                     self._send_json({"ok": True, "whatif": spec})
+            elif path == "/api/tour-seen":
+                db.set_tour_seen(True)
+                self._send_json({"ok": True})
+            elif path == "/api/view-mode":
+                db.set_view_mode(str(payload.get("mode") or ""))
+                self._send_json({"ok": True, "mode": db.view_mode()})
             elif path == "/api/dollars-mode":
                 db.set_dollars_mode(str(payload.get("mode") or ""))
                 self._send_json({"ok": True, "mode": db.dollars_mode()})

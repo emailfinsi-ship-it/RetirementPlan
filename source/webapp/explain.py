@@ -565,12 +565,60 @@ def annotate(body: str, page: str) -> tuple[str, list[list[str]]]:
     return body, [[t, k] for t, k in targets.items()]
 
 
+_LONG_P = re.compile(r'<p class="(muted[^"]*)"([^>]*)>(.*?)</p>', re.S)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z<(])")
+_MIN_LONG_TEXT = 150
+_MAX_SHORT_TEXT = 170
+
+
+def _short_version(raw: str) -> str:
+    """The first sentence of a paragraph's HTML (links kept), or a trimmed
+    plain-text start when that sentence is itself very long."""
+    first = _SENTENCE_END.split(raw, maxsplit=1)[0]
+    plain = _norm_case(first)
+    if len(plain) <= _MAX_SHORT_TEXT:
+        return first.strip()
+    cut = plain[:_MAX_SHORT_TEXT].rsplit(" ", 1)[0].rstrip(",;:")
+    return html.escape(cut) + "&hellip;"
+
+
+def _norm_case(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(_TAGS.sub("", fragment))).strip()
+
+
+def condense(body: str) -> tuple[str, dict[str, dict]]:
+    """Long grey explanatory paragraphs get a one-sentence twin in front of
+    them, with an "i" button that opens the whole text in the same pop-up the
+    other "i" buttons use. The original paragraph is left byte-for-byte as it
+    was; the page's view setting (simple/full) decides which one is shown --
+    see the .tx-short rules in the page CSS. Returns (body, extra pop-up
+    entries keyed "tx:N")."""
+    extras: dict[str, dict] = {}
+
+    def repl(m: re.Match) -> str:
+        text = _norm_case(m.group(3))
+        if len(text) < _MIN_LONG_TEXT:
+            return m.group(0)
+        key = f"tx:{len(extras) + 1}"
+        extras[key] = {"title": "More detail", "what": text, "read": "", "do": ""}
+        short = _short_version(m.group(3))
+        twin = (
+            f'<p class="muted tx-short">{short} '
+            f'<button type="button" class="ex-btn" data-ex="{key}" aria-label="Read the full explanation" title="Read more">i</button></p>'
+        )
+        return twin + m.group(0)
+
+    return _LONG_P.sub(repl, body), extras
+
+
 def page_button_html(page: str) -> str:
     key = f"page:{page}"
     if key not in _E:
         return ""
+    tour = (' <button type="button" class="ex-btn ex-page-btn" onclick="startTour()">Take a quick tour</button>'
+            if page == "summary.html" else "")
     return ('<div class="ex-pagebar"><button type="button" class="ex-btn ex-page-btn" data-ex="'
-            f'{html.escape(key, quote=True)}">i&nbsp; About this page</button></div>')
+            f'{html.escape(key, quote=True)}">i&nbsp; About this page</button>{tour}</div>')
 
 
 _CSS = """
@@ -617,7 +665,7 @@ _JS = """
     close(); last = from;
     var o = document.createElement('div'); o.id = 'ex-overlay';
     var html = '<div id="ex-modal" role="dialog" aria-modal="true" aria-labelledby="ex-title"><h3 id="ex-title">' + esc(d.title) + '</h3>' +
-      '<h4>What it is</h4><p>' + esc(d.what) + '</p>';
+      (key.indexOf('tx:') === 0 ? '' : '<h4>What it is</h4>') + '<p>' + esc(d.what) + '</p>';
     if (d.read) html += '<h4>How to read it</h4><p>' + esc(d.read) + '</p>';
     if (d.do) html += '<h4>What you can do</h4><p>' + esc(d['do']) + '</p>';
     html += '<button type="button" class="primary ex-close">Got it</button></div>';
@@ -637,14 +685,17 @@ _JS = """
 """
 
 
-def assets_html(page: str, targets: list[list[str]]) -> str:
+def assets_html(page: str, targets: list[list[str]], extra: dict | None = None) -> str:
     """The pop-up's style, this page's explanations and title list, and its script."""
     keys = {k for _t, k in targets}
     if f"page:{page}" in _E:
         keys.add(f"page:{page}")
-    if not keys:
+    extra = extra or {}
+    if not keys and not extra:
         return ""
-    payload = json.dumps({"entries": {k: _E[k] for k in sorted(keys)}, "targets": targets}).replace("</", "<\\/")
+    entries = {k: _E[k] for k in sorted(keys)}
+    entries.update(extra)
+    payload = json.dumps({"entries": entries, "targets": targets}).replace("</", "<\\/")
     return f'{_CSS}<script type="application/json" id="ex-data">{payload}</script>{_JS}'
 
 

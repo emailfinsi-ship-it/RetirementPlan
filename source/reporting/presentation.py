@@ -90,6 +90,30 @@ def verdict_sentence(result: dict, assumptions: dict, yearly_spending: float, mo
     return f"{lead} market simulations your savings last {until}{spend}."
 
 
+def watch_sentence(rows: list[dict], money, convert=None) -> str:
+    """One plain sentence about the biggest sudden rise in yearly spending plus
+    taxes in the drawdown schedule (e.g. the year required withdrawals begin),
+    or "" when nothing jumps. `convert(value, year)` re-expresses a figure in
+    today's dollars when the page is in that mode."""
+    convert = convert or (lambda value, year: value)
+    usable = [r for r in rows if r.get("expenses", 0) > 0]
+    best = None
+    for prev, cur in zip(usable, usable[1:]):
+        before = convert(prev["expenses"] + prev["tax"], prev["year"])
+        after = convert(cur["expenses"] + cur["tax"], cur["year"])
+        if before > 0 and after > before * 1.25 and after - before > 20000:
+            if best is None or after - before > best[0]:
+                best = (after - before, prev, cur, before, after)
+    if best is None:
+        return ""
+    _gain, prev, cur, before, after = best
+    required = cur.get("rmd", 0) > 2 * max(prev.get("rmd", 0), 1)
+    cause = ("the IRS starts requiring withdrawals from your retirement accounts, and they are taxed"
+             if required else "your spending and taxes step up")
+    return (f"One thing to watch: in {cur['year']} yearly spending plus taxes jumps from "
+            f"{money(before)} to {money(after)} because {cause}.")
+
+
 # One set of plain-language labels used on every page that shows simulation
 # results, so Summary, Monte Carlo and the report always read the same.
 LABEL_CHANCE = "Chance your money lasts"

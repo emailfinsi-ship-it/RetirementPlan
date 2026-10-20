@@ -65,6 +65,34 @@ def set_dollars_mode(mode: str) -> None:
     set_meta(_META_DOLLARS_MODE, mode)
 
 
+_META_VIEW_MODE = "view_mode"
+
+
+def view_mode() -> str:
+    """"simple" (default: the everyday pages and plain wording only) or
+    "full" (every tool and setting). A display preference only -- it never
+    changes a calculated number."""
+    return "full" if get_meta(_META_VIEW_MODE) == "full" else "simple"
+
+
+def set_view_mode(mode: str) -> None:
+    if mode not in ("simple", "full"):
+        raise ValueError("View must be 'simple' or 'full'.")
+    set_meta(_META_VIEW_MODE, mode)
+
+
+_META_TOUR_SEEN = "tour_seen"
+
+
+def tour_seen() -> bool:
+    """Whether the short first-use tour has been shown (finished or skipped)."""
+    return get_meta(_META_TOUR_SEEN) == "1"
+
+
+def set_tour_seen(seen: bool = True) -> None:
+    set_meta(_META_TOUR_SEEN, "1" if seen else "0")
+
+
 _META_LEGACY_WHATIF = "legacy_whatif"
 
 
