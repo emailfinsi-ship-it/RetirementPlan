@@ -803,6 +803,14 @@ class Handler(BaseHTTPRequestHandler):
                 for key, raw in payload.items():
                     if raw in (None, ""):
                         continue
+                    if isinstance(raw, str):
+                        # "$3,200" and "3,200" are fine to type; store the plain number.
+                        raw = db.clean_number_text(raw)
+                        if key.startswith(("ss_benefit_", "ss_claim_age_", "medicare_")):
+                            try:
+                                float(raw)
+                            except ValueError:
+                                raise ValueError("Enter a number only, for example 3,200.") from None
                     if key.endswith("_pct"):
                         updates[key[: -len("_pct")]] = float(raw) / 100.0
                     else:

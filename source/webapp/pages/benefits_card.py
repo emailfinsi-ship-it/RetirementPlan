@@ -70,16 +70,23 @@ def social_security_medicare_card_html(assumptions: dict) -> str:
         "for the matching person's rows and tables.</p>" if missing else ""
     )
 
+    def monthly(key: str) -> str:
+        raw = assumptions.get(key)
+        try:
+            return f"{float(raw) / 12.0:.0f}" if raw not in (None, "") else ""
+        except (TypeError, ValueError):
+            return ""
+
     def person_fields(p: dict) -> str:
         return (
-            f'<label>{html.escape(p["name"])}: benefit at full retirement age ($/yr, today\'s dollars)'
-            f'<input name="ss_benefit_{p["key"]}" type="number" step="100" placeholder="from ssa.gov" '
-            f'value="{_value(assumptions, "ss_benefit_" + p["key"])}"></label>'
+            f'<label>{html.escape(p["name"])}: benefit per month at full retirement age (as on your ssa.gov statement, today\'s dollars)'
+            f'<input name="ss_benefit_{p["key"]}" type="text" inputmode="decimal" autocomplete="off" placeholder="monthly amount, e.g. 3,500" '
+            f'value="{monthly("ss_benefit_" + p["key"])}"></label>'
             f'<label>{html.escape(p["name"])}: claim at age{_claim_select("ss_claim_age_" + p["key"], p["claim_age"])}</label>'
         )
 
     return f"""
-<details class="how-it-works card" style="padding:12px 16px;">
+<details class="how-it-works card" id="benefits-planner" style="padding:12px 16px;">
 <summary style="font-weight:600;">Social Security &amp; Medicare planner</summary>
 <p class="muted">Pick when each of you claims Social Security and see what it does to the yearly benefit; then
 "Save &amp; apply" writes the result onto the tables below as ordinary rows (Social Security under Income, Medicare
@@ -87,12 +94,12 @@ under Expenses), so the money-lasts forecast, Drawdown and Legacy all pick it up
 the Inflation assumption. The comparison ignores taxes, spousal and survivor benefits, and discounting. Medicare
 premiums use the {benefits.MEDICARE_TABLE_YEAR} Part B/D amounts (Part B {_money(benefits.PART_B_STANDARD_MONTHLY, cents=True)}/mo)
 and one income estimate; the real IRMAA rule looks at your income from two years earlier and can change each year. Add your
-Part D plan and Medigap premiums under "Other monthly Medicare costs".</p>
+Part D plan and Medigap premiums under "Other monthly Medicare costs". The Social Security rows it writes are replaced each time you "Save &amp; apply", so to change an amount, change the benefit or claiming age here rather than editing the row.</p>
 {missing_text}
 <form class="inline" id="benefits-form" onsubmit="event.preventDefault();">
   {"".join(person_fields(p) for p in people)}
-  <label>Expected retirement income for Medicare (MAGI, $/yr)<input name="medicare_magi" type="number" step="1000" placeholder="e.g. 150000" value="{html.escape(str(magi_raw or ''))}"></label>
-  <label>Other monthly Medicare costs per person ($)<input name="medicare_other_monthly" type="number" step="10" placeholder="Part D plan, Medigap" value="{_value(assumptions, 'medicare_other_monthly')}"></label>
+  <label>Expected retirement income for Medicare (MAGI, $/yr)<input name="medicare_magi" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 150,000" value="{html.escape(str(magi_raw or ''))}"></label>
+  <label>Other monthly Medicare costs per person ($)<input name="medicare_other_monthly" type="text" inputmode="decimal" autocomplete="off" placeholder="Part D plan, Medigap" value="{_value(assumptions, 'medicare_other_monthly')}"></label>
   <button type="button" onclick="saveBenefits(false)">Save</button>
   <button type="button" class="primary" onclick="saveBenefits(true)">Save &amp; apply to the tables</button>
 </form>
@@ -128,12 +135,37 @@ function analyzeClaiming(key) {{
 }}
 function saveBenefits(apply) {{
   var fields = {{}};
-  new FormData(document.getElementById('benefits-form')).forEach(function(value, key) {{ fields[key] = value; }});
+  var bad = null;
+  new FormData(document.getElementById('benefits-form')).forEach(function(value, key) {{
+    if (key.indexOf('ss_benefit_') === 0 && String(value).trim() !== '') {{
+      // The form takes the monthly amount printed on the SSA statement; the plan works in years.
+      var n = Number(String(value).replace(/[$,\\s]/g, ''));
+      if (isNaN(n)) {{ bad = 'Enter the monthly Social Security amount as a number, for example 3,500.'; return; }}
+      value = String(Math.round(n * 12));
+    }}
+    fields[key] = value;
+  }});
+  if (bad) {{ alert(bad); return; }}
   postJSON('/api/assumptions', fields)
     .then(function() {{ return apply ? postJSON('/api/benefits/apply', {{}}) : null; }})
-    .then(function() {{ location.reload(); }})
+    .then(function() {{ location.href = location.pathname + '#benefits-saved'; location.reload(); }})
     .catch(function(e) {{ alert(e.message); }});
 }}
+(function() {{
+  // After saving, come back with the planner open and say it worked.
+  if (location.hash === '#benefits-saved') {{
+    var box = document.getElementById('benefits-planner');
+    if (box) {{
+      box.open = true;
+      var note = document.createElement('p');
+      note.className = 'status-line status-ok';
+      note.textContent = 'Saved.';
+      var form = document.getElementById('benefits-form');
+      if (form) form.parentNode.insertBefore(note, form);
+      box.scrollIntoView({{block: 'start'}});
+    }}
+  }}
+}})();
 </script>
 </details>
 """

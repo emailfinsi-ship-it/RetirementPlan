@@ -25,7 +25,7 @@ from source.common import linked_data, plaid_categorize
 from source.reporting.aggregate import build_summary
 from source.reporting.monte_carlo import annual_expense_need, annual_income_need
 from source.webapp.pages.real_expenditure import _month_key
-from source.webapp.render_helpers import _money, _shell, _sync_now_button_html
+from source.webapp.render_helpers import _money, _shell
 
 
 def _actual_expense_and_income_by_month(transactions: list[dict]) -> tuple[dict, dict]:
@@ -164,22 +164,16 @@ def _render_budget_vs_actual_page() -> str:
         higher_is_better=True,
     )
 
-    linked = s["linked_status"]
-    sync_html = (
-        _sync_now_button_html(note="Pulls fresh transactions from Plaid before comparing.")
-        if linked["configured"] else ""
-    )
     no_transactions_note = (
         "" if transactions else
         '<p class="muted">No transactions synced yet -- connect a credit card, checking, or investment '
-        'account with the "transactions" product on <a href="/setup.html">Setup</a>, then use "Sync now" '
+        'account with the "transactions" product on <a href="/setup.html">Setup</a>, then press "Sync now" (top right) '
         'below, to see actuals here. Until then, "Actual" is $0 everywhere.</p>'
     )
 
     body = f"""
 <h2 style="margin-top:0">Budget vs Actual</h2>
 <p class="muted">Compares the <a href="/expense.html">Income &amp; Expenses</a> tab's own planning assumptions -- the same inflation-aware annual figures the plan's simulation draws its withdrawal need from -- against what <a href="/real-expenditure.html">Actual Spending</a>'s synced transactions say actually happened. This is a TOTALS comparison, not category-by-category: an expense row's category (Fixed/Variable/...) and a transaction's category (Food/Travel/...) are two different taxonomies that were never meant to line up one-to-one.</p>
-{sync_html}
 {no_transactions_note}
 <div class="tiles">{tiles_html}</div>
 <p class="muted">"Projected full-year" paces this year's actual-so-far figure out to a full year ({days_elapsed} of {days_in_year} days elapsed) -- a rough estimate early in the year, more accurate as it goes. The current (still in progress) month in the tables below will naturally look under budget until it's over.</p>

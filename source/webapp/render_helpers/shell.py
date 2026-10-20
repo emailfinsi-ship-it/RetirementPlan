@@ -1383,7 +1383,7 @@ def _header_sync_html() -> str:
         "var b=this; b.disabled=true; b.textContent='Syncing...';"
         "postJSON('/api/plaid-sync', {}).then(function(d){"
         "alert('Synced '+d.summary.items_synced.length+' item(s): '+d.summary.accounts+' account(s), '"
-        "+d.summary.holdings+' holding(s).'+(d.summary.errors.length?' Errors: '+JSON.stringify(d.summary.errors):''));"
+        "+d.summary.holdings+' holding(s), '+d.summary.account_numbers+' full account number(s), '+d.summary.industries_classified+' industry classification(s).'+(d.summary.errors.length?' Errors: '+JSON.stringify(d.summary.errors):''));"
         "location.reload();}).catch(function(e){alert(e.message); b.disabled=false; b.textContent='Sync now';});"
     )
     return (

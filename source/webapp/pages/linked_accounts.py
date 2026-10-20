@@ -18,7 +18,6 @@ from source.webapp.render_helpers import (
     _money,
     _multi_line_chart_html,
     _shell,
-    _sync_now_button_html,
 )
 
 
@@ -189,7 +188,6 @@ def _render_linked_accounts_page() -> str:
     body = f"""
 <h2 style="margin-top:0">Linked Accounts <span class="muted" style="font-size:13px; font-weight:400">(live, read-only)</span></h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Assets-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Assets tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
-{_sync_now_button_html()}
 <p class="muted">Assets ({_money(total_assets)}) and liabilities ({_money(total_liabilities)}) are charted separately below -- net worth across every linked account is {_money(total_assets - total_liabilities)}.</p>
 <h3 style="font-size:13px;">Assets</h3>
 <div class="group-section">

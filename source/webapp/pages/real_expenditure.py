@@ -27,7 +27,6 @@ from source.webapp.render_helpers import (
     _grouped_slices,
     _money,
     _shell,
-    _sync_now_button_html,
 )
 
 
@@ -278,8 +277,8 @@ def _render_real_expenditure_page() -> str:
 
     transactions_rows_html = "".join(_row_html(t) for t in transactions) or (
         '<tr><td colspan="8" class="muted">No transactions synced yet -- connect a credit card, checking, or '
-        'investment account with the "transactions" product on <a href="/setup.html">Setup</a>, then use '
-        '"Sync now" below.</td></tr>'
+        'investment account with the "transactions" product on <a href="/setup.html">Setup</a>, then press '
+        '"Sync now" (top right).</td></tr>'
     )
 
     included_count = len(included)
@@ -296,7 +295,6 @@ def _render_real_expenditure_page() -> str:
     body = f"""
 <h2 style="margin-top:0">Actual Spending</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Every transaction Plaid has synced for a credit card, checking, or investment account that requested the "transactions" product -- auto-categorized from Plaid's own classification where it has one; select one or more rows below and use the bar that appears to retype the Category (already-used categories autocomplete). A transfer between your own linked accounts, or a credit card bill payment, is automatically left out of the totals below (so paying a credit card from checking doesn't get counted as spending twice) but still shown in the full list, marked "excluded" -- select it and use "Include in total" to correct it if Plaid got one wrong, or "Exclude from total"/"Reset to automatic" the other way. A new Item linked today can request "transactions" directly on Setup; one linked before this existed needs its own one-time "Enable Transactions" re-authorization there first.</p></details>
-{_sync_now_button_html()}
 <div class="group-section">
 <div class="card" style="flex:1 1 220px;">
 <h3 style="margin-top:0; font-size:13px;">Total real expenditure</h3>

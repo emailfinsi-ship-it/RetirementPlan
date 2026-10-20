@@ -57,10 +57,23 @@ _OWNER_VALUES = {"", "self", "spouse"}
 
 
 
+def clean_number_text(value: str) -> str:
+    """"$42,000" / "42,000" / " 42 000 " -> "42000". Anything else is returned trimmed."""
+    text = str(value).strip()
+    cleaned = text.replace("$", "").replace(",", "").replace(" ", "")
+    try:
+        float(cleaned)
+    except ValueError:
+        return text
+    return cleaned
+
+
 def _coerce_line_item_value(field: str, value):
     if not isinstance(value, str):
         return value
     value = value.strip()
+    if field in _NULLABLE_INT_FIELDS or field in _NUMERIC_FIELDS or field in _INT_FLAG_FIELDS:
+        value = clean_number_text(value)
     if field in _NULLABLE_INT_FIELDS:
         if value == "":
             return None

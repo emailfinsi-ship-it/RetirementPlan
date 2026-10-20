@@ -3994,17 +3994,23 @@ class TestSyncNowButtonPlacement(DashboardTestCase):
         self.assertIn("<a href=\"/linked-accounts.html\">Linked Accounts</a>", body)
         self.assertIn("<a href=\"/linked-positions.html\">Linked Positions</a>", body)
 
-    def test_linked_positions_page_always_has_the_sync_now_button(self):
-        # Present even with nothing connected yet -- it's the natural
-        # first action on this page, not just a refresh for existing data.
-        body = self._get("/linked-positions.html").read().decode("utf-8")
-        self.assertIn(">Sync now<", body)
-        self.assertIn("/api/plaid-sync", body)
+    def test_linked_pages_use_the_one_header_sync_button(self):
+        # One "Sync now" for every tab, in the header once something is linked --
+        # not a second copy inside each page.
+        self._link_an_item()
+        for path in ("/linked-positions.html", "/linked-accounts.html", "/real-expenditure.html", "/summary.html"):
+            body = self._get(path).read().decode("utf-8")
+            self.assertEqual(body.count(">Sync now<"), 1, path)
+            self.assertIn('id="sync-btn"', body)
 
-    def test_linked_accounts_page_always_has_the_sync_now_button(self):
-        body = self._get("/linked-accounts.html").read().decode("utf-8")
-        self.assertIn(">Sync now<", body)
-        self.assertIn("/api/plaid-sync", body)
+    def test_linked_pages_have_no_sync_button_when_nothing_is_linked(self):
+        for path in ("/linked-positions.html", "/linked-accounts.html", "/real-expenditure.html"):
+            self.assertNotIn(">Sync now<", self._get(path).read().decode("utf-8"), path)
+
+    def test_header_sync_alert_includes_account_numbers_and_industries(self):
+        self._link_an_item()
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn("industry classification(s)", body)
 
     def test_summary_page_has_sync_now_once_an_item_is_linked(self):
         self._link_an_item()
