@@ -336,14 +336,53 @@ def _line_chart_html(
         f'{grid}{zero_line}{axes}'
         f'<path d="{path}" fill="none" stroke="{_LINE_CHART_COLOR}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
         f'{dots}{labels}'
+        f'<line class="lc-cross" x1="0" y1="{pad_top}" x2="0" y2="{plot_bottom}" style="stroke:var(--ink-muted); display:none;" stroke-width="1" stroke-dasharray="4 3"/>'
+        f'<ellipse class="lc-ring" rx="5" ry="5" cx="0" cy="0" fill="{_LINE_CHART_COLOR}" style="stroke:var(--surface); display:none;" stroke-width="2"/>'
         '</svg>'
     )
     note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    hover_data = json.dumps([
+        [round(x, 1), round(y, 1), label, _money(value),
+         (_money(value - points[i - 1][1]) if i else "")]
+        for i, ((label, value), (x, y)) in enumerate(zip(points, coords))
+    ]).replace("</", "<\\/")
     return f"""
 <div class="card" style="flex:2 1 480px;">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+<div class="lc-wrap" style="position:relative;">
 {svg}
+<div class="lc-tip" role="status" style="display:none; position:absolute; pointer-events:none; z-index:5; padding:6px 10px; border-radius:8px; background:var(--surface); color:var(--ink); border:1px solid var(--border); box-shadow:var(--shadow-md); font-size:12px; line-height:1.35; white-space:nowrap;"></div>
+</div>
 {note_html}
+<script>
+(function() {{
+  var s = document.currentScript, wrap = s.parentNode.querySelector('.lc-wrap');
+  if (!wrap) return;
+  var svg = wrap.querySelector('svg'), tip = wrap.querySelector('.lc-tip');
+  var cross = svg.querySelector('.lc-cross'), ring = svg.querySelector('.lc-ring');
+  var pts = {hover_data}, vbw = {width};
+  function hide() {{ tip.style.display = 'none'; cross.style.display = 'none'; ring.style.display = 'none'; }}
+  function show(evt) {{
+    var r = svg.getBoundingClientRect();
+    var t = evt.touches && evt.touches[0] ? evt.touches[0] : evt;
+    var vx = (t.clientX - r.left) / r.width * vbw, best = 0, bd = 1e9;
+    for (var i = 0; i < pts.length; i++) {{ var d = Math.abs(pts[i][0] - vx); if (d < bd) {{ bd = d; best = i; }} }}
+    var p = pts[best], k = r.width / vbw;
+    cross.setAttribute('x1', p[0]); cross.setAttribute('x2', p[0]); cross.style.display = '';
+    ring.setAttribute('cx', p[0]); ring.setAttribute('cy', p[1]); ring.style.display = '';
+    var delta = p[4] ? '<div style="color:var(--ink-muted);">' + (p[4].charAt(0) === '-' ? '' : '+') + p[4] + ' vs. previous day</div>' : '';
+    tip.innerHTML = '<div style="color:var(--ink-muted);">' + p[2] + '</div><div style="font-weight:650;">' + p[3] + '</div>' + delta;
+    tip.style.display = 'block';
+    var w = tip.offsetWidth, x = p[0] * k + 12;
+    if (x + w > r.width) x = p[0] * k - w - 12;
+    tip.style.left = Math.max(0, x) + 'px';
+    tip.style.top = Math.max(0, p[1] * k - tip.offsetHeight - 10) + 'px';
+  }}
+  svg.addEventListener('mousemove', show); svg.addEventListener('mouseleave', hide);
+  svg.addEventListener('touchstart', show, {{passive: true}}); svg.addEventListener('touchmove', show, {{passive: true}});
+  svg.addEventListener('touchend', hide);
+}})();
+</script>
 </div>
 """
 

@@ -2315,3 +2315,18 @@ class TestCompareRothConversionStrategies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFanChartHover(unittest.TestCase):
+    def _result(self):
+        return {"band": [{"year": 2026 + i, "p10": 100.0 + i, "median": 200.0 + i, "p90": 300.0 + i} for i in range(5)]}
+
+    def test_responsive_chart_has_instant_hover(self):
+        out = render_fan_svg(self._result(), responsive=True, plain=True, birth_year=1970)
+        self.assertIn('class="fan-tip"', out)
+        self.assertIn("mousemove", out)
+        self.assertIn("$202", out)
+        self.assertIn('["Typical", "Cautious", "Strong"]', out)
+
+    def test_fixed_size_chart_unchanged(self):
+        self.assertTrue(render_fan_svg(self._result()).startswith("<svg"))

@@ -8,6 +8,7 @@ static SVG page, not a JS charting library).
 from __future__ import annotations
 
 import html
+import json
 
 
 _BAND_COLOR = "#0071e3"  # matches the dashboard shell's own --brand (styles.py)
@@ -155,7 +156,7 @@ def render_fan_svg(
     size_attrs = (
         f'width="100%" style="max-width:{width}px; height:auto;"' if responsive else f'width="{width}" height="{height}"'
     )
-    return (
+    svg = (
         f'<svg {size_attrs} viewBox="0 0 {width} {height}" '
         f'font-family="-apple-system, sans-serif">'
         + "".join(gridlines)
@@ -167,5 +168,55 @@ def render_fan_svg(
         + "".join(dots)
         + end_label_svg
         + "".join(x_labels)
+        + (
+            f'<line class="fan-cross" x1="0" y1="{margin_top}" x2="0" y2="{margin_top + plot_h}" '
+            f'style="stroke:var(--ink-muted,#777); display:none;" stroke-width="1" stroke-dasharray="4 3"/>'
+            f'<ellipse class="fan-ring" rx="5" ry="5" cx="0" cy="0" fill="{color}" '
+            f'style="stroke:var(--surface,#fff); display:none;" stroke-width="2"/>'
+            if responsive else ""
+        )
         + "</svg>"
+    )
+    if not responsive:
+        return svg
+    # Instant crosshair + tooltip: the nearest year's typical / cautious /
+    # strong balances (the native <title> tooltips above stay as a fallback).
+    def money(v):
+        return ("-" if v < 0 else "") + f"${abs(v):,.0f}"
+
+    data = json.dumps([
+        [round(x_for(i), 1), round(y_for(row["median"]), 1), row["year"],
+         (int(row["year"]) - int(birth_year)) if birth_year else None,
+         money(row["median"]), money(row["p10"]), money(row["p90"])]
+        for i, row in enumerate(band)
+    ]).replace("</", "<\\/")
+    names = ["Typical", "Cautious", "Strong"] if plain else ["Median", "10th pct", "90th pct"]
+    return (
+        f'<div class="fan-wrap" style="position:relative; max-width:{width}px;">{svg}'
+        '<div class="fan-tip" role="status" style="display:none; position:absolute; pointer-events:none; z-index:5; '
+        'padding:6px 10px; border-radius:8px; background:var(--surface,#fff); color:var(--ink,#111); '
+        'border:1px solid var(--border,#ddd); box-shadow:var(--shadow-md,0 4px 12px rgba(0,0,0,.15)); '
+        'font-size:12px; line-height:1.4; white-space:nowrap;"></div>'
+        "<script>(function(){"
+        "var w=document.currentScript.parentNode,svg=w.querySelector('svg'),tip=w.querySelector('.fan-tip'),"
+        "cr=svg.querySelector('.fan-cross'),ring=svg.querySelector('.fan-ring'),"
+        f"P={data},N={json.dumps(names)},VW={width};"
+        "function hide(){tip.style.display='none';cr.style.display='none';ring.style.display='none';}"
+        "function show(e){var r=svg.getBoundingClientRect(),t=e.touches&&e.touches[0]?e.touches[0]:e,"
+        "vx=(t.clientX-r.left)/r.width*VW,b=0,bd=1e9,i,d;"
+        "for(i=0;i<P.length;i++){d=Math.abs(P[i][0]-vx);if(d<bd){bd=d;b=i;}}"
+        "var p=P[b],k=r.width/VW;"
+        "cr.setAttribute('x1',p[0]);cr.setAttribute('x2',p[0]);cr.style.display='';"
+        "ring.setAttribute('cx',p[0]);ring.setAttribute('cy',p[1]);ring.style.display='';"
+        "tip.innerHTML='<div style=\"color:var(--ink-muted,#777)\">'+p[2]+(p[3]!==null?' &middot; age '+p[3]:'')+'</div>'"
+        "+'<div><strong>'+N[0]+':</strong> '+p[4]+'</div>'"
+        "+'<div style=\"color:var(--ink-muted,#777)\">'+N[1]+': '+p[5]+'</div>'"
+        "+'<div style=\"color:var(--ink-muted,#777)\">'+N[2]+': '+p[6]+'</div>';"
+        "tip.style.display='block';var tw=tip.offsetWidth,x=p[0]*k+12;"
+        "if(x+tw>r.width)x=p[0]*k-tw-12;tip.style.left=Math.max(0,x)+'px';"
+        "tip.style.top=Math.max(0,p[1]*k-tip.offsetHeight-10)+'px';}"
+        "svg.addEventListener('mousemove',show);svg.addEventListener('mouseleave',hide);"
+        "svg.addEventListener('touchstart',show,{passive:true});svg.addEventListener('touchmove',show,{passive:true});"
+        "svg.addEventListener('touchend',hide);"
+        "})();</script></div>"
     )

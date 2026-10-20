@@ -6155,3 +6155,22 @@ class TestWholeDollarMoneyFormatting(unittest.TestCase):
         self.assertIn('type="text"', cell)
         self.assertIn('value="1,500,000"', cell)
         self.assertIn("updateMoneyField('assets', 3, 'balance', this)", cell)
+
+
+class TestLineChartHoverTooltip(unittest.TestCase):
+    """The net-worth trend shows an instant crosshair + tooltip on hover (not only the slow native title)."""
+
+    def test_chart_carries_hover_layer_and_every_day(self):
+        from source.webapp.render_helpers import _line_chart_html
+        out = _line_chart_html("Trend", [("2026-09-26", 100.0), ("2026-09-27", 150.0), ("2026-10-01", 90.0)])
+        self.assertIn('class="lc-tip"', out)
+        self.assertIn('class="lc-cross"', out)
+        self.assertIn('mousemove', out)
+        self.assertIn('touchmove', out)
+        for day in ("2026-09-26", "2026-09-27", "2026-10-01"):
+            self.assertIn(day, out)
+        self.assertIn("$150", out)
+
+    def test_no_hover_layer_without_data(self):
+        from source.webapp.render_helpers import _line_chart_html
+        self.assertNotIn("lc-tip", _line_chart_html("Trend", [("2026-09-26", 100.0)]))
