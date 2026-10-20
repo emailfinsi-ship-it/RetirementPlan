@@ -93,6 +93,27 @@ def set_tour_seen(seen: bool = True) -> None:
     set_meta(_META_TOUR_SEEN, "1" if seen else "0")
 
 
+_META_SAFE_SPEND_TARGET = "safe_spend_target"
+
+
+def safe_spend_target() -> float:
+    """The chance of lasting ("confidence") behind "How much can I safely
+    spend?" -- 0.9 unless the person picked another level. Shared by the
+    Summary and the Will my money last? tab."""
+    try:
+        value = float(get_meta(_META_SAFE_SPEND_TARGET) or 0.9)
+    except (TypeError, ValueError):
+        return 0.9
+    return value if 0.5 <= value <= 0.99 else 0.9
+
+
+def set_safe_spend_target(target: float) -> None:
+    target = float(target)
+    if not 0.5 <= target <= 0.99:
+        raise ValueError("Target must be between 50% and 99%.")
+    set_meta(_META_SAFE_SPEND_TARGET, f"{target:g}")
+
+
 _META_LEGACY_WHATIF = "legacy_whatif"
 
 

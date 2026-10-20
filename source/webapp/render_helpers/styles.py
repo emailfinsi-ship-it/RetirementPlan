@@ -319,6 +319,18 @@ PAGE_CSS = """
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; } }
   :root[data-theme="dark"] .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; }
   html.hide-money .mny, html.hide-money input[data-money] { filter: blur(7px); user-select: none; }
+  /* Header: the buttons always sit at the top right, in one tidy row that stays right-aligned if it has to wrap. */
+  .hdr-actions { margin-left: auto; justify-content: flex-end; }
+  .hdr-actions > * { flex: none; }
+  .hdr-actions button, .hdr-actions a.btn { padding: 6px 10px; }
+  @media (max-width: 1180px) {
+    .hdr-brand img { width: 56px; height: 56px; border-radius: 14px; }
+    .hdr-brand .brand-tagline { display: none; }
+  }
+  @media (max-width: 1000px) {
+    .hdr-brand { min-width: 0; }
+    .hdr-brand p { display: none; }
+  }
   #hide-toggle, #theme-toggle, #report-btn, #sync-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
