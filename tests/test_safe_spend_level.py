@@ -54,6 +54,18 @@ class TestSafeSpendLevel(DashboardTestCase):
         self.assertEqual(fn.call_args[0][1], 0.95)
 
 
+class TestSourcesChartSentence(DashboardTestCase):
+    def setUp(self):
+        demo_data.seed_sample_household(with_linked=True)
+
+    def tearDown(self):
+        demo_data.remove_sample_data()
+
+    def test_first_sentence_says_which_dollars_the_bars_are_in(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertRegex(body, r"Each bar is one year, in (today&#x27;s|future) dollars\.")
+
+
 class TestHeaderActions(DashboardTestCase):
     def test_header_buttons_sit_in_a_right_aligned_group(self):
         body = self._get("/summary.html").read().decode("utf-8")

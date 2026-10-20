@@ -392,7 +392,7 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Where your retirement spending comes from</h2>
-<p class="muted small">Each bar is one year. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. Hover or tap a year for the exact amounts; click a source in the key to focus on it. In {html.escape("today's" if mode == "today" else "future")} dollars. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
+<p class="muted small">Each bar is one year, in {html.escape("today's" if mode == "today" else "future")} dollars. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. Hover or tap a year for the exact amounts; click a source in the key to focus on it. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
 {svg}
 <ul class="legend-inline">{legend}</ul>
 <div id="src-detail" class="src-detail small"></div>

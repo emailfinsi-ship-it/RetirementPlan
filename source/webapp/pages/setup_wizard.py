@@ -167,7 +167,7 @@ def _wizard_card_html() -> str:
     }}
     if (i === 2) {{
       var save = postJSON('/api/assumptions', {{expected_return_pct: $('wz-return').value, inflation_rate_pct: $('wz-inflation').value}});
-      var spend = $('wz-spend') ? Number(String($('wz-spend').value).replace(/[$,\s]/g, '')) : 0;
+      var spend = $('wz-spend') ? Number(String($('wz-spend').value).replace(/[$,\\s]/g, '')) : 0;
       if (spend > 0) {{
         save = save.then(function() {{
           return postJSON('/api/line-item/add', {{section: 'expenses', fields: {{
