@@ -942,11 +942,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
             elif path == "/api/safe-spending":
                 try:
-                    target = float(payload.get("target") or 0.9)
+                    target = float(payload.get("target") or db.safe_spend_target())
                 except (TypeError, ValueError):
-                    target = 0.9
+                    target = db.safe_spend_target()
                 if not 0.5 <= target <= 0.99:
                     raise ValueError("Target must be between 50% and 99%.")
+                if payload.get("save"):
+                    db.set_safe_spend_target(target)   # the Summary shows the level picked on the Will my money last? tab
                 self._send_json({"ok": True, **_safe_spending_cached(build_summary(), target)})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)

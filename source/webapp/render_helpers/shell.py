@@ -61,8 +61,8 @@ PAGE_SHELL = """<!doctype html>
 {theme_head_script}
 </head>
 <body data-current-year="{current_year}" data-view="{view_mode}" data-tour="{tour}">
-<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-  <div style="display:flex; align-items:center; gap:12px;">
+<div class="hdr" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+  <div class="hdr-brand" style="display:flex; align-items:center; gap:12px;">
     <img src="/icons/logo.svg" alt="" width="84" height="84" style="border-radius:18px; flex:none;">
     <div>
       <h1 style="margin:0;">{product_name}</h1>
@@ -70,7 +70,7 @@ PAGE_SHELL = """<!doctype html>
       <p style="margin:3px 0 0; font-size:12px;"><strong>{product_headline}</strong></p>
     </div>
   </div>
-  <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; max-width:100%;">{theme_toggle_html}{logout_html}</div>
+  <div class="hdr-actions" style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; max-width:100%;">{theme_toggle_html}{logout_html}</div>
 </div>
 <nav>{nav}</nav>
 <div id="bulk-bar" class="bulk-bar">
@@ -266,10 +266,10 @@ function wiClaim(btn, age) {{
     btn.disabled = false;
   }}).catch(function(e) {{ wiSay(out, '<span class="status-warn">' + e.message + '</span>'); btn.disabled = false; }});
 }}
-function loadSafeSpending(target) {{
+function loadSafeSpending(target, save) {{
   var el = document.getElementById('ss-text'); if (!el) {{ return; }}
   el.textContent = 'Calculating...';
-  postJSON('/api/safe-spending', {{target: target}}).then(function(d) {{
+  postJSON('/api/safe-spending', {{target: target, save: !!save}}).then(function(d) {{
     var pct = Math.round(d.target * 100);
     if (d.limit === 'max') {{ el.innerHTML = 'Even spending <strong>3 times</strong> your plan keeps a ' + pct + '% chance your money lasts.'; return; }}
     if (d.limit === 'min') {{ el.innerHTML = 'Even a much leaner budget does not reach a ' + pct + '% chance. See <a href="/monte-carlo.html#levers">what moves your plan most</a>.'; return; }}
@@ -281,7 +281,8 @@ function loadSafeSpending(target) {{
 }}
 document.addEventListener('DOMContentLoaded', function() {{
   var sel = document.getElementById('ss-target');
-  loadSafeSpending(sel ? parseFloat(sel.value) : 0.9);
+  var box = document.getElementById('ss-text');
+  loadSafeSpending(sel ? parseFloat(sel.value) : parseFloat((box && box.getAttribute('data-target')) || '0.9'));
 }});
 var RP_GLOSSARY = {{
   'required minimum distributions': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',

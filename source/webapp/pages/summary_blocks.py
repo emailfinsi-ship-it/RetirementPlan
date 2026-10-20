@@ -406,15 +406,25 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
 def safe_spending_html(selector: bool = False) -> str:
     """"How much can I safely spend?" -- filled in by loadSafeSpending() in
     the page shell JS (it calls /api/safe-spending, a few seconds the first
-    time). With `selector`, the reader can pick the confidence level."""
+    time). With `selector`, the reader can pick the confidence level; the
+    pick is remembered, so the Summary shows the same level."""
+    target = db.safe_spend_target()
+
+    def opt(value: float) -> str:
+        on = " selected" if abs(value - target) < 1e-9 else ""
+        return f'<option value="{value:g}"{on}>{value * 100:.0f}%</option>'
+
+    choices = [0.8, 0.9, 0.95]
+    if all(abs(c - target) > 1e-9 for c in choices):
+        choices = sorted(choices + [target])
     sel = (
         '<label class="small muted" style="display:inline-flex; gap:6px; align-items:center; margin-bottom:6px;">Keep my chance of lasting at '
-        '<select id="ss-target" onchange="loadSafeSpending(parseFloat(this.value))">'
-        '<option value="0.8">80%</option><option value="0.9" selected>90%</option><option value="0.95">95%</option></select></label>'
+        '<select id="ss-target" onchange="loadSafeSpending(parseFloat(this.value), true)">'
+        + "".join(opt(c) for c in choices) + '</select></label>'
         if selector else ""
     )
     return f"""{sel}
-<p id="ss-text" style="margin:2px 0 0">Calculating...</p>"""
+<p id="ss-text" data-target="{target:g}" style="margin:2px 0 0">Calculating...</p>"""
 
 
 def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float) -> str:
