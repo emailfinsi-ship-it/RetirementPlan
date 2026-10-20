@@ -49,3 +49,23 @@ def actual_last_12_months(transactions: list[dict], section: str, category: str,
     first = date.fromisoformat(min(all_dates)) if all_dates else today
     months = max(1, min(12, round((today - first).days / 30.4)))
     return {"annual": max(0.0, total) * 12.0 / months, "months": months}
+
+
+def suggest_plan_lines(transactions: list[dict], expenses: list[dict], *, today: date | None = None,
+                       min_annual: float = 600.0) -> list[dict]:
+    """Real spending categories (last 12 months) that no planned expense line
+    is linked to yet: [{"category", "annual", "monthly", "months"}], biggest
+    first. Small categories (under `min_annual` a year) are left out so the
+    list stays worth reading. Nothing is added automatically."""
+    linked = {(e.get("linked_category") or "").strip().lower() for e in expenses if (e.get("linked_category") or "").strip()}
+    planned_names = {(e.get("name") or "").strip().lower() for e in expenses}
+    out = []
+    for cat in real_categories(transactions)["expenses"]:
+        if cat.lower() in linked or cat.lower() in planned_names:
+            continue
+        actual = actual_last_12_months(transactions, "expenses", cat, today=today)
+        if not actual or actual["annual"] < min_annual:
+            continue
+        out.append({"category": cat, "annual": actual["annual"], "monthly": actual["annual"] / 12.0, "months": actual["months"]})
+    out.sort(key=lambda r: -r["annual"])
+    return out

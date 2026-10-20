@@ -221,6 +221,27 @@ PAGE_CSS = """
   .hero { padding: 22px 24px; }
   .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
   .hero-title { font-size: 26px; letter-spacing: -0.02em; margin: 10px 0 4px; }
+  .wq-sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 12px 0 4px; }
+  .wq-sliders label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-soft); }
+  .wq-sliders input[type=range] { width: 100%; accent-color: var(--brand); }
+  .wq-big { font-size: 26px; letter-spacing: -0.02em; margin: 2px 0; }
+  .wq-big .arrow { color: var(--ink-muted); margin: 0 6px; }
+  .wq-up { color: var(--success); font-weight: 600; } .wq-down { color: var(--danger); font-weight: 600; }
+  .hero-main { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-bottom: 6px; }
+  .hero-text { flex: 1 1 320px; min-width: 0; }
+  .hero-text .hero-title { margin-top: 0; }
+  .gauge { position: relative; flex: 0 0 auto; width: 132px; height: 132px; }
+  .gauge svg { width: 132px; height: 132px; transform: rotate(-90deg); display: block; }
+  .gauge .g-track { fill: none; stroke: var(--border); stroke-width: 11; }
+  .gauge .g-ring { fill: none; stroke-width: 11; stroke-linecap: round; animation: gauge-fill 1.1s cubic-bezier(.22,.8,.3,1) both; }
+  .gauge.tone-ok .g-ring { stroke: var(--success); }
+  .gauge.tone-warn .g-ring { stroke: var(--warn); }
+  .gauge.tone-bad .g-ring { stroke: var(--danger); }
+  .gauge .g-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+  .gauge .g-num strong { font-size: 30px; letter-spacing: -0.02em; }
+  .gauge .g-num span { font-size: 11px; color: var(--ink-muted); margin-top: 2px; text-align: center; max-width: 84px; }
+  @keyframes gauge-fill { from { stroke-dashoffset: var(--full); } }
+  @media (prefers-reduced-motion: reduce) { .gauge .g-ring { animation: none; } }
   .hero-verdict { font-size: 16px; color: var(--ink-soft); margin: 0 0 14px; max-width: 760px; }
   .hero.tone-ok { border-top: 4px solid var(--success); }
   .hero.tone-warn { border-top: 4px solid var(--warn); }
@@ -244,7 +265,10 @@ PAGE_CSS = """
   /* Simple / Full view (a display preference only -- see db.view_mode): .adv-only
      parts and long grey explanations are tucked away in Simple view. */
   body[data-view="simple"] .adv-only { display: none !important; }
-  body[data-view="simple"] nav a[href="/drawdown-planning.html"] { display: none !important; }
+  body[data-view="simple"] .subnav a[href="/drawdown-planning.html"],
+  body[data-view="simple"] .subnav a[href="/legacy-planning.html"],
+  body[data-view="simple"] .subnav a[href="/linked-positions.html"],
+  body[data-view="simple"] .subnav a[href="/budget-vs-actual.html"] { display: none !important; }
   .simple-only { display: none !important; }
   body[data-view="simple"] .simple-only { display: flex !important; }
   .tx-short { display: none; }

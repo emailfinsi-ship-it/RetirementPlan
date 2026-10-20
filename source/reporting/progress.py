@@ -117,6 +117,38 @@ def since_then(snapshots: list[dict], current: dict, history: dict, today: date 
             "movers": biggest_movers(asset_rows or [], base_date)}
 
 
+_DRIVER_WORDS = {
+    "Investments & savings": "investments", "Home equity": "home equity", "Debts (paid down)": "paying down debt",
+    "Debts (grew)": "debts growing", "Other assets": "other assets",
+}
+
+
+def change_sentence(change: dict | None, plan_rate: float, money, percent) -> str:
+    """One or two plain sentences on what moved since the comparison date (see
+    since_then): the net-worth change, what drove it, and the chance your money
+    lasts. "" when there is nothing earlier to compare with or nothing moved."""
+    if not change:
+        return ""
+    d = float(change["net_change"])
+    rate_then = change.get("rate_then")
+    rate_moved = rate_then is not None and abs(plan_rate - rate_then) >= 0.005
+    if abs(d) < 1.0 and not rate_moved:
+        return ""
+    since = change["since"].strftime("%b %d").replace(" 0", " ")
+    out = f"Since {since}, your net worth is {'up' if d >= 0 else 'down'} {money(abs(d))}"
+    if change.get("parts"):
+        name, value = change["parts"][0]
+        if abs(d) >= 1.0 and abs(value) >= 0.5 * abs(d) and (value >= 0) == (d >= 0):
+            out += f", mostly from {_DRIVER_WORDS.get(name, name.lower())}"
+    out += "."
+    if rate_then is not None:
+        if rate_moved:
+            out += f" Your chance of lasting went from {percent(rate_then)} to {percent(plan_rate)}."
+        else:
+            out += f" Your chance of lasting is steady at {percent(plan_rate)}."
+    return out
+
+
 def biggest_movers(rows: list[dict], base_date: date, limit: int = 3) -> list[dict]:
     """The accounts that moved the most since `base_date`, from the per-row
     daily balance snapshots: [{"name", "change"}], biggest swing first. A row

@@ -15,26 +15,30 @@ from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THE
 from source.webapp import explain
 
 
-# Eight top-level tabs. Four of them hold two related pages each (the
-# NAV_GROUPS below): every page keeps its own URL -- old bookmarks and links
-# still work -- and shows a small "section" row under the tab bar to hop
-# between the pair. Each group's tab links to its first page.
+# Three top-level tabs plus Setup. Today is the one-page answer; My Plan holds
+# everything you enter (what you own, what comes in and goes out, what you
+# actually spent); Explore holds the "what if" and planning tools. My Plan and
+# Explore each hold several related pages (the NAV_GROUPS below): every page
+# keeps its own URL -- old bookmarks and links still work -- and shows a
+# small "section" row under the tab bar to hop between them. Each group's tab
+# links to its first page.
 NAV_ITEMS = (
-    ("summary.html", "Summary"),
-    ("asset.html", "Assets"),
-    ("linked-accounts.html", "Linked Accounts"),
-    ("expense.html", "Income & Expenses"),
-    ("real-expenditure.html", "Spending"),
-    ("monte-carlo.html", "Will my money last?"),
-    ("drawdown-planning.html", "Drawdown & Legacy"),
+    ("summary.html", "Today"),
+    ("asset.html", "My Plan"),
+    ("monte-carlo.html", "Explore"),
     ("setup.html", "Setup"),
 )
 
 NAV_GROUPS = (
-    (("asset.html", "Assets & Debts"), ("real-estate.html", "Real Estate")),
-    (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Risk & Suggestions")),
-    (("real-expenditure.html", "Actual Spending"), ("budget-vs-actual.html", "Budget vs Actual")),
-    (("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning")),
+    (
+        ("asset.html", "Assets & Debts"), ("real-estate.html", "Real Estate"), ("expense.html", "Income & Expenses"),
+        ("linked-accounts.html", "Accounts"), ("real-expenditure.html", "Actual Spending"),
+        ("linked-positions.html", "Positions"), ("budget-vs-actual.html", "Budget vs Actual"),
+    ),
+    (
+        ("monte-carlo.html", "Will my money last?"), ("rebalance.html", "Risk & Suggestions"),
+        ("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning"),
+    ),
 )
 
 
@@ -154,10 +158,9 @@ function postJSON(url, body) {{
     }});
 }}
 var RP_TOUR = [
-  {{sel: 'nav a[href="/summary.html"]', title: 'Summary', text: 'Start here. It tells you in plain words whether your money is on track.'}},
-  {{sel: 'nav a[href="/asset.html"]', title: 'Assets', text: 'What you own and what you owe.'}},
-  {{sel: 'nav a[href="/expense.html"]', title: 'Income & Expenses', text: 'What comes in and what goes out each year.'}},
-  {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Will my money last?', text: 'Your chance of the money lasting. This is also where you enter Social Security.'}},
+  {{sel: 'nav a[href="/summary.html"]', title: 'Today', text: 'Start here. It tells you in plain words whether your money is on track.'}},
+  {{sel: 'nav a[href="/asset.html"]', title: 'My Plan', text: 'Everything you enter: what you own and owe, what comes in and goes out.'}},
+  {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Explore', text: 'Your chance of the money lasting, Social Security, and the what-if tools.'}},
   {{sel: '.view-toggle', title: 'Simple or Full', text: 'Simple keeps the basics in short sentences. Full shows every tool.'}},
   {{sel: '.ex-btn', title: 'The little i', text: 'Tap an i next to any title to read the full explanation.'}},
   {{sel: '#whatif-quick', title: 'What if...?', text: 'Try a change and see its effect. Nothing is saved.'}}
@@ -243,17 +246,39 @@ function runWhatIf(btn) {{
   }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = 'Compare'; }});
 }}
 function wiSay(where, html) {{ document.getElementById(where).innerHTML = html; }}
+var wqTimer = null, wqSeq = 0, wqCache = {{}};
+function wqLabels() {{
+  var sp = Number(document.getElementById('wq-spend').value), rt = document.getElementById('wq-retire');
+  var rv = rt ? Number(rt.value) : 0;
+  document.getElementById('wq-spend-val').textContent = sp === 0 ? 'as planned' : Math.abs(sp) + '% ' + (sp < 0 ? 'less' : 'more');
+  var rl = document.getElementById('wq-retire-val');
+  if (rl) {{ rl.textContent = rv === 0 ? 'as planned' : Math.abs(rv) + (Math.abs(rv) === 1 ? ' year ' : ' years ') + (rv < 0 ? 'earlier' : 'later'); }}
+  return [sp, rv];
+}}
+function wqShow(d) {{
+  var b = d.base, w = d.whatif, pts = Math.round((w.success_rate - b.success_rate) * 1000) / 10;
+  var change = Math.abs(pts) < 0.05 ? '<span class="muted">no real change</span>'
+    : '<span class="' + (pts > 0 ? 'wq-up' : 'wq-down') + '">' + (pts > 0 ? 'up ' : 'down ') + Math.abs(pts).toFixed(1) + ' points</span>';
+  wiSay('whatif-quick-result', '<div class="muted">' + d.label + '</div><div class="wq-big">' + wiPct(b.success_rate) + '<span class="arrow">&rarr;</span><strong>' + wiPct(w.success_rate) +
+    '</strong></div><div>Chance your money lasts: ' + change + '. Typical ending balance ' + wiMoney(b.median) + ' &rarr; ' + wiMoney(w.median) + '.</div>');
+}}
+function wqRun(sp, rt) {{
+  var card = document.getElementById('whatif-quick'), key = sp + '|' + rt, seq = ++wqSeq;
+  if (wqCache[key]) {{ wqShow(wqCache[key]); return; }}
+  wiSay('whatif-quick-result', '<span class="muted">Working it out...</span>');
+  postJSON('/api/what-if', {{custom: true, spend_change_pct: sp, retire_shift_years: rt, expected_return_pct: card.getAttribute('data-growth')}}).then(function(d) {{
+    wqCache[key] = d; if (seq === wqSeq) {{ wqShow(d); }}
+  }}).catch(function(e) {{ if (seq === wqSeq) {{ wiSay('whatif-quick-result', '<span class="status-warn">' + e.message + '</span>'); }} }});
+}}
+function wiLive() {{
+  var v = wqLabels(); clearTimeout(wqTimer);
+  if (!v[0] && !v[1]) {{ wqSeq++; wiSay('whatif-quick-result', '<span class="muted">Move a slider to try a change.</span>'); return; }}
+  wqTimer = setTimeout(function() {{ wqRun(v[0], v[1]); }}, 280);
+}}
 function wiQuick(btn, spend, retire) {{
-  var card = document.getElementById('whatif-quick'), out = 'whatif-quick-result';
-  var label = btn.textContent;
-  btn.disabled = true; wiSay(out, '<span class="muted">Working it out...</span>');
-  postJSON('/api/what-if', {{custom: true, spend_change_pct: spend, retire_shift_years: retire, expected_return_pct: card.getAttribute('data-growth')}}).then(function(d) {{
-    var b = d.base, w = d.whatif, pts = Math.round((w.success_rate - b.success_rate) * 1000) / 10;
-    var change = Math.abs(pts) < 0.05 ? 'no real change' : (pts > 0 ? 'up ' : 'down ') + Math.abs(pts).toFixed(1) + ' points';
-    wiSay(out, '<strong>' + label + ':</strong> your chance of lasting goes from <strong>' + wiPct(b.success_rate) + '</strong> to <strong>' + wiPct(w.success_rate) +
-      '</strong> (' + change + '). The typical ending balance goes from ' + wiMoney(b.median) + ' to ' + wiMoney(w.median) + '.');
-    btn.disabled = false;
-  }}).catch(function(e) {{ wiSay(out, '<span class="status-warn">' + e.message + '</span>'); btn.disabled = false; }});
+  document.getElementById('wq-spend').value = spend;
+  var rt = document.getElementById('wq-retire'); if (rt && !rt.disabled) {{ rt.value = retire; }}
+  clearTimeout(wqTimer); var v = wqLabels(); wqRun(v[0], v[1]);
 }}
 function wiClaim(btn, age) {{
   var out = 'whatif-quick-result';
@@ -1311,17 +1336,8 @@ def _nav_icon_html(href: str) -> str:
     )
 
 
-# Tabs tucked away in the Simple view (a "More tools" button takes their place);
-# hidden by a CSS rule on their href in styles.py, so the markup itself never changes.
-ADVANCED_TABS = frozenset({"drawdown-planning.html"})
-
-_MORE_TOOLS_HTML = (
-    '<a href="#" class="more-tools simple-only" onclick="setViewMode(\'full\'); return false;" '
-    'title="Show every tool: drawdown and legacy planning, advanced settings and full explanations">'
-    '<span class="ni" style="--c1:#bcc1ca; --c2:#646a76"><svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<circle cx="6" cy="12" r="1.6" fill="#fff"/><circle cx="12" cy="12" r="1.6" fill="#fff"/>'
-    '<circle cx="18" cy="12" r="1.6" fill="#fff"/></svg></span><span class="nl">More tools</span></a>'
-)
+# Pages tucked away in the Simple view are hidden by CSS rules on their href
+# (see styles.py), so the markup itself never changes.
 
 
 def _view_toggle_html() -> str:
@@ -1350,7 +1366,7 @@ def _nav_html(active: str) -> str:
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS
-    ) + _MORE_TOOLS_HTML
+    )
 
 
 def _subnav_html(active: str) -> str:

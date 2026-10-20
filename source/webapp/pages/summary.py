@@ -86,7 +86,14 @@ def _render_summary_page() -> str:
         top_html = blocks.welcome_card_html()
     else:
         top_html = (
-            blocks.hero_html(s, display_result, retirement_text, mode, v["schedule"])
+            blocks.hero_html(
+                s, display_result, retirement_text, mode, v["schedule"],
+                progress.change_sentence(
+                    progress.since_then(db.list_net_worth_snapshots(), s, progress.plan_check_history(),
+                                        asset_rows=db.list_asset_balance_snapshots()),
+                    display_result["success_rate"], _money, pres.percent_display,
+                ),
+            )
             + blocks.standing_card_html(s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
             + blocks.own_owe_html(s)
             + blocks.projection_card_html(s, display_result, mode, retirement_year)

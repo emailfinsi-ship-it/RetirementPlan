@@ -112,7 +112,9 @@ class TestRebalanceCard(DashboardTestCase):
     def test_long_card_is_gone_from_positions_and_tab_is_in_subnav(self):
         body = self._get("/linked-positions.html").read().decode("utf-8")
         self.assertNotIn("Rebalancing suggestions", body)
-        self.assertIn('href="/rebalance.html"', body)
+        # Risk & Suggestions now lives in the Explore group of the tab bar.
+        page = self._get("/rebalance.html").read().decode("utf-8")
+        self.assertIn('href="/rebalance.html" class="active">Risk &amp; Suggestions</a>', page)
 
     def test_one_card_per_account(self):
         db.upsert_plaid_account(item_key="rb_item", account={"account_id": "r2", "name": "Brokerage", "type": "investment",

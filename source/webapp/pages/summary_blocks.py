@@ -31,6 +31,24 @@ def dollars_toggle_html(mode: str) -> str:
     )
 
 
+_GAUGE_R = 54
+
+
+def gauge_html(rate: float, tone: str) -> str:
+    """A ring that fills to the chance your money lasts -- the number you read
+    first, the way a car shows its range. `tone` is ok / warn / bad."""
+    circumference = 2 * 3.14159265 * _GAUGE_R
+    frac = min(1.0, max(0.0, float(rate)))
+    offset = circumference * (1 - frac)
+    return (
+        f'<div class="gauge tone-{tone}" role="img" aria-label="{html.escape(pres.LABEL_CHANCE)}: {pres.percent_display(rate)}">'
+        f'<svg viewBox="0 0 132 132" aria-hidden="true"><circle class="g-track" cx="66" cy="66" r="{_GAUGE_R}"/>'
+        f'<circle class="g-ring" cx="66" cy="66" r="{_GAUGE_R}" stroke-dasharray="{circumference:.1f}" '
+        f'stroke-dashoffset="{offset:.1f}" style="--full:{circumference:.1f}"/></svg>'
+        f'<div class="g-num"><strong>{pres.percent_display(rate)}</strong><span>chance your money lasts</span></div></div>'
+    )
+
+
 def _tile(label: str, value: str, *, hero: bool = False) -> str:
     cls = "tile hero-tile" if hero else "tile"
     return f'<div class="{cls}"><div class="label">{html.escape(label)}</div><div class="value">{value}</div></div>'
@@ -45,7 +63,7 @@ def welcome_card_html() -> str:
     )
 
 
-def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: dict | None = None) -> str:
+def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: dict | None = None, change_text: str = "") -> str:
     assumptions = s["assumptions"]
     status = pres.plan_status(result["success_rate"])
     titles = {
@@ -64,6 +82,7 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: 
         sentence = pres.watch_sentence(rows, _money, convert)
         if sentence:
             watch = f'<p class="hero-watch small" style="margin:6px 0 0"><strong>{html.escape(sentence)}</strong></p>'
+    change_line = f'<p class="hero-change small" style="margin:6px 0 0">{html.escape(change_text)}</p>' if change_text else ""
     tiles = "".join((
         _tile("Net worth", _money(s["net_worth"]), hero=True),
         _tile("Investable savings", _money(s["net_liquid_asset"]), hero=True),
@@ -79,9 +98,15 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: 
 <div class="card hero tone-{status['tone']}">
 <div class="hero-top"><span class="badge badge-{status['tone']}">&#9679; {html.escape(status['label'])}</span>
 <span class="muted small">Plan check &middot; {date.today().strftime('%b %d, %Y').replace(' 0', ' ')}</span></div>
+<div class="hero-main">
+{gauge_html(result["success_rate"], status["tone"])}
+<div class="hero-text">
 <h2 class="hero-title">{titles[status['key']]}</h2>
 <p class="hero-verdict">{html.escape(verdict)}</p>
+{change_line}
 {watch}
+</div>
+</div>
 <div class="tiles">{tiles}</div>
 {in_plan_line}
 <p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
@@ -566,17 +591,26 @@ def whatif_quick_html(assumptions: dict, can_vary_retirement: bool, ss_ready: bo
         '<button type="button" class="chip" onclick="wiClaim(this, 70)">Claim Social Security at 70</button>'
         if ss_ready else ""
     )
+    retire_slider = (
+        f'<label>Retirement <strong id="wq-retire-val">as planned</strong>'
+        f'<input type="range" id="wq-retire" min="-5" max="10" step="1" value="0" oninput="wiLive()" aria-label="Retire earlier or later"{retire_attr}></label>'
+    )
     return f"""
 <div class="card" id="whatif-quick" data-growth="{growth:g}">
 <h2 style="margin-top:0">What if&hellip;?</h2>
-<p class="muted small" style="margin:0 0 8px">Tap one to see how it changes your chance of lasting. Nothing is saved.</p>
-<p style="margin:0">
+<p class="muted small" style="margin:0 0 4px">Drag a slider or tap an idea. The answer updates as you go. Nothing is saved.</p>
+<div class="wq-sliders">
+<label>Spending <strong id="wq-spend-val">as planned</strong>
+<input type="range" id="wq-spend" min="-30" max="30" step="5" value="0" oninput="wiLive()" aria-label="Spend less or more"></label>
+{retire_slider}
+</div>
+<p style="margin:6px 0 0">
   <button type="button" class="chip" onclick="wiQuick(this, -10, 0)">I spend 10% less</button>
   <button type="button" class="chip" onclick="wiQuick(this, 10, 0)">I spend 10% more</button>
   <button type="button" class="chip" onclick="wiQuick(this, 0, 2)"{retire_attr}>I retire 2 years later</button>
   {claim}
 </p>
-<div id="whatif-quick-result" class="small" style="margin-top:10px" aria-live="polite"></div>
+<div id="whatif-quick-result" class="small" style="margin-top:10px" aria-live="polite"><span class="muted">Move a slider to try a change.</span></div>
 </div>
 """
 

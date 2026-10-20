@@ -29,10 +29,10 @@ class TestViewMode(DashboardTestCase):
         self.assertNotEqual(status, 200)
         self.assertEqual(db.view_mode(), "simple")
 
-    def test_header_has_the_toggle_and_more_tools(self):
+    def test_header_has_the_toggle(self):
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn("setViewMode('full')", body)
-        self.assertIn('class="more-tools simple-only"', body)
+        self.assertIn("setViewMode('simple')", body)
 
     def test_advanced_parts_are_tagged_not_removed(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")

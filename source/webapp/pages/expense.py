@@ -22,6 +22,44 @@ from source.webapp.render_helpers import (
 )
 
 
+def _suggested_spending_html(suggestions: list[dict], this_year: int) -> str:
+    """A card offering to turn real spending categories into plan lines, one tap
+    to add the ticked ones (each linked to its real category so the plan can be
+    compared with what actually happens)."""
+    if not suggestions:
+        return ""
+    rows = "".join(
+        f'<tr><td><input type="checkbox" class="sg-check" data-category="{html.escape(r["category"], quote=True)}" '
+        f'data-annual="{round(r["annual"])}" checked></td><td>{html.escape(r["category"])}</td>'
+        f'<td class="num">{_money(r["monthly"])}</td><td class="num">{_money(r["annual"])}</td></tr>'
+        for r in suggestions[:12]
+    )
+    return f"""
+<div class="card" id="suggested-spending">
+<h3 style="margin-top:0">We found spending in your accounts that is not in your plan</h3>
+<p class="muted small">From your last 12 months of transactions. Untick anything you do not want, then add the rest. You can edit each line afterwards.</p>
+<div style="overflow-x:auto"><table><thead><tr><th></th><th>Category</th><th class="num">Per month</th><th class="num">Per year</th></tr></thead><tbody>{rows}</tbody></table></div>
+<p style="margin:10px 0 0"><button type="button" class="primary" onclick="addSuggestedSpending(this, {this_year})">Add the ticked ones to my plan</button></p>
+<script>
+function addSuggestedSpending(btn, year) {{
+  var picks = Array.prototype.slice.call(document.querySelectorAll('#suggested-spending .sg-check')).filter(function(c) {{ return c.checked; }});
+  if (!picks.length) {{ return; }}
+  btn.disabled = true; btn.textContent = 'Adding...';
+  picks.reduce(function(chain, c) {{
+    return chain.then(function() {{
+      return postJSON('/api/line-item/add', {{section: 'expenses', fields: {{
+        name: c.getAttribute('data-category'), category: 'Variable', annual_amount: Number(c.getAttribute('data-annual')),
+        inflates: 1, base_year: year, linked_category: c.getAttribute('data-category'),
+        notes: 'Suggested from your last 12 months of transactions'
+      }}}});
+    }});
+  }}, Promise.resolve()).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); btn.disabled = false; btn.textContent = 'Add the ticked ones to my plan'; }});
+}}
+</script>
+</div>
+"""
+
+
 def _render_expense_page() -> str:
     s = build_summary()
     assumptions = s["assumptions"]
@@ -91,6 +129,7 @@ def _render_expense_page() -> str:
 {expense_chart_html}
 </div>
 {income_section_html}
+{_suggested_spending_html(real_link.suggest_plan_lines(transactions, s["expenses"]), this_year)}
 {expense_section_html}
 """
     return _shell(title="Income & Expenses", active="expense.html", body=body)

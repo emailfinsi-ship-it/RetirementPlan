@@ -1,0 +1,29 @@
+# FinSi Version 3 (branch `version3`)
+
+Built on Version 2. Every calculation is unchanged; this version changes what you see first
+and how you ask "what if?".
+
+## Run it
+    cd ~/Downloads/RetirementPlan/Code-v3
+    ./scripts/run_version3.sh            # http://127.0.0.1:8900/
+    ./scripts/stop_dashboard.sh 8900     # to stop
+
+It uses a copy of your data in `Code-v3/data`, so your original app (8898) and Version 2 (8899)
+are not touched.
+
+## What changed
+1. **Three tabs instead of eight:** **Today**, **My Plan**, **Explore** (plus Setup). The old
+   pages live as small tabs under My Plan (Assets & Debts, Real Estate, Income & Expenses,
+   Accounts, Actual Spending, Positions, Budget vs Actual) and Explore (Will my money last?,
+   Risk & Suggestions, Drawdown Planning, Legacy Planning). The "More tools" button is gone.
+2. **A ring gauge for the verdict.** The chance your money lasts is a ring with the answer in
+   words beside it.
+3. **Live answers.** On Today, two sliders (spending, retirement age) update the chance of
+   lasting as you drag. The quick chips (spend 10% less, retire 2 years later, claim Social
+   Security at 70) also answer instantly. Nothing is saved.
+4. **"What changed since last time"** in one sentence under the verdict, for example
+   "Since Sep 20, your net worth is up $12,300, mostly from investments. Your chance of lasting
+   is steady at 88%."
+5. **Suggested spending from your real transactions.** On Income & Expenses, a card lists real
+   spending categories that are not in your plan yet. Tick the ones you want and press Add.
+6. The quick tour now describes Today / My Plan / Explore.
