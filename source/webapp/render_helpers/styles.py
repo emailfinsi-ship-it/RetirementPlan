@@ -241,6 +241,16 @@ PAGE_CSS = """
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .dash { display: inline-block; width: 18px; border-top: 2px dashed var(--ink); }
   .sub { font-size: 13px; margin: 14px 0 4px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; }
+  /* Simple / Full view (a display preference only -- see db.view_mode): .adv-only
+     parts and long grey explanations are tucked away in Simple view. */
+  body[data-view="simple"] .adv-only { display: none !important; }
+  body[data-view="simple"] nav a[href="/drawdown-planning.html"] { display: none !important; }
+  .simple-only { display: none !important; }
+  body[data-view="simple"] .simple-only { display: flex !important; }
+  .tx-short { display: none; }
+  body[data-view="simple"] .tx-short { display: block; }
+  body[data-view="simple"] .tx-short + p { display: none; }
+  .view-toggle .seg { font-size: 12px; }
   .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
   .seg-group .seg { border: 0; border-radius: 0; background: transparent; color: var(--ink-soft); font-size: 12px; padding: 5px 12px; box-shadow: none; }
   .seg-group .seg.on { background: var(--brand); color: #fff; }

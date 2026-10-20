@@ -81,14 +81,14 @@ class TestPlannerSaves(DashboardTestCase):
 
     def test_planner_shows_the_monthly_amount_from_the_ssa_statement(self):
         db.set_assumption("ss_benefit_self", "42000")      # stored per year
-        page = self._get("/expense.html").read().decode("utf-8")
+        page = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertIn('name="ss_benefit_self" type="text"', page)
         self.assertIn('value="3500"', page)                # shown per month
         self.assertIn("per month", page)
         self.assertIn("Math.round(n * 12)", page)          # saved per year
 
     def test_planner_inputs_accept_typing_commas(self):
-        page = self._get("/expense.html").read().decode("utf-8")
+        page = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertIn('name="ss_benefit_self" type="text"', page)
         self.assertNotIn('name="ss_benefit_self" type="number"', page)
         self.assertIn('id="benefits-planner"', page)

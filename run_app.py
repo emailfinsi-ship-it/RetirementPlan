@@ -14,10 +14,48 @@ import sys
 
 from source.webapp import dashboard
 
+def _log_crash(text: str) -> None:
+    """Leaves the reason in the log folder so a failed start can be diagnosed
+    (the launcher also copies the program's own output into launch.log)."""
+    try:
+        from datetime import datetime
+
+        from source.common import config
+
+        config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(config.LOG_DIR / "crash.log", "a", encoding="utf-8") as fh:
+            fh.write(f"=== {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     # A bundled app launched without a terminal can have no stdout/stderr;
     # point them at nothing rather than letting a print() raise.
     for _name in ("stdout", "stderr"):
         if getattr(sys, _name) is None:
             setattr(sys, _name, open(os.devnull, "w"))
-    dashboard.run(open_browser="--no-browser" not in sys.argv)
+    if "--selftest" in sys.argv:
+        # Everything imported fine (the import at the top would have failed
+        # otherwise); the build script uses this to catch a broken bundle.
+        print("selftest ok")
+        sys.exit(0)
+    try:
+        import faulthandler
+
+        faulthandler.enable()    # a hard crash prints where it happened
+    except Exception:
+        pass
+    try:
+        dashboard.run(open_browser="--no-browser" not in sys.argv)
+    except KeyboardInterrupt:
+        raise
+    except SystemExit:
+        raise
+    except BaseException:
+        import traceback
+
+        text = traceback.format_exc()
+        _log_crash(text)
+        print(text, file=sys.stderr)
+        sys.exit(1)

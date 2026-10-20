@@ -134,6 +134,29 @@ def check_plan(summary: dict, *, now: datetime | None = None) -> list[dict]:
             "fix": {"label": "Remove the older rows", "url": "/api/line-item/delete-bulk",
                     "payload": {"items": [{"section": "income", "id": r["id"]} for r in older]}},
         })
+    # A lopsided 401(k)/IRA split decides whose age starts the required withdrawals.
+    share = summary.get("drawdown_spouse_tax_deferred_share")
+    deferred = float((summary.get("drawdown_pools") or {}).get("tax_deferred") or 0.0)
+    has_spouse = bool((summary.get("assumptions") or {}).get("spouse_birth_year"))
+    if has_spouse and share is not None and deferred >= 100_000 and (share >= 0.8 or share <= 0.2):
+        whose = "your partner's" if share >= 0.8 else "your"
+        issues.append({
+            "id": "lopsided-401k-split", "level": "info",
+            "title": f"About {round(max(share, 1 - share) * 100)}% of your 401(k)/IRA money is in {whose} name",
+            "detail": "That decides whose age starts the required withdrawals, and so when they raise your taxes. "
+                      "If the owner tags on the Assets tab are right, nothing to do; if not, fix them.",
+            "href": "/asset.html", "fix": None,
+        })
+    # Rent that never grows, next to spending that does, makes the later years look worse than they are.
+    flat_rent = [r for r in summary.get("income") or []
+                 if "rent" in f"{r.get('name', '')} {r.get('category', '')}".lower() and not r.get("inflates") and (r.get("annual_amount") or 0)]
+    if flat_rent and any(r.get("inflates") for r in summary.get("expenses") or []):
+        issues.append({
+            "id": "rent-not-inflating", "level": "info",
+            "title": f"Rental income stays flat for {len(flat_rent)} propert{'ies' if len(flat_rent) != 1 else 'y'}",
+            "detail": "Your spending grows with inflation but this rent does not. If rents usually go up, tick \"Inflates\" on those Income rows.",
+            "href": "/expense.html", "fix": None,
+        })
     for section, label in (("expenses", "Expense"), ("income", "Income")):
         odd = [r for r in summary.get(section) or [] if (r.get("start_year") and r.get("end_year") and r["start_year"] > r["end_year"])]
         if odd:

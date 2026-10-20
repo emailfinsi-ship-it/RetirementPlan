@@ -26,7 +26,7 @@ def dollars_toggle_html(mode: str) -> str:
     today_label = "Today's dollars"
     future_label = "Future dollars"
     return (
-        '<div class="seg-group" role="group" aria-label="Dollar basis">'
+        '<div class="seg-group" role="group" aria-label="Dollar basis" title="Today\'s dollars show what the money would buy now. Future dollars show the larger numbers you would see after inflation.">'
         + btn("today", today_label) + btn("future", future_label) + "</div>"
     )
 
@@ -45,7 +45,7 @@ def welcome_card_html() -> str:
     )
 
 
-def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
+def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: dict | None = None) -> str:
     assumptions = s["assumptions"]
     status = pres.plan_status(result["success_rate"])
     titles = {
@@ -54,6 +54,16 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
         "at_risk": "Your plan needs attention",
     }
     verdict = pres.verdict_sentence(result, assumptions, s["next_year_expense_need"], _money)
+    watch = ""
+    if schedule and schedule.get("rows"):
+        infl = pres.inflation_rate(assumptions)
+        base = s["this_year"]
+        convert = (lambda v, y: pres.to_today(v, infl, y - base)) if mode == "today" else None
+        retire = schedule.get("retirement_year")
+        rows = [r for r in schedule["rows"] if retire is None or r["year"] >= retire]
+        sentence = pres.watch_sentence(rows, _money, convert)
+        if sentence:
+            watch = f'<p class="hero-watch small" style="margin:6px 0 0"><strong>{html.escape(sentence)}</strong></p>'
     tiles = "".join((
         _tile("Net worth", _money(s["net_worth"]), hero=True),
         _tile("Investable savings", _money(s["net_liquid_asset"]), hero=True),
@@ -71,10 +81,11 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str) -> str:
 <span class="muted small">Plan check &middot; {date.today().strftime('%b %d, %Y').replace(' 0', ' ')}</span></div>
 <h2 class="hero-title">{titles[status['key']]}</h2>
 <p class="hero-verdict">{html.escape(verdict)}</p>
+{watch}
 <div class="tiles">{tiles}</div>
 {in_plan_line}
-<p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. Based on {int(result['iterations']):,} simulated market paths,
-{_pct(assumptions, 'expected_return', 0.06)}% average yearly growth and {_pct(assumptions, 'inflation_rate', 0.03)}% inflation.
+<p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
+{_pct(assumptions, 'expected_return', 0.06)}% yearly growth and {_pct(assumptions, 'inflation_rate', 0.03)}% price rises. Amounts are in {"today&#x27;s dollars (what the money buys now)" if mode == "today" else "future dollars (grown by inflation)"}.
 <a href="/monte-carlo.html#assumptions">Change assumptions</a></p>
 </div>
 """
@@ -502,35 +513,70 @@ def alerts_card_html(alerts: list[dict]) -> str:
 </div>"""
 
 
+_TOP_STEPS = 3
+
+
 def next_steps_html(actions: list[dict]) -> str:
     """The Summary's "What should I do next?" card: a short numbered list,
     most important first (see source.reporting.advice). Nothing is changed
     from here; each step opens the tab where it can be dealt with."""
     if actions:
-        rows = ""
-        for a in actions:
+        def item(a: dict) -> str:
             why = f'<div class="small muted" style="margin-top:2px">{html.escape(a["why"])}</div>' if a.get("why") else ""
-            rows += (
+            return (
                 f'<li class="ns-item"><span class="ns-num {"ns-warn" if a["level"] == "warn" else ""}">{a["rank"]}</span>'
                 f'<div><strong>{html.escape(a["title"])}</strong> '
                 f'<a href="{html.escape(a["href"])}">Open</a>{why}</div></li>'
+            )
+
+        rows = "".join(item(a) for a in actions[:_TOP_STEPS])
+        more = ""
+        if len(actions) > _TOP_STEPS:
+            more = (
+                f'<details class="ns-more"><summary>Show {len(actions) - _TOP_STEPS} more</summary>'
+                f'<ol class="ns-list" start="{_TOP_STEPS + 1}">{"".join(item(a) for a in actions[_TOP_STEPS:])}</ol></details>'
             )
         body = (
             '<style>.ns-list{list-style:none;margin:8px 0 0;padding:0}.ns-item{display:flex;gap:10px;align-items:flex-start;'
             'padding:8px 0;border-top:1px solid var(--line,#e5e7eb);font-size:14px}.ns-item:first-child{border-top:0}'
             '.ns-num{flex:0 0 24px;height:24px;border-radius:50%;background:#e5e7eb;color:#374151;font-weight:700;'
-            'font-size:12px;display:flex;align-items:center;justify-content:center}.ns-num.ns-warn{background:#fde68a;color:#7c2d12}</style>'
-            f'<ol class="ns-list">{rows}</ol>'
+            'font-size:12px;display:flex;align-items:center;justify-content:center}.ns-num.ns-warn{background:#fde68a;color:#7c2d12}'
+            '.ns-more{margin-top:6px;font-size:13px}.ns-more summary{cursor:pointer;color:var(--brand)}</style>'
+            f'<ol class="ns-list">{rows}</ol>{more}'
         )
     else:
         body = '<p class="status-line status-ok">&#10003; Nothing needs your attention right now. Nice work.</p>'
     return f"""
 <div class="card" id="next-steps">
 <h2 style="margin-top:0">What should I do next?</h2>
-<p class="muted small" style="margin:0">Most important first.</p>
+<p class="muted small" style="margin:0">The most important ones first.</p>
 {body}
 <p class="muted small" style="margin:10px 0 0">Want to test a change before committing to it? Try a what-if next to your
 <a href="/monte-carlo.html#assumptions">Assumptions</a>.</p>
+</div>
+"""
+
+
+def whatif_quick_html(assumptions: dict, can_vary_retirement: bool, ss_ready: bool) -> str:
+    """The Summary's "What if...?" card: one-tap questions with the answer
+    shown right under the chips. Nothing is saved."""
+    growth = float(assumptions.get("expected_return") or 0.06) * 100.0
+    retire_attr = "" if can_vary_retirement else " disabled"
+    claim = (
+        '<button type="button" class="chip" onclick="wiClaim(this, 70)">Claim Social Security at 70</button>'
+        if ss_ready else ""
+    )
+    return f"""
+<div class="card" id="whatif-quick" data-growth="{growth:g}">
+<h2 style="margin-top:0">What if&hellip;?</h2>
+<p class="muted small" style="margin:0 0 8px">Tap one to see how it changes your chance of lasting. Nothing is saved.</p>
+<p style="margin:0">
+  <button type="button" class="chip" onclick="wiQuick(this, -10, 0)">I spend 10% less</button>
+  <button type="button" class="chip" onclick="wiQuick(this, 10, 0)">I spend 10% more</button>
+  <button type="button" class="chip" onclick="wiQuick(this, 0, 2)"{retire_attr}>I retire 2 years later</button>
+  {claim}
+</p>
+<div id="whatif-quick-result" class="small" style="margin-top:10px" aria-live="polite"></div>
 </div>
 """
 

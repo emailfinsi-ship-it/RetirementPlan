@@ -14,7 +14,7 @@ import html
 from source.common import branding, db
 from source.webapp.render_helpers import _pct
 
-_STEPS = ("Household", "Your dates", "Assumptions", "Your money", "Finish")
+_STEPS = ("About you", "Your dates", "Spending & growth", "Your money", "All set")
 
 
 def _field_value(assumptions: dict, key: str) -> str:
@@ -33,13 +33,25 @@ def _wizard_card_html() -> str:
     )
     if needed:
         intro = (
-            f"Welcome to {html.escape(branding.PRODUCT_NAME)}. Five quick steps get your plan started -- "
-            "you can change any answer later on this page or on the pages it points to."
+            f"Welcome to {html.escape(branding.PRODUCT_NAME)}. Five quick steps get your plan started. "
+            "You can change any answer later."
         )
     elif done:
         intro = "Setup is finished. You can walk through the wizard again any time -- your answers are pre-filled."
     else:
         intro = "Walk through the basics step by step."
+    if db.list_line_items("expenses"):
+        spend_block = (
+            '<p class="muted">You already have spending entered. You can change it on '
+            '<a href="/expense.html">Income &amp; Expenses</a>.</p>'
+        )
+    else:
+        spend_block = (
+            '<p style="margin:0 0 4px"><strong>About how much do you spend each month?</strong></p>'
+            '<p class="muted" style="margin:0 0 6px">A rough number is fine. It becomes one spending line you can refine later.</p>'
+            '<label style="max-width:220px">Monthly spending ($)<input id="wz-spend" type="text" inputmode="decimal" '
+            'autocomplete="off" placeholder="e.g. 8,000"></label>'
+        )
     sample_block = ""
     if needed:
         sample_block = (
@@ -63,7 +75,7 @@ def _wizard_card_html() -> str:
 
 <div class="wz-step" data-step="0">
   <h3 style="margin-top:0">Who is this plan for?</h3>
-  <p class="muted">These names appear on every page and in the Owner dropdowns. Turn the second person off for a one-person plan.</p>
+  <p class="muted">First names are fine. Turn the second person off for a one-person plan.</p>
   <div class="inline" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
     <label>First person<input id="wz-self" maxlength="40" value="{html.escape(household['self_name'])}"></label>
     <label style="flex-direction:row; align-items:center; gap:6px;"><input type="checkbox" id="wz-has-spouse" style="width:auto;"{spouse_checked}> Spouse or partner</label>
@@ -73,37 +85,46 @@ def _wizard_card_html() -> str:
 
 <div class="wz-step" data-step="1">
   <h3 style="margin-top:0">Your dates</h3>
-  <p class="muted">Birth years set when Required Minimum Distributions begin and how old everyone is in each simulated year. Retirement year is the first year you draw on savings. Leave any blank to fill in later.</p>
+  <p class="muted">We use these to work out your ages. Leave any blank and fill it in later.</p>
   <div class="inline" style="display:flex; gap:12px; flex-wrap:wrap;">
     <label><span class="wz-n1">{html.escape(household['self_name'])}</span>'s birth year<input id="wz-birth" type="number" min="1900" max="2100" step="1" value="{_field_value(assumptions, 'birth_year')}"></label>
     <label class="wz-spouse-field" style="{spouse_display}"><span class="wz-n2">{html.escape(household['spouse_name'])}</span>'s birth year<input id="wz-spouse-birth" type="number" min="1900" max="2100" step="1" value="{_field_value(assumptions, 'spouse_birth_year')}"></label>
-    <label>Retirement year<input id="wz-retire" type="number" min="2000" max="2200" step="1" value="{_field_value(assumptions, 'retirement_year')}"></label>
+    <label>Year you want to retire<input id="wz-retire" type="number" min="2000" max="2200" step="1" value="{_field_value(assumptions, 'retirement_year')}"></label>
   </div>
 </div>
 
 <div class="wz-step" data-step="2">
-  <h3 style="margin-top:0">Growth assumptions</h3>
-  <p class="muted">Starting points for the projections -- long-run averages, not promises. Adjust them any time on the Will my money last? page.</p>
+  <h3 style="margin-top:0">Spending and growth</h3>
+  {spend_block}
+  <p style="margin:14px 0 4px"><strong>How fast do you expect your investments to grow?</strong></p>
+  <p class="muted" style="margin:0 0 6px">Long-run averages, not promises. Typical is a fair middle.</p>
+  <p style="margin:0">
+    <button type="button" class="chip" onclick="wizardGrowth(5)">Cautious (5% a year)</button>
+    <button type="button" class="chip" onclick="wizardGrowth(6)">Typical (6% a year)</button>
+    <button type="button" class="chip" onclick="wizardGrowth(7)">Optimistic (7% a year)</button>
+  </p>
+  <p class="muted" id="wz-growth-note" style="margin:6px 0 0">Now set to {_pct(assumptions, 'expected_return', 0.06)}% a year.</p>
+  <details class="adv-only" style="margin-top:10px;"><summary style="cursor:pointer; color:var(--brand); font-size:12px;">Exact numbers</summary>
   <div class="inline" style="display:flex; gap:12px; flex-wrap:wrap;">
-    <label>Expected return %<input id="wz-return" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
-    <label>Inflation %<input id="wz-inflation" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
-  </div>
+    <label>Expected yearly growth %<input id="wz-return" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
+    <label>Price rises (inflation) %<input id="wz-inflation" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
+  </div></details>
 </div>
 
 <div class="wz-step" data-step="3">
   <h3 style="margin-top:0">Where does your money data come from?</h3>
-  <p class="muted">Pick either or both -- you can do this after the wizard too.</p>
-  <p><strong>Connect your accounts.</strong> Link banks and brokerages with Plaid for live balances and spending (needs your own free Plaid developer keys; they are kept only in this Mac's Keychain).</p>
+  <p class="muted">Pick either or both. You can also do this later.</p>
+  <p><strong>Connect your accounts.</strong> Link your banks and brokerages for live balances. Needs your own free Plaid keys, kept only on this Mac.</p>
   <p><button type="button" onclick="location.href='/setup.html#plaid-keys'">Take me to Plaid setup</button></p>
-  <p><strong>Type it in yourself.</strong> Add accounts, real estate, income and expenses by hand -- no bank connection needed.</p>
+  <p><strong>Type it in yourself.</strong> Add accounts, property, income and expenses by hand.</p>
   <p><a href="/asset.html"><button type="button">Open the Assets page</button></a> <a href="/expense.html"><button type="button">Open Income &amp; Expenses</button></a></p>
   {sample_block}
 </div>
 
 <div class="wz-step" data-step="4">
   <h3 style="margin-top:0">All set</h3>
-  <p>Your plan is ready to look at. The Summary page shows net worth and your chance of lasting; everything else is a tab away.</p>
-  <p class="muted">Tip: the Setup tab keeps backups, the optional login password and all of these settings -- you can reopen this wizard from the top of the Setup page whenever you like.</p>
+  <p>Your plan is ready. The Summary page shows whether your money is on track.</p>
+  <p class="muted">You can reopen this wizard any time from the Setup tab.</p>
 </div>
 
 <div class="wz-nav">
@@ -145,7 +166,17 @@ def _wizard_card_html() -> str:
       return postJSON('/api/assumptions', d);
     }}
     if (i === 2) {{
-      return postJSON('/api/assumptions', {{expected_return_pct: $('wz-return').value, inflation_rate_pct: $('wz-inflation').value}});
+      var save = postJSON('/api/assumptions', {{expected_return_pct: $('wz-return').value, inflation_rate_pct: $('wz-inflation').value}});
+      var spend = $('wz-spend') ? Number(String($('wz-spend').value).replace(/[$,\s]/g, '')) : 0;
+      if (spend > 0) {{
+        save = save.then(function() {{
+          return postJSON('/api/line-item/add', {{section: 'expenses', fields: {{
+            name: 'Living expenses', category: 'Variable', annual_amount: Math.round(spend * 12),
+            inflates: 1, base_year: new Date().getFullYear(), notes: 'From the setup wizard: monthly spending x 12'
+          }}}});
+        }});
+      }}
+      return save;
     }}
     return Promise.resolve();
   }}
@@ -153,6 +184,10 @@ def _wizard_card_html() -> str:
     if (dir > 0 && cur === last) {{ window.wizardFinish(true); return; }}
     if (dir < 0) {{ show(cur - 1); return; }}
     saveStep(cur).then(function() {{ show(cur + 1); }}).catch(function(e) {{ alert(e.message); }});
+  }};
+  window.wizardGrowth = function(pct) {{
+    $('wz-return').value = pct;
+    $('wz-growth-note').textContent = 'Now set to ' + pct + '% a year.';
   }};
   window.wizardLoadSample = function() {{
     postJSON('/api/sample-data', {{with_linked: true}}).then(function() {{

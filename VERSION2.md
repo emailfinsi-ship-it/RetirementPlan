@@ -1,0 +1,34 @@
+# FinSi Version 2 (branch `version2`)
+
+Version 1 is the tag `v1`. Version 2 keeps every calculation the same and changes
+what you see and where you type.
+
+## Run it
+    cd ~/Downloads/RetirementPlan/Code-v2
+    ./scripts/run_version2.sh            # http://127.0.0.1:8899/
+    ./scripts/stop_dashboard.sh 8899     # to stop
+
+It uses a copy of your data in `Code-v2/data`, so changes made there do not touch your
+original app (port 8898).
+
+## What changed
+1. **Simple | Full switch** (page header). Simple is the default: short sentences, advanced
+   tools tucked away, a "More tools" button in the tab bar. Full is the old behavior.
+2. **Short sentences, detail behind an "i".** Long grey paragraphs show their first sentence;
+   tap the small i to read the rest. (Full view shows everything as before.)
+3. **Social Security moved** to the "Will my money last?" tab: two questions per person
+   (monthly amount, start age), one Save. Medicare costs are under Advanced. The Income tab
+   shows those rows as "set by the planner" and read-only, and points to the new place.
+4. **Plainer wording:** "Investable savings" (was Net Liquid Asset), "Expected yearly growth",
+   "Price rises (inflation)", "Pre-tax (401k / traditional IRA)", no "Monte Carlo" on the
+   main pages.
+5. **Summary:** a "One thing to watch" line (for example the year required withdrawals jump),
+   "Amounts are in today's dollars" note, only the top 3 next steps (rest folded), and a
+   **What if...?** card (spend 10% less/more, retire 2 years later, claim Social Security at 70).
+6. **Setup wizard:** plain questions, asks for monthly spending, growth as Cautious / Typical /
+   Optimistic buttons.
+7. **Data check** also warns about a lopsided 401(k)/IRA split and rent that never grows.
+8. **Quick tour** (7 steps) shows once on the Summary; "Take a quick tour" replays it.
+
+## Not changed
+All calculations, saved data and the Plaid connection. The tutorial video was not re-recorded.

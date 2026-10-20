@@ -86,10 +86,14 @@ def _render_summary_page() -> str:
         top_html = blocks.welcome_card_html()
     else:
         top_html = (
-            blocks.hero_html(s, display_result, retirement_text, mode)
+            blocks.hero_html(s, display_result, retirement_text, mode, v["schedule"])
             + blocks.standing_card_html(s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
             + blocks.own_owe_html(s)
             + blocks.projection_card_html(s, display_result, mode, retirement_year)
+            + blocks.whatif_quick_html(
+                assumptions, retirement_year is not None,
+                bool(assumptions.get("birth_year") and assumptions.get("ss_benefit_self")),
+            )
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
         )
     positions = [] if v["empty_plan"] else linked_data.read_linked_portfolio_positions()
@@ -115,7 +119,7 @@ def _render_summary_page() -> str:
 {alerts_html}
 {top_html}
 {history_html}
-{_summary_insight_html(s)}
+<div class="adv-only">{_summary_insight_html(s)}</div>
 {data_check_html}
 {next_steps}
 {blocks.footer_html(s, linked_summary, mode)}

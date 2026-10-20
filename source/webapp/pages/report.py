@@ -62,7 +62,7 @@ def _render_report_page() -> str:
     if v["empty_plan"]:
         sections = '<div class="card"><p>This plan has no accounts or spending yet, so there is nothing to report. Add them (or use the setup wizard) and come back.</p></div>'
     else:
-        hero = blocks.hero_html(s, result, v["retirement_text"], mode)
+        hero = blocks.hero_html(s, result, v["retirement_text"], mode, v["schedule"])
         hero = re.sub(r'<a href="/monte-carlo.html#assumptions">Change assumptions</a>', "", hero)
         proj = blocks.projection_card_html(s, result, mode, v["retirement_year"])
         income = blocks.income_sources_card_html(v["schedule"], a, mode, s["this_year"])

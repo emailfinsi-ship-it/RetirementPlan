@@ -34,9 +34,9 @@ from source.webapp.render_helpers import (
 def _liquid_and_total_points(
     snapshots: list[dict],
 ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
-    """(Net Liquid Asset, Total Asset) per daily snapshot, in date order --
+    """(Investable savings, Total Asset) per daily snapshot, in date order --
     the same two figures the rollup table at the top of this page shows
-    (Net Liquid Asset = retirement/liquid total less liabilities; Total
+    (Investable savings = retirement/liquid total less liabilities; Total
     Asset adds real estate equity)."""
     ordered = sorted(snapshots, key=lambda r: r["snapshot_date"])
     liquid = [(r["snapshot_date"], r["retirement_liquid_total"] - r["liability_total"]) for r in ordered]
@@ -147,7 +147,7 @@ def _render_asset_page() -> str:
              "title": "Value less what's owed on each property (your ownership share)."},
         ]
         chart_note += (
-            " Picking a real estate line switches the headline from Net Liquid Asset to Total Asset (Net "
+            " Picking a real estate line switches the headline from Investable savings to Total Asset (Net "
             "Liquid Asset plus real estate equity). Real estate value is recorded daily from the day it was "
             "first captured; equity has the longer history."
         )
@@ -166,7 +166,7 @@ def _render_asset_page() -> str:
 
     body = f"""
 <h2 style="margin-top:0">Assets</h2>
-<p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In the plan?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Net Liquid Asset below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
+<p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In the plan?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Investable savings below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
 {asset_rollup_html}
 {net_worth_history_html}
 {asset_summary_html}

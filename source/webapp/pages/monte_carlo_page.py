@@ -26,6 +26,7 @@ from source.reporting.monte_carlo import (
 )
 from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
 from source.webapp.pages import summary_blocks as blocks
+from source.webapp.pages.benefits_card import double_social_security_html, social_security_medicare_card_html
 from source.webapp.pages.scenarios_card import saved_scenarios_card_html
 from source.webapp.render_helpers import _money, _pct, _shell
 from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
@@ -102,13 +103,13 @@ def _render_monte_carlo_page() -> str:
         f'\n  <div class="tile"><div class="label">Real estate (opted in)</div><div class="value">{_money(re_pool)}</div></div>'
     ) if re_pool else ""
     # A single "Starting balance" tile up top showing the true total
-    # (Net Liquid Asset + any opted-in real estate) -- so the actual
+    # (Investable savings + any opted-in real estate) -- so the actual
     # money the simulation draws down is visible at a glance instead of
     # only inferable from the paragraph below or from adding up the
     # per-pool tiles yourself.
     pool_tiles = f"""
   <div class="tile"><div class="label">Starting balance</div><div class="value">{_money(total_simulated_balance)}</div></div>
-  <div class="tile"><div class="label">Tax-deferred (401k/Traditional)</div><div class="value">{_money(pools['tax_deferred'])}</div></div>
+  <div class="tile"><div class="label">Pre-tax (401k / traditional IRA)</div><div class="value">{_money(pools['tax_deferred'])}</div></div>
   <div class="tile"><div class="label">Roth (tax-free)</div><div class="value">{_money(pools['roth'])}</div></div>
   <div class="tile"><div class="label">Taxable (brokerage)</div><div class="value">{_money(pools['taxable'])}</div></div>{re_pool_tile}
 """
@@ -190,21 +191,24 @@ def _render_monte_carlo_page() -> str:
   <div class="tile"><div class="label">{pres.LABEL_TYPICAL}</div><div class="value">{_money(display['median_ending_balance'])}</div></div>
   <div class="tile"><div class="label">{pres.LABEL_STRONG}</div><div class="value">{_money(display['p90_ending_balance'])}</div></div>
 </div>
-<p class="muted small" style="margin-bottom:0">This is a Monte Carlo simulation: {result['iterations']:,} possible market futures run against your own savings and spending. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
+<p class="muted small" style="margin-bottom:0">We ran {result['iterations']:,} possible market futures against your own savings and spending. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
 </div>
 {chart}
 {explorer_html}
+{double_social_security_html(s["income"], assumptions)}
+{social_security_medicare_card_html(assumptions)}
 <div class="card" id="safe-spending">
 <h3 class="sub" style="margin-top:0">How much can I safely spend?</h3>
 {blocks.safe_spending_html(selector=True)}
 <p class="muted small" style="margin:8px 0 0">The most you could spend each year, starting next year, while keeping your chance of lasting at the level you pick. Higher confidence means a smaller number.</p>
 </div>
-<details class="how-it-works"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
+<details class="how-it-works adv-only"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
 <div class="tiles">{pool_tiles}
   <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
 {tax_tiles}</div>
-<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Net Liquid Asset ({_money(starting_balance)}) -- the total of every Assets-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Net Liquid Asset tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Assets tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income &amp; Expenses tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
+<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Investable savings ({_money(starting_balance)}) -- the total of every Assets-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Investable savings tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Assets tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income &amp; Expenses tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
 </details>
+<div class="adv-only">
 <h2>What could go wrong?</h2>
 <p class="muted small">Three ways to test your plan against bad luck: markets replaying their real history, real recessions starting the day your plan does, and what changes if you sell a property.</p>
 <h3 class="sub">Real market history replayed &mdash; S&amp;P 500 historical-returns simulation</h3>
@@ -220,6 +224,7 @@ def _render_monte_carlo_page() -> str:
 {stress_html}
 {sensitivity_html}
 {saved_scenarios_card_html(db.list_scenarios(), assumptions)}
+</div>
 <div class="card" id="assumptions">
 <h2 style="margin-top:0">Assumptions &amp; what-if</h2>
 <p class="muted">Two ways to change the plan in one place: test an idea first (nothing is saved), then enter the numbers you want to keep.</p>
@@ -230,17 +235,17 @@ def _render_monte_carlo_page() -> str:
   new FormData(this).forEach(function(value, key) {{ fields[key] = value; }});
   fields.apply_drawdown_tax = this.apply_drawdown_tax.checked ? 1 : 0;
   postJSON('/api/assumptions', fields).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
-  <label>Expected return %<input name="expected_return_pct" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
-  <label>Inflation %<input name="inflation_rate_pct" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
-  <label>Plan horizon (years)<input name="plan_horizon_years" type="number" value="{html.escape(str(assumptions.get('plan_horizon_years', 40)))}"></label>
+  <label>Expected yearly growth %<input name="expected_return_pct" type="number" step="0.01" value="{_pct(assumptions, 'expected_return', 0.06)}"></label>
+  <label>Price rises (inflation) %<input name="inflation_rate_pct" type="number" step="0.01" value="{_pct(assumptions, 'inflation_rate', 0.03)}"></label>
+  <label class="adv-only">Plan horizon (years)<input name="plan_horizon_years" type="number" value="{html.escape(str(assumptions.get('plan_horizon_years', 40)))}"></label>
   <label>{html.escape(db.self_name())}'s birth year (for RMDs)<input name="birth_year" type="number" step="1" placeholder="e.g. 1960" value="{html.escape(str(assumptions.get('birth_year') or ''))}"></label>
   {spouse_birth_field}
   <label>Retirement year<input name="retirement_year" type="number" step="1" placeholder="e.g. 2035" value="{html.escape(str(assumptions.get('retirement_year') or ''))}"></label>
-  <details style="flex:1 1 100%;"><summary style="cursor:pointer; color:var(--brand); font-size:12px; font-weight:500;">Advanced settings (volatility, iterations, income offset, taxable gains)</summary>
+  <details class="adv-only" style="flex:1 1 100%;"><summary style="cursor:pointer; color:var(--brand); font-size:12px; font-weight:500;">Advanced settings (volatility, iterations, income offset, taxable gains)</summary>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
   {advanced_fields}
     </div></details>
-  <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>
+  <label class="adv-only" style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" name="apply_drawdown_tax" value="1" style="width:auto;"{' checked' if _assumption_checked(assumptions, 'apply_drawdown_tax') else ''}> Apply drawdown tax (Fed + CA, current brackets)</label>
   <button type="submit" class="primary">Save &amp; re-run</button>
 </form>
 <p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
