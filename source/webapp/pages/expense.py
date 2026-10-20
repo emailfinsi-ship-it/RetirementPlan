@@ -8,7 +8,7 @@ import html
 from source.common import linked_data
 from source.reporting import real_link
 from source.reporting.aggregate import build_summary
-from source.webapp.pages.benefits_card import social_security_medicare_card_html
+from source.webapp.pages.benefits_card import double_social_security_html, social_security_medicare_card_html
 from source.reporting.monte_carlo import annual_line_item_total, effective_line_item_amount
 from source.webapp.render_helpers import (
     _donut_chart_html,
@@ -84,6 +84,7 @@ def _render_expense_page() -> str:
     </form>
   </div>
 </div>
+{double_social_security_html(s["income"], assumptions)}
 {social_security_medicare_card_html(assumptions)}
 <div class="group-section">
 {income_chart_html}

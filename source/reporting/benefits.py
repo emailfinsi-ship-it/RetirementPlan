@@ -149,6 +149,24 @@ def social_security_row(person: dict, claim_age: int, this_year: int) -> dict:
     }
 
 
+def older_social_security_rows(income_rows: list[dict], assumptions: dict) -> list[dict]:
+    """Social Security rows typed in by hand that would be counted ON TOP of the
+    planner's own rows -- empty unless the planner has (or would write) Social
+    Security rows. The planner's rows come from the SSA statement figures, so
+    older hand-made ones double the benefit."""
+    from source.reporting.monte_carlo.withdrawal import _income_kind
+
+    def is_ss(r):
+        return _income_kind(r) == "social_security"
+
+    planner_has = any(is_ss(r) and r.get("source") == BENEFITS_SOURCE for r in income_rows) or any(
+        True for r in planned_rows(assumptions)["income"]
+    )
+    if not planner_has:
+        return []
+    return [r for r in income_rows if is_ss(r) and r.get("source") != BENEFITS_SOURCE]
+
+
 def planned_rows(assumptions: dict, this_year: int | None = None) -> dict:
     """{"income": [...], "expenses": [...]} -- the Income / Expense rows the
     saved planner inputs describe (field dicts for db.add_line_item)."""

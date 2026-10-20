@@ -5,6 +5,7 @@ for the income entered. Calculations live in source.reporting.benefits."""
 from __future__ import annotations
 
 import html
+import json
 
 from source.reporting import benefits
 from source.webapp.render_helpers import _money
@@ -44,6 +45,25 @@ def _table_html(person: dict) -> str:
 <tbody>{''.join(rows)}</tbody></table></div>
 <p style="margin:10px 0 4px"><button type="button" class="primary" id="claim-btn-{person['key']}" onclick="analyzeClaiming('{person['key']}')">Which age is best for {html.escape(person['name'])}, based on my plan?</button></p>
 <div id="claim-result-{person['key']}"></div>"""
+
+
+def double_social_security_html(income_rows: list, assumptions: dict) -> str:
+    """A visible warning (above the planner) when hand-made Social Security rows
+    sit alongside the planner's own, with a one-click removal."""
+    older = benefits.older_social_security_rows(income_rows, assumptions)
+    if not older:
+        return ""
+    names = ", ".join(html.escape(r["name"]) for r in older)
+    payload = html.escape(json.dumps({"items": [{"section": "income", "id": r["id"]} for r in older]}), quote=True)
+    return (
+        '<div class="card" id="double-ss" style="border-color:var(--warn, #d97706);">'
+        '<p class="status-warn" style="margin:0 0 6px"><strong>Social Security may be counted twice</strong></p>'
+        f'<p style="margin:0 0 8px">You have Social Security rows you added yourself ({names}) as well as the ones the planner writes from your '
+        'SSA statement figures. Both are added to your income, so it looks too high on every chart. If the planner&#39;s numbers are the right ones, remove the older rows.</p>'
+        f'<button type="button" class="primary" onclick="if (confirm(\'Remove these older Social Security rows? The planner rows stay.\')) '
+        f'postJSON(\'/api/line-item/delete-bulk\', {payload}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">'
+        'Remove the older rows</button></div>'
+    )
 
 
 def social_security_medicare_card_html(assumptions: dict) -> str:

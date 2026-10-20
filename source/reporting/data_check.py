@@ -120,6 +120,20 @@ def check_plan(summary: dict, *, now: datetime | None = None) -> list[dict]:
             "detail": "Set Taxable, Tax-deferred or Roth on the Assets tab so withdrawals and taxes are modeled correctly.",
             "href": "/asset.html", "fix": None,
         })
+    from source.reporting import benefits
+
+    older = benefits.older_social_security_rows(summary.get("income") or [], summary.get("assumptions") or {})
+    if older:
+        names = ", ".join(r["name"] for r in older)
+        issues.append({
+            "id": "double-social-security", "level": "warn",
+            "title": f"Social Security may be counted twice ({names})",
+            "detail": "The Social Security planner already adds a row for each of you from your SSA statement figures. "
+                      "These older rows are added on top, so your income looks too high. If the planner's numbers are right, remove the older rows.",
+            "href": "/expense.html",
+            "fix": {"label": "Remove the older rows", "url": "/api/line-item/delete-bulk",
+                    "payload": {"items": [{"section": "income", "id": r["id"]} for r in older]}},
+        })
     for section, label in (("expenses", "Expense"), ("income", "Income")):
         odd = [r for r in summary.get(section) or [] if (r.get("start_year") and r.get("end_year") and r["start_year"] > r["end_year"])]
         if odd:
