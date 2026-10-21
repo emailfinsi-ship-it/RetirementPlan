@@ -24,16 +24,17 @@ from source.webapp import explain
 # links to its first page.
 NAV_ITEMS = (
     ("summary.html", "Today"),
-    ("asset.html", "My Plan"),
+    ("linked-accounts.html", "My Plan"),
     ("monte-carlo.html", "Explore"),
     ("setup.html", "Setup"),
 )
 
 NAV_GROUPS = (
     (
-        ("asset.html", "Assets & Debts"), ("real-estate.html", "Real Estate"), ("expense.html", "Income & Expenses"),
-        ("linked-accounts.html", "Accounts"), ("real-expenditure.html", "Actual Spending"),
-        ("linked-positions.html", "Positions"), ("budget-vs-actual.html", "Budget vs Actual"),
+        ("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"),
+        ("asset.html", "Assets & Debts"), ("real-estate.html", "Real Estate"),
+        ("expense.html", "Income & Expenses"), ("real-expenditure.html", "Actual Spending"),
+        ("budget-vs-actual.html", "Budget vs Actual"),
     ),
     (
         ("monte-carlo.html", "Will my money last?"), ("rebalance.html", "Risk & Suggestions"),
@@ -159,7 +160,7 @@ function postJSON(url, body) {{
 }}
 var RP_TOUR = [
   {{sel: 'nav a[href="/summary.html"]', title: 'Today', text: 'Start here. It tells you in plain words whether your money is on track.'}},
-  {{sel: 'nav a[href="/asset.html"]', title: 'My Plan', text: 'Everything you enter: what you own and owe, what comes in and goes out.'}},
+  {{sel: 'nav a[href="/linked-accounts.html"]', title: 'My Plan', text: 'Everything you enter: what you own and owe, what comes in and goes out.'}},
   {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Explore', text: 'Your chance of the money lasting, Social Security, and the what-if tools.'}},
   {{sel: '.ex-btn', title: 'The little i', text: 'Tap an i next to any title to read the full explanation.'}},
   {{sel: '#whatif-quick', title: 'What if...?', text: 'Try a change and see its effect. Nothing is saved.'}}
@@ -1344,7 +1345,7 @@ def _nav_html(active: str) -> str:
         '<a href="/{href}"{cls}>{icon}<span class="nl">{label}</span></a>'.format(
             href=href,
             cls=' class="active"' if href == highlighted else "",
-            icon=_nav_icon_html(href),
+            icon=_nav_icon_html("asset.html" if href == "linked-accounts.html" else href),  # My Plan keeps its bank icon
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS

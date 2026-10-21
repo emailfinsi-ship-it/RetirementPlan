@@ -202,7 +202,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         # than just "Expense". It sits under the My Plan tab.
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/asset.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
         self.assertIn('<a href="/expense.html" class="active">Income &amp; Expenses</a>', body)
         self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income &amp; Expenses</title>", body)
 
@@ -239,8 +239,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         from source.webapp.render_helpers.shell import NAV_ITEMS
         self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Setup"])
         groups = {
-            "/asset.html": ["/real-estate.html", "/expense.html", "/linked-accounts.html", "/real-expenditure.html",
-                            "/linked-positions.html", "/budget-vs-actual.html"],
+            "/linked-accounts.html": ["/linked-positions.html", "/asset.html", "/real-estate.html", "/expense.html",
+                                      "/real-expenditure.html", "/budget-vs-actual.html"],
             "/monte-carlo.html": ["/rebalance.html", "/drawdown-planning.html", "/legacy-planning.html"],
         }
         for first, others in groups.items():
@@ -254,6 +254,14 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         # Today and Setup show no section row.
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertNotIn('<div class="subnav">', body)
+
+    def test_my_plan_section_row_is_in_the_chosen_order(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        order = ["/linked-accounts.html", "/linked-positions.html", "/asset.html", "/real-estate.html",
+                 "/expense.html", "/real-expenditure.html", "/budget-vs-actual.html"]
+        sub = body.split('<div class="subnav">')[1]
+        positions = [sub.index(f'href="{h}"') for h in order]
+        self.assertEqual(positions, sorted(positions))
 
     def test_income_tab_explains_how_rental_income_is_taxed(self):
         body = self._get("/expense.html").read().decode("utf-8")
@@ -2040,7 +2048,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
     def test_nav_includes_linked_positions_tab(self):
         resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/asset.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
         self.assertIn('href="/linked-positions.html" class="active">Positions</a>', body)
 
     def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
@@ -4068,7 +4076,7 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Linked Accounts", body)
-        self.assertRegex(body, r'href="/asset.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
         self.assertIn('href="/linked-accounts.html" class="active">Accounts</a>', body)
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
@@ -5101,7 +5109,7 @@ class TestBudgetVsActualRouting(DashboardTestCase):
         body = self._get("/budget-vs-actual.html").read().decode("utf-8")
         self.assertIn("Budget vs Actual", body)
         # Budget vs Actual lives under the My Plan tab, next to Actual Spending.
-        self.assertRegex(body, r'href="/asset.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
         self.assertIn('href="/budget-vs-actual.html" class="active">Budget vs Actual</a>', body)
         self.assertIn('<div class="subnav">', body)
 
