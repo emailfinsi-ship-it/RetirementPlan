@@ -293,9 +293,9 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertEqual(section.count('<div style="overflow-x:auto">\n<table'), section.count("<table"))
 
     def test_how_it_works_arrow_css_escape_is_a_real_css_escape(self):
-        # A Python "\\25B8" in the stylesheet would be an octal escape plus "B8" -- garbage on screen.
+        # A Python "\\203A" written with one backslash would be an octal escape -- garbage on screen.
         from source.webapp.render_helpers.styles import PAGE_CSS
-        self.assertIn('content: "\\25B8  "', PAGE_CSS)
+        self.assertIn('content: "\\203A"', PAGE_CSS)
         self.assertNotIn("\x15", PAGE_CSS)
 
     def test_real_estate_page_has_an_address_column_and_update_button(self):

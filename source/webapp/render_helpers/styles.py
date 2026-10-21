@@ -528,10 +528,22 @@ PAGE_CSS = """
     overscroll-behavior: contain; }
   .bar-chart-hint { margin: 6px 0 0; font-size: 11px; }
   details.how-it-works { margin: 4px 0 12px; }
-  details.how-it-works > summary { cursor: pointer; color: var(--brand); font-size: 12px; font-weight: 500; list-style: none; }
-  details.how-it-works > summary::-webkit-details-marker { display: none; }
-  details.how-it-works > summary::before { content: "\\25B8  "; }
-  details.how-it-works[open] > summary::before { content: "\\25BE  "; }
+  /* "Show more" toggles: one look everywhere -- a little chevron badge, a slightly larger bold label. */
+  details.how-it-works > summary, details.ns-more > summary, details:not([class]) > summary {
+    cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 0;
+    color: var(--brand) !important; font-size: 14px !important; font-weight: 600 !important;
+  }
+  details.how-it-works > summary::-webkit-details-marker, details.ns-more > summary::-webkit-details-marker,
+  details:not([class]) > summary::-webkit-details-marker { display: none; }
+  details.how-it-works > summary::before, details.ns-more > summary::before, details:not([class]) > summary::before {
+    content: "\\203A"; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 6px; background: rgba(0,113,227,.12); color: var(--brand);
+    font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; transition: transform .15s var(--ease, ease), background .15s;
+  }
+  details.how-it-works > summary:hover::before, details.ns-more > summary:hover::before, details:not([class]) > summary:hover::before { background: rgba(0,113,227,.22); }
+  details.how-it-works[open] > summary::before, details.ns-more[open] > summary::before, details:not([class])[open] > summary::before { transform: rotate(90deg); }
+  details.how-it-works[open] > summary, details.ns-more[open] > summary, details:not([class])[open] > summary { margin-bottom: 4px; }
+  details.how-it-works > summary:focus-visible, details.ns-more > summary:focus-visible, details:not([class]) > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
