@@ -629,6 +629,9 @@ _CSS = """
     font:italic 700 11px/1 Georgia, serif; cursor:pointer; vertical-align:middle; text-transform:none; letter-spacing:0; box-shadow:none; }
   .ex-btn:hover, .ex-btn:focus-visible { background:var(--brand, #0071e3); border-color:var(--brand, #0071e3); color:#fff; outline:none; }
   .ex-pagebar { text-align:right; margin:0 0 6px; }
+  .ex-watch { display:inline-block; margin-left:6px; padding:4px 11px; border-radius:999px; border:1px solid var(--brand, #0071e3);
+    background:var(--brand, #0071e3); color:#fff !important; font:600 12px/1.2 -apple-system, "Inter", sans-serif; text-decoration:none; }
+  .ex-watch:hover { background:var(--brand-dark, #0059b2); }
   .ex-page-btn { width:auto; height:auto; border-radius:999px; padding:4px 11px; margin:0; font:600 12px/1.2 -apple-system, "Inter", sans-serif; }
   #ex-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100000; display:flex; align-items:center; justify-content:center; padding:18px; }
   #ex-modal { background:var(--surface, #fff); color:var(--ink, #1d1d1f); border:1px solid var(--border, #d2d2d7); border-radius:16px;

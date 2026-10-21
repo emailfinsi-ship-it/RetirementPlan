@@ -24,7 +24,7 @@ def chapter_link_html(page: str) -> str:
     start = SCREEN_CHAPTERS.get(page)
     if start is None:
         return ""
-    return (f' <a class="ex-btn ex-page-btn ex-watch" href="/tutorial.html?v=screens&amp;t={int(start)}#videos" '
+    return (f' <a class="ex-watch" href="/tutorial.html?v=screens&amp;t={int(start)}#videos" '
             f'title="Opens the screens video at this tab">&#9654;&nbsp; Watch this screen</a>')
 
 
