@@ -448,9 +448,17 @@ def _historical_stress_test_html(result: dict) -> str:
     sp500_look = result.get("sp500_lookback") or sp500_lookback({})
     personal_lines_html = _stress_personal_lines_html(result["scenarios"])
     return f"""
-<h3 class="sub">What if markets fall? Historical recession stress test</h3>
+<style>
+.stress-lines {{ list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 8px; }}
+.stress-lines li {{ font-size: 15.5px; line-height: 1.45; padding: 10px 14px; border-radius: 10px; border-left: 4px solid var(--success);
+  background: color-mix(in srgb, var(--success) 9%, var(--surface)); }}
+.stress-lines li.status-warn {{ border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }}
+</style>
+<h2 id="stress-test" style="margin-top:22px">What if markets fall? Historical recession stress test</h2>
 {personal_lines_html}
+<details class="how-it-works"><summary>How these scenarios work</summary>
 <p class="muted">A second, deterministic view alongside the random simulation above: each scenario replays actual S&amp;P 500 annual total returns (dividends reinvested) for a real historical downturn, starting at your plan's first year ({result['years'][0] if result['years'] else ''}), against the same starting balance and the same per-year withdrawal need (Income &amp; Expenses tab) -- withdrawals aren't re-solved per scenario, so the shared columns below are directly comparable across scenarios. Total Expense and Total Income are that year's expense and income totals (Income &amp; Expenses tab) on their own (inflation-adjusted per each row's own Base Year/Inflates setting -- an income row like Social Security can grow year over year too, if you've checked Inflates on it); Yearly Drawdown nets the two against each other (plus the flat Annual income offset assumption, if set). {tax_note} Years after {result['last_recorded_year']} (not yet on record) use a flat 10%/year placeholder. Two scenarios are flat reference lines rather than crashes: your plan's own Expected return assumption (listed first, so every other column reads against it), and the S&amp;P 500's actual compound average over the most recent {sp500_look['years']} years ({sp500_look['first_year']}-{sp500_look['last_year']}) -- as many years as your plan horizon, instead of an all-time average.</p>
+</details>
 <div style="overflow-x:auto">
 <table class="sortable">
 <thead><tr><th>Scenario</th><th>Depleted?</th><th>Year depleted</th><th class="num">Ending balance</th></tr></thead>
@@ -598,7 +606,7 @@ def _stress_personal_lines_html(scenarios: list) -> str:
             lines.append(f'<li>If the {html.escape(name)} markets replayed from today, you would still have {_money(sc["ending_balance"])} at the end of your plan.</li>')
     if not lines:
         return ""
-    return '<ul style="margin:6px 0 10px 18px; padding:0; font-size:13px;">' + "".join(lines) + "</ul>"
+    return '<ul class="stress-lines">' + "".join(lines) + "</ul>"
 
 
 def _sensitivity_lead_html(sensitivity: dict) -> str:
