@@ -123,6 +123,18 @@ class TestPlanReport(DashboardTestCase):
             self.assertIn('href="/report.html"', body, page)
             self.assertLess(body.index('id="report-btn"'), body.index('id="hide-toggle"'), page)
 
+    def test_header_has_a_quit_button_beside_the_report_button(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('id="quit-btn"', body)
+        self.assertIn("/api/quit", body)
+        self.assertLess(body.index('id="quit-btn"'), body.index('id="report-btn"'))
+
+    def test_setup_leads_with_the_wizard_banner_and_ends_with_the_import(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Run the Setup Wizard", body)
+        self.assertLess(body.index("Run the Setup Wizard"), body.index("Household"))
+        self.assertGreater(body.index("Advanced: import a spreadsheet"), body.index("Quit "))
+
     def test_hide_balances_is_an_icon_with_an_accessible_label(self):
         body = self._get("/asset.html").read().decode("utf-8")
         toggle = re.search(r'<button[^>]*id="hide-toggle".*?</button>', body, flags=re.S).group(0)
