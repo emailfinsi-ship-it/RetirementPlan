@@ -33,8 +33,6 @@ from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.rmd import rmd_age_for_birth_year
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
-from source.reporting.monte_carlo.real_estate_sale_compare import drawdown_sale_comparison
-from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
     _donut_chart_html,
     _editable_number_cell,
@@ -536,19 +534,11 @@ def _render_drawdown_planning_page() -> str:
         "pushes your withdrawals into higher brackets from then on.</p>"
         if assumptions.get("rental_taxable_schedule") else ""
     )
-    sale = s["real_estate_sale"]
-    sale_card = sale_comparison_card_html(
-        sale=sale,
-        intro=(
-            "Your year-by-year plan below re-run with every property sold: the proceeds join the Taxable pool, "
-            "rental income stops, and everything else stays the same."
-        ),
-        rows=drawdown_sale_comparison(
-            keep_schedule=schedule, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"],
-            assumptions=schedule_assumptions, sale=sale, real_estate=s["real_estate"],
-            loan_balances=s["real_estate_loan_balances"],
-        ),
-    ) if sale["has_properties"] else ""
+    sale_card = (
+        '<p class="muted small" style="margin:10px 0"><strong>Thinking of selling your real estate?</strong> '
+        'The side-by-side keep-vs-sell comparison is on the <a href="/monte-carlo.html#sell-real-estate">'
+        'Will my money last?</a> tab.</p>'
+    ) if s["real_estate_sale"]["has_properties"] else ""
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
     rmd_note = (
         "" if has_birth_year else
@@ -566,7 +556,7 @@ def _render_drawdown_planning_page() -> str:
     early_tax_deferred_age = schedule.get("early_tax_deferred_age")
     early_tax_deferred_note = (
         f' <span class="muted">Once you reach age {early_tax_deferred_age}, spending draws Tax-deferred first '
-        "instead of Taxable first (see the Withdrawal order card above).</span>"
+        "instead of Taxable first (see the Withdrawal order card below).</span>"
         if early_tax_deferred_age is not None else ""
     )
 
@@ -576,24 +566,24 @@ def _render_drawdown_planning_page() -> str:
 (brokerage, taxed on gains as you withdraw), Tax-deferred (401k/Traditional IRA, taxed as ordinary income and
 subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never forces an RMD), and Real estate equity
 opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
-<div class="tiles">{tiles}</div>
-<details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
-<details class="how-it-works" id="resources-by-source"><summary>Show table: resources by source ({len(sources)})</summary>
-{_sources_table_html(sources)}</details>
-{_rmd_by_person_card_html(s, assumptions)}
-{_account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
-{_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
-{sale_card}
+{_this_years_plan_html(_visible_schedule_rows(schedule))}
+{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
 <h2>Year-by-year withdrawal sequence</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random-markets band -- see the Will my money last? tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
 set on the Will my money last? tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
-{_this_years_plan_html(_visible_schedule_rows(schedule))}
-{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
 {rental_tax_note}{_year_by_year_table_html(schedule)}
-<p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).
+<h2 id="where-the-money-is">Where your money sits, by tax bucket</h2>
+<div class="tiles">{tiles}</div>
+<details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
+<p class="muted small" style="margin:6px 0 10px">Each account's tax bucket and owner, and splitting one account across buckets, are set on the
+<a href="/linked-accounts.html#tax-buckets">Linked Accounts</a> tab ({len(sources)} sources).</p>
+{_rmd_by_person_card_html(s, assumptions)}
+{_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
+{sale_card}
+<p class="muted">This is the plan under today's default order (with your own Withdrawal order choice below, if set).
 Looking to also minimize what an heir owes in tax, or considering a Roth conversion? See the
 <a href="/legacy-planning.html">Legacy Planning</a> tab, which compares several strategies against this one.</p>
 """

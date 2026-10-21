@@ -82,19 +82,24 @@ def _render_summary_page() -> str:
         else f"{linked['item_count']} linked Plaid account(s)"
         + (f", last synced {html.escape(linked['last_synced_at'])}." if linked["last_synced_at"] else ", not synced yet.")
     )
+    # Today's job is "am I OK, and what should I do?": the answer first, then what to do about it, then the
+    # picture behind it.
     if v["empty_plan"]:
         top_html = blocks.welcome_card_html()
+        picture_html = ""
     else:
         top_html = (
             blocks.hero_html(s, display_result, retirement_text, mode, v["schedule"])
             + blocks.standing_card_html(s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
-            + blocks.own_owe_html(s)
-            + blocks.projection_card_html(s, display_result, mode, retirement_year)
-            + blocks.whatif_quick_html(
+        )
+        picture_html = (
+            blocks.whatif_quick_html(
                 assumptions, retirement_year is not None,
                 bool(assumptions.get("birth_year") and assumptions.get("ss_benefit_self")),
             )
+            + blocks.projection_card_html(s, display_result, mode, retirement_year)
             + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
+            + blocks.own_owe_html(s)
         )
     positions = [] if v["empty_plan"] else linked_data.read_linked_portfolio_positions()
     data_issues = [] if v["empty_plan"] else data_check.run_checks(s, positions, backup.verify_latest())
@@ -118,8 +123,9 @@ def _render_summary_page() -> str:
     body = f"""
 {alerts_html}
 {top_html}
-{history_html}
 <div class="adv-only">{_summary_insight_html(s)}</div>
+{picture_html}
+{history_html}
 {data_check_html}
 {next_steps}
 {blocks.footer_html(s, linked_summary, mode)}

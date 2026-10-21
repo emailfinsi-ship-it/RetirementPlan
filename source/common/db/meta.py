@@ -69,10 +69,11 @@ _META_VIEW_MODE = "view_mode"
 
 
 def view_mode() -> str:
-    """"simple" (default: the everyday pages and plain wording only) or
-    "full" (every tool and setting). A display preference only -- it never
-    changes a calculated number."""
-    return "full" if get_meta(_META_VIEW_MODE) == "full" else "simple"
+    """Always "full" now: the Simple/Full switch was removed so every tab and
+    tool is always visible. Kept (rather than deleted) so the page markup, CSS
+    hooks and any saved value stay harmless. A display preference only -- it
+    never changes a calculated number."""
+    return "full"
 
 
 def set_view_mode(mode: str) -> None:
@@ -91,6 +92,27 @@ def tour_seen() -> bool:
 
 def set_tour_seen(seen: bool = True) -> None:
     set_meta(_META_TOUR_SEEN, "1" if seen else "0")
+
+
+_META_SAFE_SPEND_TARGET = "safe_spend_target"
+
+
+def safe_spend_target() -> float:
+    """The chance of lasting ("confidence") behind "How much can I safely
+    spend?" -- 0.9 unless the person picked another level. Shared by the
+    Summary and the Will my money last? tab."""
+    try:
+        value = float(get_meta(_META_SAFE_SPEND_TARGET) or 0.9)
+    except (TypeError, ValueError):
+        return 0.9
+    return value if 0.5 <= value <= 0.99 else 0.9
+
+
+def set_safe_spend_target(target: float) -> None:
+    target = float(target)
+    if not 0.5 <= target <= 0.99:
+        raise ValueError("Target must be between 50% and 99%.")
+    set_meta(_META_SAFE_SPEND_TARGET, f"{target:g}")
 
 
 _META_LEGACY_WHATIF = "legacy_whatif"

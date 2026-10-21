@@ -10,11 +10,22 @@ is only a guided path through settings that also live on their own pages.
 from __future__ import annotations
 
 import html
+import json
 
 from source.common import branding, db
 from source.webapp.render_helpers import _pct
+from source.webapp.render_helpers import robot
 
 _STEPS = ("About you", "Your dates", "Spending & growth", "Your money", "All set")
+
+# What Fin, the robot guide, says on each step (shown in a speech bubble and spoken when the voice is on).
+GUIDE_LINES = (
+    "Hi, I'm Fin, your guide. Let's get your plan started. First, who is this plan for? First names are fine.",
+    "Now two quick dates. They help me work out your ages and when you'd like to retire. A rough year is fine.",
+    "Next, roughly how much do you spend each month, and how fast do you expect your savings to grow? Typical is a fair middle.",
+    "Now your money. You can connect your accounts, type them in yourself, or load an example household just to look around.",
+    "All set! Your plan is ready. Open Today to see whether your money is on track.",
+)
 
 
 def _field_value(assumptions: dict, key: str) -> str:
@@ -63,8 +74,20 @@ def _wizard_card_html() -> str:
 <div class="card" id="wizard">
 <h2 style="margin-top:0">Setup wizard</h2>
 <p class="muted">{intro}</p>
+<div class="rb-guide" id="wz-guide">
+  {robot.robot_svg(76)}
+  <div class="rb-bubble">
+    <div class="rb-name">{robot.ROBOT_NAME}</div>
+    <div id="wz-bubble" aria-live="polite">{html.escape(GUIDE_LINES[0])}</div>
+    <div class="rb-ctl">
+      <button type="button" id="wz-hear" onclick="wizardHear()">{robot.SPEAKER_ICON}Hear this</button>
+      <button type="button" id="wz-voice" onclick="wizardVoice()" aria-pressed="true">{robot.SPEAKER_ICON}<span>Voice on</span></button>
+    </div>
+  </div>
+</div>
 <div class="wz-dots" style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 14px; font-size:12px;">{dots}</div>
 <style>
+{robot.ROBOT_CSS}
   .wz-dot {{ padding:3px 9px; border-radius:99px; border:1px solid var(--border, #d2d2d7); color:var(--muted, #6e6e73); }}
   .wz-dot.on {{ background:#0071e3; border-color:#0071e3; color:#fff; }}
   .wz-dot.past {{ border-color:#0071e3; color:#0071e3; }}
@@ -134,9 +157,11 @@ def _wizard_card_html() -> str:
   <button type="button" class="primary" id="wz-next" onclick="wizardMove(1)">Next</button>
 </div>
 
+<script>{robot.ROBOT_JS}</script>
 <script>
 (function() {{
   var last = {len(_STEPS) - 1};
+  var LINES = {json.dumps(list(GUIDE_LINES))};
   var cur = 0;
   function $(id) {{ return document.getElementById(id); }}
   function show(i) {{
@@ -147,6 +172,9 @@ def _wizard_card_html() -> str:
     }});
     $('wz-back').style.visibility = i === 0 ? 'hidden' : 'visible';
     $('wz-next').textContent = i === last ? 'Finish' : 'Next';
+    var line = LINES[i] || '';
+    $('wz-bubble').textContent = line;
+    if (window.rpFin) {{ window.rpFin.say(line, false); }}
   }}
   function syncSpouse() {{
     var on = $('wz-has-spouse').checked;
@@ -167,7 +195,7 @@ def _wizard_card_html() -> str:
     }}
     if (i === 2) {{
       var save = postJSON('/api/assumptions', {{expected_return_pct: $('wz-return').value, inflation_rate_pct: $('wz-inflation').value}});
-      var spend = $('wz-spend') ? Number(String($('wz-spend').value).replace(/[$,\s]/g, '')) : 0;
+      var spend = $('wz-spend') ? Number(String($('wz-spend').value).replace(/[$,\\s]/g, '')) : 0;
       if (spend > 0) {{
         save = save.then(function() {{
           return postJSON('/api/line-item/add', {{section: 'expenses', fields: {{
@@ -199,6 +227,20 @@ def _wizard_card_html() -> str:
       location.href = goSummary ? '/summary.html' : '/setup.html';
     }}).catch(function(e) {{ alert(e.message); }});
   }};
+  function paintVoice() {{
+    var on = window.rpFin ? window.rpFin.voiceOn() : true, b = $('wz-voice');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.innerHTML = (on ? {json.dumps(robot.SPEAKER_ICON)} : {json.dumps(robot.MUTED_ICON)}) + '<span>' + (on ? 'Voice on' : 'Voice off') + '</span>';
+    if (!(window.speechSynthesis)) {{ b.style.display = 'none'; $('wz-hear').style.display = 'none'; }}
+  }}
+  window.wizardHear = function() {{ if (window.rpFin) {{ window.rpFin.activate(); window.rpFin.say(LINES[cur] || '', true); }} }};
+  window.wizardVoice = function() {{
+    if (!window.rpFin) {{ return; }}
+    var on = !window.rpFin.voiceOn(); window.rpFin.setVoice(on);
+    if (!on) {{ window.rpFin.stop(); }}
+    paintVoice();
+  }};
+  paintVoice();
   show(0);
 }})();
 </script>

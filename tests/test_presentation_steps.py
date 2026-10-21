@@ -119,9 +119,21 @@ class TestPlanReport(DashboardTestCase):
     def test_every_page_header_has_the_report_button_before_the_eye_icon(self):
         for page in ("/summary.html", "/asset.html", "/setup.html"):
             body = self._get(page).read().decode("utf-8")
-            self.assertIn("Download plan report", body, page)
+            self.assertIn("Report Download", body, page)
             self.assertIn('href="/report.html"', body, page)
             self.assertLess(body.index('id="report-btn"'), body.index('id="hide-toggle"'), page)
+
+    def test_header_has_a_quit_button_right_after_the_theme_button(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('id="quit-btn"', body)
+        self.assertIn("/api/quit", body)
+        self.assertLess(body.index('id="theme-toggle"'), body.index('id="quit-btn"'))
+
+    def test_setup_leads_with_the_wizard_banner_and_ends_with_the_import(self):
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("Run the Setup Wizard", body)
+        self.assertLess(body.index("Run the Setup Wizard"), body.index("Household"))
+        self.assertGreater(body.index("Advanced: import a spreadsheet"), body.index("Quit "))
 
     def test_hide_balances_is_an_icon_with_an_accessible_label(self):
         body = self._get("/asset.html").read().decode("utf-8")
@@ -252,8 +264,11 @@ class TestMonteCarloPersonalPage(DashboardTestCase):
                        'id="rx-slider"', "What could go wrong?", "markets replayed from today",
                        "The biggest lever for your plan", "What moves your plan most", "Advanced settings"):
             self.assertIn(needle, body)
+        # Purpose first: the answer and the scenario tables, then what moves it and the what-if,
+        # then spending / retirement age, then the extra tests.
+        self.assertLess(body.index("Historical recession stress test"), body.index("What moves your plan most"))
+        self.assertLess(body.index("What moves your plan most"), body.index('id="rx-slider"'))
         self.assertLess(body.index('id="rx-slider"'), body.index("What could go wrong?"))
-        self.assertLess(body.index("What could go wrong?"), body.index("What moves your plan most"))
 
     def test_advanced_inputs_still_saved_once(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")

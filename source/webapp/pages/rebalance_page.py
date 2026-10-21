@@ -235,10 +235,10 @@ def _render_rebalance_page() -> str:
 </style>
 {risk_card}
 {_margin_card(margin)}
-{inst_card}
 <h3 class="sub">What to do in each account</h3>
 <div class="muted small" style="margin:4px 0 8px">{legend}</div>
 {cards}
+{inst_card}
 {_grouping_html(positions, overrides)}
 <p class="muted small">Taxable gains shown are estimates from your cost basis.</p>"""
     return _shell(title="Risk & Suggestions", active="rebalance.html", body=body)

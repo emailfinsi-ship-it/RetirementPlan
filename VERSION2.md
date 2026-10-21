@@ -32,3 +32,22 @@ original app (port 8898).
 
 ## Not changed
 All calculations, saved data and the Plaid connection. The tutorial video was not re-recorded.
+
+## Added after review
+- **Fin, the robot guide** in the setup wizard (speech bubble, spoken voice with an on/off switch) and in the tutorial video.
+- **Tax buckets moved to Linked Accounts:** the "resources by source" table and "Split a linked account across tax buckets".
+- Clearer "show more" toggles; the safe-spending confidence level is remembered on the Summary; header buttons stay at the top right.
+- **Every tab leads with its answer, then the detail.**
+  - *Will my money last?* shows the chance and chart first, then the stress scenarios (Great
+    Depression, dot-com bust, year-by-year returns), then the biggest levers, assumptions,
+    saved scenarios and safe spending. The year-by-year numbers are open by default. Social
+    Security details are folded below.
+  - *Drawdown Planning* and *Legacy Planning* open with "this year's plan" and the year-by-year
+    sequence or strategy comparison; background cards move down.
+  - *Summary* order: plan on track, where you stand, summary insight, spending sources, what you own and owe, total asset over time, data check, then "What should I do next?" at the end.
+  - *Income & Expenses*, *Accounts* and *Positions* keep their charts first (the charts filter the
+    table below them). *Risk & Suggestions*: your risk choice, then "what to do in each account", then the
+    mix by institution.
+  - "If you sold your real estate" now appears only on *Will my money last?*; Drawdown and Legacy link to it.
+  - The Simple/Full switch is removed; every tab and tool is always shown. The header button is now "Report Download". The Tutorial page lists the User guide above the video.
+  - The tutorial video is now two videos (Setting up; A tour of every screen), narrated by an illustrated presenter named Fin instead of the robot. Every tab's "About this page" bar has a "Watch this screen" link that opens the screens video at that tab. A Quit button sits after the Theme button; the Setup Wizard is a banner at the top of Setup; the spreadsheet import is last on Setup.

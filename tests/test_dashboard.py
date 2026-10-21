@@ -293,9 +293,9 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertEqual(section.count('<div style="overflow-x:auto">\n<table'), section.count("<table"))
 
     def test_how_it_works_arrow_css_escape_is_a_real_css_escape(self):
-        # A Python "\\25B8" in the stylesheet would be an octal escape plus "B8" -- garbage on screen.
+        # A Python "\\203A" written with one backslash would be an octal escape -- garbage on screen.
         from source.webapp.render_helpers.styles import PAGE_CSS
-        self.assertIn('content: "\\25B8  "', PAGE_CSS)
+        self.assertIn('content: "\\203A"', PAGE_CSS)
         self.assertNotIn("\x15", PAGE_CSS)
 
     def test_real_estate_page_has_an_address_column_and_update_button(self):
@@ -406,8 +406,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("expenses")
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
-        # It closes the page: after the insight card, right before the footer.
-        self.assertGreater(body.index("What should I do next?"), body.index("Total Asset over time"))
+        # The answer and the charts that explain it come first; "What should I do next?" closes the page.
+        self.assertLess(body.index("Total Asset over time"), body.index("What should I do next?"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
@@ -3543,14 +3543,21 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("This plan's baseline Success rate is", body)
 
-    def test_section_sits_between_the_stress_test_and_the_assumptions_form(self):
+    def test_scenarios_come_right_after_the_answer_then_the_levers_then_the_assumptions(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         stress_idx = body.index("Historical recession stress test")
         sensitivity_idx = body.index("What moves your plan most")
         assumptions_idx = body.index('id="assumptions"')
+        # Scenario table and year-by-year returns come first (right after the answer), then the levers.
         self.assertLess(stress_idx, sensitivity_idx)
         self.assertLess(sensitivity_idx, assumptions_idx)
+
+    def test_year_by_year_numbers_start_expanded_and_social_security_is_folded_below(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn('style="margin-top:14px" open><summary>Show the year-by-year numbers</summary>', body)
+        self.assertIn('id="ss-fold"', body)
+        self.assertLess(body.index("Historical recession stress test"), body.index('id="ss-fold"'))
 
 
 class TestMonteCarloPoolsAndRmd(DashboardTestCase):
@@ -5542,7 +5549,9 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Drawdown Planning", body)
-        self.assertIn("No retirement/liquid resources yet", body)
+        self.assertIn("/linked-accounts.html#tax-buckets", body)   # the tax-bucket table and split card moved there
+        linked = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn("No retirement/liquid resources yet", linked)
 
     def test_shows_tiles_for_each_tax_bucket(self):
         db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "A", "balance": 200_000, "include_in_monte_carlo": 1})
@@ -5563,7 +5572,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "type": "investment", "subtype": "roth", "mask": "1234",
             "balances": {"current": 75_000.0, "available": None, "iso_currency_code": "USD"},
         })
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("ROTH IRA", body)
         self.assertIn("Fidelity", body)
         self.assertIn("Linked account (not on Assets tab)", body)
@@ -5573,12 +5582,12 @@ class TestDrawdownPlanningPage(DashboardTestCase):
 
     def test_split_card_offers_an_unlinked_investment_account_to_split(self):
         self._link_fidelity_401k(balance=100_000.0)
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("Split a linked account across tax buckets", body)
         self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
 
     def test_no_unlinked_investment_accounts_shows_a_helpful_message_instead_of_the_add_form(self):
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("No linked investment accounts are available to split", body)
 
     def test_adding_splits_replaces_the_lump_source_row_with_named_pieces(self):
@@ -5597,7 +5606,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "fields": {"account_id": "acc-401k", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": "30000"},
         })
         self.assertEqual(status, 200)
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("401(K) PLAN -- Base Pay Traditional", body)
         self.assertIn("401(K) PLAN -- Roth In-Plan Conversion", body)
         self.assertNotIn(">401(K) PLAN</td>", body)  # the lump source row is gone
@@ -5610,7 +5619,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "fields": {"account_id": "acc-401k", "name": "Base Pay Traditional", "tax_treatment": "tax_deferred", "amount": "40000"},
         })
         self.assertEqual(status, 200)
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("adjust the amounts below so they match", body)
 
     def test_an_account_already_on_the_asset_tab_can_still_be_split(self):
@@ -5622,7 +5631,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self._link_fidelity_401k(balance=100_000.0)
         item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
         db.update_line_item("assets", item_id, {"linked_account_id": "acc-401k"})
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
 
         status, _ = self._post("/api/line-item/add", {
@@ -5635,7 +5644,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
             "fields": {"account_id": "acc-401k", "name": "Roth In-Plan Conversion", "tax_treatment": "roth", "amount": "30000"},
         })
         self.assertEqual(status, 200)
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("401k -- Base Pay Traditional", body)
         self.assertIn("401k -- Roth In-Plan Conversion", body)
         # The lump "401k" source row (and its old single bucket) is gone,
@@ -5656,7 +5665,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
     def test_opted_in_real_estate_appears_as_its_own_source_row(self):
         r_id = db.add_line_item("real_estate", {"name": "Cabin", "current_value": 300_000, "loan_balance": 0, "ownership_pct": 100})
         db.update_line_item("real_estate", r_id, {"include_in_monte_carlo": 1})
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("Cabin", body)
         self.assertIn("Real estate (opted in)", body)
 

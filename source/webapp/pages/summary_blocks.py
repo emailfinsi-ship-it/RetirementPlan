@@ -84,7 +84,7 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: 
 {watch}
 <div class="tiles">{tiles}</div>
 {in_plan_line}
-<p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
+<p class="hero-note">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
 {_pct(assumptions, 'expected_return', 0.06)}% yearly growth and {_pct(assumptions, 'inflation_rate', 0.03)}% price rises. Amounts are in {"today&#x27;s dollars (what the money buys now)" if mode == "today" else "future dollars (grown by inflation)"}.
 <a href="/monte-carlo.html#assumptions">Change assumptions</a></p>
 </div>
@@ -392,7 +392,7 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
     return f"""
 <div class="card">
 <h2 style="margin-top:0">Where your retirement spending comes from</h2>
-<p class="muted small">Each bar is one year. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. Hover or tap a year for the exact amounts; click a source in the key to focus on it. In {html.escape("today's" if mode == "today" else "future")} dollars. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
+<p class="muted small">Each bar is one year, in {html.escape("today's" if mode == "today" else "future")} dollars. Colors show whether it is paid from income or from which savings; the dashed line is that year&#x27;s spending plus taxes. Hover or tap a year for the exact amounts; click a source in the key to focus on it. Required withdrawals beyond spending are reinvested and not shown. Detail is on the <a href="/drawdown-planning.html">Drawdown</a> tab.</p>
 {svg}
 <ul class="legend-inline">{legend}</ul>
 <div id="src-detail" class="src-detail small"></div>
@@ -406,15 +406,25 @@ def income_sources_card_html(schedule: dict, assumptions: dict, mode: str, base_
 def safe_spending_html(selector: bool = False) -> str:
     """"How much can I safely spend?" -- filled in by loadSafeSpending() in
     the page shell JS (it calls /api/safe-spending, a few seconds the first
-    time). With `selector`, the reader can pick the confidence level."""
+    time). With `selector`, the reader can pick the confidence level; the
+    pick is remembered, so the Summary shows the same level."""
+    target = db.safe_spend_target()
+
+    def opt(value: float) -> str:
+        on = " selected" if abs(value - target) < 1e-9 else ""
+        return f'<option value="{value:g}"{on}>{value * 100:.0f}%</option>'
+
+    choices = [0.8, 0.9, 0.95]
+    if all(abs(c - target) > 1e-9 for c in choices):
+        choices = sorted(choices + [target])
     sel = (
         '<label class="small muted" style="display:inline-flex; gap:6px; align-items:center; margin-bottom:6px;">Keep my chance of lasting at '
-        '<select id="ss-target" onchange="loadSafeSpending(parseFloat(this.value))">'
-        '<option value="0.8">80%</option><option value="0.9" selected>90%</option><option value="0.95">95%</option></select></label>'
+        '<select id="ss-target" onchange="loadSafeSpending(parseFloat(this.value), true)">'
+        + "".join(opt(c) for c in choices) + '</select></label>'
         if selector else ""
     )
     return f"""{sel}
-<p id="ss-text" style="margin:2px 0 0">Calculating...</p>"""
+<p id="ss-text" data-target="{target:g}" style="margin:2px 0 0">Calculating...</p>"""
 
 
 def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float) -> str:

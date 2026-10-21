@@ -1,5 +1,5 @@
 """The printable plan report (/report.html): the Summary story laid out as a
-clean, light-theme document. "Download plan report (PDF)" opens it and uses
+clean, light-theme document. "Report Download" opens it and uses
 the browser's own Save as PDF (window.print) -- no PDF library needed, so
 it works on every machine the app already runs on."""
 

@@ -162,7 +162,7 @@ _EYE_SVG = (
 THEME_TOGGLE_HTML = (
     '<a href="/report.html" target="_blank" rel="noopener" id="report-link" '
     'title="Open a clean, printable report of this plan -- save it as a PDF"><button type="button" class="primary" '
-    'id="report-btn">Download plan report</button></a>'
+    'id="report-btn">Report Download</button></a>'
     '<a href="/tutorial.html" id="tutorial-link" title="Watch the video tour and read the user guide">'
     '<button type="button" class="primary" id="tutorial-btn">Tutorial</button></a>'
     '<button type="button" id="hide-toggle" onclick="rpToggleHide()" aria-label="Hide balances" '
@@ -221,7 +221,15 @@ PAGE_CSS = """
   .hero { padding: 22px 24px; }
   .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
   .hero-title { font-size: 26px; letter-spacing: -0.02em; margin: 10px 0 4px; }
-  .hero-verdict { font-size: 16px; color: var(--ink-soft); margin: 0 0 14px; max-width: 760px; }
+  .hero-verdict { font-size: 17px; line-height: 1.45; color: var(--ink-soft); margin: 0 0 14px; max-width: none; text-wrap: balance; }
+  .hero-note { font-size: 15px; line-height: 1.55; color: var(--ink); margin: 14px 0 0; padding: 12px 16px; border-radius: 12px;
+    background: color-mix(in srgb, var(--brand) 11%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+    border-left: 4px solid var(--brand); }
+  .hero-note a { font-weight: 650; white-space: nowrap; }
+  .hero-change { font-size: 14.5px !important; color: var(--ink) !important; margin-top: 8px !important; }
+  .hero-watch { font-size: 14px !important; line-height: 1.5; padding: 9px 12px; border-radius: 10px; margin-top: 10px !important;
+    background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border-left: 4px solid var(--warn); }
+  .hero-watch strong { font-weight: 600; color: var(--ink); }
   .hero.tone-ok { border-top: 4px solid var(--success); }
   .hero.tone-warn { border-top: 4px solid var(--warn); }
   .hero.tone-bad { border-top: 4px solid var(--danger); }
@@ -240,7 +248,7 @@ PAGE_CSS = """
   .legend-inline li { display: flex; align-items: center; gap: 6px; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .dash { display: inline-block; width: 18px; border-top: 2px dashed var(--ink); }
-  .sub { font-size: 13px; margin: 14px 0 4px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; }
+  .sub { font-size: 13.5px; margin: 14px 0 4px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; }
   /* Simple / Full view (a display preference only -- see db.view_mode): .adv-only
      parts and long grey explanations are tucked away in Simple view. */
   body[data-view="simple"] .adv-only { display: none !important; }
@@ -250,7 +258,6 @@ PAGE_CSS = """
   .tx-short { display: none; }
   body[data-view="simple"] .tx-short { display: block; }
   body[data-view="simple"] .tx-short + p { display: none; }
-  .view-toggle .seg { font-size: 12px; }
   .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
   .seg-group .seg { border: 0; border-radius: 0; background: transparent; color: var(--ink-soft); font-size: 12px; padding: 5px 12px; box-shadow: none; }
   .seg-group .seg.on { background: var(--brand); color: #fff; }
@@ -295,7 +302,19 @@ PAGE_CSS = """
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; } }
   :root[data-theme="dark"] .demo-banner { background: #3a2f10; color: #f3dfa2; border-color: #6b5518; }
   html.hide-money .mny, html.hide-money input[data-money] { filter: blur(7px); user-select: none; }
-  #hide-toggle, #theme-toggle, #report-btn, #sync-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  /* Header: the buttons always sit at the top right, in one tidy row that stays right-aligned if it has to wrap. */
+  .hdr-actions { margin-left: auto; justify-content: flex-end; }
+  .hdr-actions > * { flex: none; }
+  .hdr-actions button, .hdr-actions a.btn { padding: 6px 10px; }
+  @media (max-width: 1180px) {
+    .hdr-brand img { width: 56px; height: 56px; border-radius: 14px; }
+    .hdr-brand .brand-tagline { display: none; }
+  }
+  @media (max-width: 1000px) {
+    .hdr-brand { min-width: 0; }
+    .hdr-brand p { display: none; }
+  }
+  #hide-toggle, #theme-toggle, #report-btn, #sync-btn, #quit-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }
@@ -321,9 +340,15 @@ PAGE_CSS = """
     max-width: 1080px; margin: 0 auto; padding: 28px 20px 96px; color: var(--ink); background: var(--surface-alt);
     -webkit-font-smoothing: antialiased; }
   h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 700; letter-spacing: -0.015em; }
-  h2 { font-size: 15px; margin: 28px 0 10px 0; font-weight: 600; color: var(--ink); letter-spacing: -0.005em; }
+  h2 { font-size: 18px; margin: 28px 0 10px 0; font-weight: 650; color: var(--ink); letter-spacing: -0.005em; }
   h3 { color: var(--ink); font-weight: 600; }
   .muted { color: var(--ink-muted); font-size: 12px; }
+  /* Readable notes: paragraph-level grey notes get a larger size and a darker grey; the first note under a
+     page title is the tab's purpose, so it is larger still. Inline spans, table cells and tile labels keep
+     their small grey style. */
+  p.muted, div.muted { font-size: 14px; line-height: 1.55; color: var(--ink-soft); }
+  p.muted.small, div.muted.small { font-size: 13px; line-height: 1.5; }
+  h2 + p.muted { font-size: 15px; line-height: 1.6; }
   /* macOS/iOS-style translucent toolbar -- sticky to the top of the
      viewport, with the "vibrancy" frosted-glass blur Apple uses for
      Safari's tab bar, Mail's toolbar, Settings' sidebar, etc. Falls
@@ -361,11 +386,11 @@ PAGE_CSS = """
   nav a.active .ni { transform: translateY(-1px) scale(1.06);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), inset 0 -2px 3px rgba(0,0,0,0.25),
       0 7px 12px rgba(0,0,0,0.32), 0 0 0 2px var(--brand); }
-  .subnav { display: flex; gap: 6px; margin: -14px 0 18px 0; }
-  .subnav a { padding: 5px 14px; border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 500;
-    color: var(--ink-soft); border: 1px solid var(--border); background: var(--surface); }
-  .subnav a.active { border-color: var(--brand); color: var(--brand); font-weight: 600; }
-  .subnav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
+  .subnav { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px 0; }
+  .subnav a { padding: 9px 15px; border-radius: 999px; text-decoration: none; font-size: 14.5px; font-weight: 600;
+    color: var(--ink); border: 1.5px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm); }
+  .subnav a.active { border-color: var(--brand); background: var(--brand); color: #fff; }
+  .subnav a:not(.active):hover { border-color: var(--brand); color: var(--brand); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
   th { background: var(--surface-alt); font-weight: 600; color: var(--ink-soft); font-size: 11px;
@@ -384,7 +409,7 @@ PAGE_CSS = """
   .tile:hover { transform: translateY(-2px);
     box-shadow: inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo),
       0 2px 2px rgba(var(--drop),0.10), 0 12px 22px rgba(var(--drop),0.18), 0 20px 32px -10px rgba(var(--drop),0.14); }
-  .tile .label { font-size: 11px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+  .tile .label { font-size: 12px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
   .tile .value { font-size: 21px; font-weight: 700; margin-top: 6px; color: var(--ink); letter-spacing: -0.01em; }
   .card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin: 14px 0;
     background: linear-gradient(180deg, var(--raise-top), color-mix(in srgb, var(--raise-bottom) 45%, var(--raise-top)));
@@ -402,7 +427,7 @@ PAGE_CSS = """
   details.card[open] > summary::before { content: "\\25be  "; }
   details.card > summary + p { margin-top: 8px; }
   form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
-  form.inline label { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-muted); gap: 3px; font-weight: 500; }
+  form.inline label { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-muted); gap: 3px; font-weight: 500; }
   form.inline input, form.inline select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border);
     border-radius: 8px; background: var(--surface); color: var(--ink); }
   /* Pill-shaped buttons (border-radius: 980px is Apple's own CSS trick
@@ -516,10 +541,22 @@ PAGE_CSS = """
     overscroll-behavior: contain; }
   .bar-chart-hint { margin: 6px 0 0; font-size: 11px; }
   details.how-it-works { margin: 4px 0 12px; }
-  details.how-it-works > summary { cursor: pointer; color: var(--brand); font-size: 12px; font-weight: 500; list-style: none; }
-  details.how-it-works > summary::-webkit-details-marker { display: none; }
-  details.how-it-works > summary::before { content: "\\25B8  "; }
-  details.how-it-works[open] > summary::before { content: "\\25BE  "; }
+  /* "Show more" toggles: one look everywhere -- a little chevron badge, a slightly larger bold label. */
+  details.how-it-works > summary, details.ns-more > summary, details:not([class]) > summary {
+    cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 0;
+    color: var(--brand) !important; font-size: 14px !important; font-weight: 600 !important;
+  }
+  details.how-it-works > summary::-webkit-details-marker, details.ns-more > summary::-webkit-details-marker,
+  details:not([class]) > summary::-webkit-details-marker { display: none; }
+  details.how-it-works > summary::before, details.ns-more > summary::before, details:not([class]) > summary::before {
+    content: "\\203A"; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 6px; background: rgba(0,113,227,.12); color: var(--brand);
+    font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; transition: transform .15s var(--ease, ease), background .15s;
+  }
+  details.how-it-works > summary:hover::before, details.ns-more > summary:hover::before, details:not([class]) > summary:hover::before { background: rgba(0,113,227,.22); }
+  details.how-it-works[open] > summary::before, details.ns-more[open] > summary::before, details:not([class])[open] > summary::before { transform: rotate(90deg); }
+  details.how-it-works[open] > summary, details.ns-more[open] > summary, details:not([class])[open] > summary { margin-bottom: 4px; }
+  details.how-it-works > summary:focus-visible, details.ns-more > summary:focus-visible, details:not([class]) > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
   .bar-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; }
   .bar-row .bar-label { flex: 0 0 150px; max-width: 150px; font-size: 12px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
@@ -560,7 +597,7 @@ PAGE_CSS = """
     background: var(--surface); color: var(--ink); }
   .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; border: none; padding: 0; margin: 0; }
   .field-grid[hidden] { display: none; }
-  .field-grid label { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-muted); gap: 4px; font-weight: 500; }
+  .field-grid label { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-muted); gap: 4px; font-weight: 500; }
   .field-grid input, .field-grid select { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border);
     border-radius: 8px; background: var(--surface); color: var(--ink); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }

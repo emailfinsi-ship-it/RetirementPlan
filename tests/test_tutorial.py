@@ -25,17 +25,31 @@ class TestTutorial(DashboardTestCase):
 
     def test_page_has_video_and_guide(self):
         body = self._get("/tutorial.html").read().decode("utf-8")
-        self.assertIn("/tutorial/tour-dark.mp4", body)
+        self.assertIn("/tutorial/tour-setup-dark.mp4", body)
+        self.assertIn("/tutorial/tour-screens-dark.mp4", body)
         self.assertIn("User guide", body)
         self.assertIn("Will my money last?", body)
         self.assertIn("/tutorial/screenshots/01-summary.jpg", body)
 
+    def test_about_this_page_links_to_that_screens_part_of_the_video(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("/tutorial.html?v=screens&amp;t=", body)
+        # The About-this-page script swallows clicks on anything with the ex-btn class, so the link must not carry it.
+        link = body.split("/tutorial.html?v=screens")[0].rsplit("<a ", 1)[1]
+        self.assertNotIn("ex-btn", link)
+        self.assertNotIn("Watch this screen", self._get("/tutorial.html").read().decode("utf-8").split("<video")[0])
+
+    def test_four_videos_are_offered(self):
+        body = self._get("/tutorial.html").read().decode("utf-8")
+        for name in ("setup-dark", "setup-light", "screens-dark", "screens-light"):
+            self.assertIn(f"/tutorial/tour-{name}.mp4", body)
+
     def test_video_supports_range_requests(self):
-        resp, body = self._raw("/tutorial/tour-dark.mp4", {"Range": "bytes=0-99"})
+        resp, body = self._raw("/tutorial/tour-setup-dark.mp4", {"Range": "bytes=0-99"})
         self.assertEqual(resp.status, 206)
         self.assertEqual(len(body), 100)
         self.assertTrue(resp.getheader("Content-Range").startswith("bytes 0-99/"))
-        resp, _ = self._raw("/tutorial/tour-dark.mp4", {"Range": "bytes=999999999999-"})
+        resp, _ = self._raw("/tutorial/tour-setup-dark.mp4", {"Range": "bytes=999999999999-"})
         self.assertEqual(resp.status, 416)
         resp, body = self._raw("/tutorial/screenshots/01-summary.jpg")
         self.assertEqual((resp.status, resp.getheader("Content-Type")), (200, "image/jpeg"))

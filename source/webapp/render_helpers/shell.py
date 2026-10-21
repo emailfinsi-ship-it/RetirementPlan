@@ -61,8 +61,8 @@ PAGE_SHELL = """<!doctype html>
 {theme_head_script}
 </head>
 <body data-current-year="{current_year}" data-view="{view_mode}" data-tour="{tour}">
-<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-  <div style="display:flex; align-items:center; gap:12px;">
+<div class="hdr" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+  <div class="hdr-brand" style="display:flex; align-items:center; gap:12px;">
     <img src="/icons/logo.svg" alt="" width="84" height="84" style="border-radius:18px; flex:none;">
     <div>
       <h1 style="margin:0;">{product_name}</h1>
@@ -70,7 +70,7 @@ PAGE_SHELL = """<!doctype html>
       <p style="margin:3px 0 0; font-size:12px;"><strong>{product_headline}</strong></p>
     </div>
   </div>
-  <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; max-width:100%;">{theme_toggle_html}{logout_html}</div>
+  <div class="hdr-actions" style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; max-width:100%;">{theme_toggle_html}{logout_html}</div>
 </div>
 <nav>{nav}</nav>
 <div id="bulk-bar" class="bulk-bar">
@@ -158,7 +158,6 @@ var RP_TOUR = [
   {{sel: 'nav a[href="/asset.html"]', title: 'Assets', text: 'What you own and what you owe.'}},
   {{sel: 'nav a[href="/expense.html"]', title: 'Income & Expenses', text: 'What comes in and what goes out each year.'}},
   {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Will my money last?', text: 'Your chance of the money lasting. This is also where you enter Social Security.'}},
-  {{sel: '.view-toggle', title: 'Simple or Full', text: 'Simple keeps the basics in short sentences. Full shows every tool.'}},
   {{sel: '.ex-btn', title: 'The little i', text: 'Tap an i next to any title to read the full explanation.'}},
   {{sel: '#whatif-quick', title: 'What if...?', text: 'Try a change and see its effect. Nothing is saved.'}}
 ];
@@ -197,9 +196,6 @@ function startTour() {{
 document.addEventListener('DOMContentLoaded', function() {{
   if (document.body.getAttribute('data-tour') === 'auto') {{ setTimeout(startTour, 900); }}
 }});
-function setViewMode(mode) {{
-  postJSON('/api/view-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
-}}
 function setDollarsMode(mode) {{
   postJSON('/api/dollars-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
 }}
@@ -266,10 +262,10 @@ function wiClaim(btn, age) {{
     btn.disabled = false;
   }}).catch(function(e) {{ wiSay(out, '<span class="status-warn">' + e.message + '</span>'); btn.disabled = false; }});
 }}
-function loadSafeSpending(target) {{
+function loadSafeSpending(target, save) {{
   var el = document.getElementById('ss-text'); if (!el) {{ return; }}
   el.textContent = 'Calculating...';
-  postJSON('/api/safe-spending', {{target: target}}).then(function(d) {{
+  postJSON('/api/safe-spending', {{target: target, save: !!save}}).then(function(d) {{
     var pct = Math.round(d.target * 100);
     if (d.limit === 'max') {{ el.innerHTML = 'Even spending <strong>3 times</strong> your plan keeps a ' + pct + '% chance your money lasts.'; return; }}
     if (d.limit === 'min') {{ el.innerHTML = 'Even a much leaner budget does not reach a ' + pct + '% chance. See <a href="/monte-carlo.html#levers">what moves your plan most</a>.'; return; }}
@@ -281,7 +277,8 @@ function loadSafeSpending(target) {{
 }}
 document.addEventListener('DOMContentLoaded', function() {{
   var sel = document.getElementById('ss-target');
-  loadSafeSpending(sel ? parseFloat(sel.value) : 0.9);
+  var box = document.getElementById('ss-text');
+  loadSafeSpending(sel ? parseFloat(sel.value) : parseFloat((box && box.getAttribute('data-target')) || '0.9'));
 }});
 var RP_GLOSSARY = {{
   'required minimum distributions': 'Money the IRS forces you to start taking out of tax-deferred accounts (401k, traditional IRA) once you reach about age 73, whether you need it or not. It is taxed as income.',
@@ -1311,34 +1308,6 @@ def _nav_icon_html(href: str) -> str:
     )
 
 
-# Tabs tucked away in the Simple view (a "More tools" button takes their place);
-# hidden by a CSS rule on their href in styles.py, so the markup itself never changes.
-ADVANCED_TABS = frozenset({"drawdown-planning.html"})
-
-_MORE_TOOLS_HTML = (
-    '<a href="#" class="more-tools simple-only" onclick="setViewMode(\'full\'); return false;" '
-    'title="Show every tool: drawdown and legacy planning, advanced settings and full explanations">'
-    '<span class="ni" style="--c1:#bcc1ca; --c2:#646a76"><svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<circle cx="6" cy="12" r="1.6" fill="#fff"/><circle cx="12" cy="12" r="1.6" fill="#fff"/>'
-    '<circle cx="18" cy="12" r="1.6" fill="#fff"/></svg></span><span class="nl">More tools</span></a>'
-)
-
-
-def _view_toggle_html() -> str:
-    """Segmented "Simple | Full" control in the page header."""
-    mode = db.view_mode()
-
-    def btn(value: str, label: str) -> str:
-        on = " on" if mode == value else ""
-        return f'<button type="button" class="seg{on}" onclick="setViewMode(\'{value}\')">{label}</button>'
-
-    return (
-        '<div class="seg-group view-toggle" role="group" aria-label="How much to show" '
-        'title="Simple shows the everyday pages in short sentences. Full shows every tool and the full explanations.">'
-        + btn("simple", "Simple") + btn("full", "Full") + "</div>"
-    )
-
-
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
@@ -1350,7 +1319,7 @@ def _nav_html(active: str) -> str:
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS
-    ) + _MORE_TOOLS_HTML
+    )
 
 
 def _subnav_html(active: str) -> str:
@@ -1492,6 +1461,23 @@ def _header_sync_html() -> str:
     )
 
 
+def _header_quit_html() -> str:
+    """A Quit button in the page header, right after the Theme button: the Mac app has no
+    window of its own to close, so this stops the program (same request as
+    the Setup tab's Quit card). Always shown; asks before it quits."""
+    name = html.escape(branding.PRODUCT_NAME)
+    js = (
+        f"if(confirm('Quit {name}? Open the app again any time; your data is kept.')){{"
+        "postJSON('/api/quit',{}).then(function(){"
+        f"document.body.innerHTML='<p style=\\'font-family:sans-serif;padding:40px\\'>{name} has quit. You can close this tab.</p>';"
+        "}).catch(function(e){alert(e.message);});}"
+    )
+    return (
+        '<button type="button" id="quit-btn" title="Stop the program running on this computer (your data is kept)" '
+        f'onclick="{html.escape(js, quote=True)}">Quit {name}</button>'
+    )
+
+
 DISCLAIMER_TEXT = (
     "For planning and education only. Not financial, investment, tax or legal advice. "
     "Projections are estimates, not guarantees; talk to a qualified professional before making decisions."
@@ -1522,7 +1508,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     annotated_body, explain_extra = explain.condense(annotated_body)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + _view_toggle_html() + THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML + _header_quit_html(),
     )
 
 
