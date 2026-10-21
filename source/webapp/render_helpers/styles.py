@@ -386,11 +386,11 @@ PAGE_CSS = """
   nav a.active .ni { transform: translateY(-1px) scale(1.06);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), inset 0 -2px 3px rgba(0,0,0,0.25),
       0 7px 12px rgba(0,0,0,0.32), 0 0 0 2px var(--brand); }
-  .subnav { display: flex; gap: 6px; margin: -14px 0 18px 0; }
-  .subnav a { padding: 5px 14px; border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 500;
-    color: var(--ink-soft); border: 1px solid var(--border); background: var(--surface); }
-  .subnav a.active { border-color: var(--brand); color: var(--brand); font-weight: 600; }
-  .subnav a:not(.active):hover { background: var(--surface-alt); color: var(--ink); }
+  .subnav { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px 0; }
+  .subnav a { padding: 9px 15px; border-radius: 999px; text-decoration: none; font-size: 14.5px; font-weight: 600;
+    color: var(--ink); border: 1.5px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm); }
+  .subnav a.active { border-color: var(--brand); background: var(--brand); color: #fff; }
+  .subnav a:not(.active):hover { border-color: var(--brand); color: var(--brand); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; background: var(--surface); }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
   th { background: var(--surface-alt); font-weight: 600; color: var(--ink-soft); font-size: 11px;
