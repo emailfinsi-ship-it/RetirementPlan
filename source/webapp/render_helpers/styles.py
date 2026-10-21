@@ -162,7 +162,7 @@ _EYE_SVG = (
 THEME_TOGGLE_HTML = (
     '<a href="/report.html" target="_blank" rel="noopener" id="report-link" '
     'title="Open a clean, printable report of this plan -- save it as a PDF"><button type="button" class="primary" '
-    'id="report-btn">Download plan report</button></a>'
+    'id="report-btn">Report Download</button></a>'
     '<a href="/tutorial.html" id="tutorial-link" title="Watch the video tour and read the user guide">'
     '<button type="button" class="primary" id="tutorial-btn">Tutorial</button></a>'
     '<button type="button" id="hide-toggle" onclick="rpToggleHide()" aria-label="Hide balances" '
@@ -242,7 +242,11 @@ PAGE_CSS = """
   .gauge .g-num span { font-size: 11px; color: var(--ink-muted); margin-top: 2px; text-align: center; max-width: 84px; }
   @keyframes gauge-fill { from { stroke-dashoffset: var(--full); } }
   @media (prefers-reduced-motion: reduce) { .gauge .g-ring { animation: none; } }
-  .hero-verdict { font-size: 16px; color: var(--ink-soft); margin: 0 0 14px; max-width: 760px; }
+  .hero-verdict { font-size: 17px; line-height: 1.45; color: var(--ink-soft); margin: 0 0 14px; max-width: none; text-wrap: balance; }
+  .hero-note { font-size: 15px; line-height: 1.55; color: var(--ink); margin: 14px 0 0; padding: 12px 16px; border-radius: 12px;
+    background: color-mix(in srgb, var(--brand) 11%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+    border-left: 4px solid var(--brand); }
+  .hero-note a { font-weight: 650; white-space: nowrap; }
   .hero.tone-ok { border-top: 4px solid var(--success); }
   .hero.tone-warn { border-top: 4px solid var(--warn); }
   .hero.tone-bad { border-top: 4px solid var(--danger); }
@@ -274,7 +278,6 @@ PAGE_CSS = """
   .tx-short { display: none; }
   body[data-view="simple"] .tx-short { display: block; }
   body[data-view="simple"] .tx-short + p { display: none; }
-  .view-toggle .seg { font-size: 12px; }
   .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
   .seg-group .seg { border: 0; border-radius: 0; background: transparent; color: var(--ink-soft); font-size: 12px; padding: 5px 12px; box-shadow: none; }
   .seg-group .seg.on { background: var(--brand); color: #fff; }

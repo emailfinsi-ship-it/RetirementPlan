@@ -69,10 +69,11 @@ _META_VIEW_MODE = "view_mode"
 
 
 def view_mode() -> str:
-    """"simple" (default: the everyday pages and plain wording only) or
-    "full" (every tool and setting). A display preference only -- it never
-    changes a calculated number."""
-    return "full" if get_meta(_META_VIEW_MODE) == "full" else "simple"
+    """Always "full" now: the Simple/Full switch was removed so every tab and
+    tool is always visible. Kept (rather than deleted) so the page markup, CSS
+    hooks and any saved value stay harmless. A display preference only -- it
+    never changes a calculated number."""
+    return "full"
 
 
 def set_view_mode(mode: str) -> None:

@@ -130,11 +130,11 @@ def _render_summary_page() -> str:
     body = f"""
 {alerts_html}
 {top_html}
-{next_steps}
+<div class="adv-only">{_summary_insight_html(s)}</div>
 {picture_html}
 {history_html}
-<div class="adv-only">{_summary_insight_html(s)}</div>
 {data_check_html}
+{next_steps}
 {blocks.footer_html(s, linked_summary, mode)}
 """
     return _shell(title="Summary", active="summary.html", body=body)

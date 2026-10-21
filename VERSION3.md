@@ -42,7 +42,9 @@ are not touched.
       Security details are folded below.
     - *Drawdown Planning* and *Legacy Planning* open with "this year's plan" and the year-by-year
       sequence or strategy comparison; background cards move down.
-    - *Summary* order: answer, next steps, the picture, then data check.
+    - *Summary* order: plan on track, where you stand, summary insight, spending sources, what you own and owe, total asset over time, data check, then "What should I do next?" at the end.
     - *Income & Expenses* and *Accounts* and *Positions*: the tables come first and the charts
       last. *Risk & Suggestions*: your risk choice, then "what to do in each account", then the
       mix by institution.
+    - "If you sold your real estate" now appears only on *Will my money last?*; Drawdown and Legacy link to it.
+    - The Simple/Full switch is removed; every tab and tool is always shown. The header button is now "Report Download". The Tutorial page lists the User guide above the video.

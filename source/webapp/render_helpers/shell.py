@@ -161,7 +161,6 @@ var RP_TOUR = [
   {{sel: 'nav a[href="/summary.html"]', title: 'Today', text: 'Start here. It tells you in plain words whether your money is on track.'}},
   {{sel: 'nav a[href="/asset.html"]', title: 'My Plan', text: 'Everything you enter: what you own and owe, what comes in and goes out.'}},
   {{sel: 'nav a[href="/monte-carlo.html"]', title: 'Explore', text: 'Your chance of the money lasting, Social Security, and the what-if tools.'}},
-  {{sel: '.view-toggle', title: 'Simple or Full', text: 'Simple keeps the basics in short sentences. Full shows every tool.'}},
   {{sel: '.ex-btn', title: 'The little i', text: 'Tap an i next to any title to read the full explanation.'}},
   {{sel: '#whatif-quick', title: 'What if...?', text: 'Try a change and see its effect. Nothing is saved.'}}
 ];
@@ -200,9 +199,6 @@ function startTour() {{
 document.addEventListener('DOMContentLoaded', function() {{
   if (document.body.getAttribute('data-tour') === 'auto') {{ setTimeout(startTour, 900); }}
 }});
-function setViewMode(mode) {{
-  postJSON('/api/view-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
-}}
 function setDollarsMode(mode) {{
   postJSON('/api/dollars-mode', {{mode: mode}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});
 }}
@@ -1341,21 +1337,6 @@ def _nav_icon_html(href: str) -> str:
 # (see styles.py), so the markup itself never changes.
 
 
-def _view_toggle_html() -> str:
-    """Segmented "Simple | Full" control in the page header."""
-    mode = db.view_mode()
-
-    def btn(value: str, label: str) -> str:
-        on = " on" if mode == value else ""
-        return f'<button type="button" class="seg{on}" onclick="setViewMode(\'{value}\')">{label}</button>'
-
-    return (
-        '<div class="seg-group view-toggle" role="group" aria-label="How much to show" '
-        'title="Simple shows the everyday pages in short sentences. Full shows every tool and the full explanations.">'
-        + btn("simple", "Simple") + btn("full", "Full") + "</div>"
-    )
-
-
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
@@ -1539,7 +1520,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     annotated_body, explain_extra = explain.condense(annotated_body)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + _view_toggle_html() + THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML,
     )
 
 

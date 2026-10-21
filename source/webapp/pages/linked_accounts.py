@@ -210,6 +210,23 @@ def _render_linked_accounts_page() -> str:
 <h2 style="margin-top:0">Linked Accounts <span class="muted" style="font-size:13px; font-weight:400">(live, read-only)</span></h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Assets-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Assets tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
 <p class="muted">Assets ({_money(total_assets)}) and liabilities ({_money(total_liabilities)}) are charted separately below -- net worth across every linked account is {_money(total_assets - total_liabilities)}.</p>
+<h3 style="font-size:13px;">Assets</h3>
+<div class="group-section">
+{institution_assets_chart_html}
+{type_assets_chart_html}
+</div>
+<h3 style="font-size:13px;">Liabilities</h3>
+<div class="group-section">
+{institution_liabilities_chart_html}
+{type_liabilities_chart_html}
+</div>
+<p class="muted">Click a slice of any chart above to filter the accounts list below down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
+<details>
+<summary style="cursor:pointer; font-size:13px; font-weight:650; color:var(--ink);">Investment balance history</summary>
+<div class="group-section" style="margin-top:10px;">
+{investment_history_chart_html}
+</div>
+</details>
 <p class="muted small" style="margin:6px 0;">Account numbers are blurred by default. Hover one to read it, or <button type="button" onclick="document.documentElement.classList.toggle('show-acct')" style="font-size:12px; padding:2px 8px;">show / hide all</button>.</p>
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
@@ -221,23 +238,5 @@ def _render_linked_accounts_page() -> str:
 <datalist id="linked-accounts-categories">{category_options_html}</datalist>
 <p class="muted">Investment holdings (and their own charts) are on the <a href="/linked-positions.html">Linked Positions</a> tab.</p>
 {tax_buckets_html}
-<h2 id="account-charts" style="margin-top:26px">Where the money is, in charts</h2>
-<h3 style="font-size:13px;">Assets</h3>
-<div class="group-section">
-{institution_assets_chart_html}
-{type_assets_chart_html}
-</div>
-<h3 style="font-size:13px;">Liabilities</h3>
-<div class="group-section">
-{institution_liabilities_chart_html}
-{type_liabilities_chart_html}
-</div>
-<p class="muted">Click a slice of any chart below to filter the accounts list above down to that institution or account type -- click it again (or "Clear all") to go back to everything.</p>
-<details>
-<summary style="cursor:pointer; font-size:13px; font-weight:650; color:var(--ink);">Investment balance history</summary>
-<div class="group-section" style="margin-top:10px;">
-{investment_history_chart_html}
-</div>
-</details>
 """
     return _shell(title="Linked Accounts", active="linked-accounts.html", body=body)

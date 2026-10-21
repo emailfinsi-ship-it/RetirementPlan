@@ -11,28 +11,27 @@ from tests.test_dashboard import DashboardTestCase
 
 
 class TestViewMode(DashboardTestCase):
-    def tearDown(self):
+    """The Simple / Full switch is gone: every page always shows everything."""
+
+    def test_always_full_and_no_toggle_in_the_header(self):
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertEqual(db.view_mode(), "full")
+        self.assertIn('data-view="full"', body)
+        self.assertNotIn("setViewMode", body)
+        self.assertNotIn("view-toggle", body)
+
+    def test_a_saved_simple_value_no_longer_hides_anything(self):
         db.set_view_mode("simple")
+        try:
+            self.assertEqual(db.view_mode(), "full")
+            self.assertIn('data-view="full"', self._get("/summary.html").read().decode("utf-8"))
+        finally:
+            db.set_view_mode("full")
 
-    def test_default_is_simple_and_page_says_so(self):
-        body = self._get("/summary.html").read().decode("utf-8")
-        self.assertEqual(db.view_mode(), "simple")
-        self.assertIn('data-view="simple"', body)
-
-    def test_switch_saves_and_changes_the_page(self):
-        status, d = self._post("/api/view-mode", {"mode": "full"})
-        self.assertEqual((status, d["mode"]), (200, "full"))
-        self.assertIn('data-view="full"', self._get("/summary.html").read().decode("utf-8"))
-
-    def test_bad_value_is_refused(self):
-        status, _ = self._post("/api/view-mode", {"mode": "weird"})
-        self.assertNotEqual(status, 200)
-        self.assertEqual(db.view_mode(), "simple")
-
-    def test_header_has_the_toggle(self):
-        body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("setViewMode('full')", body)
-        self.assertIn("setViewMode('simple')", body)
+    def test_all_explore_tabs_are_always_listed(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        for href in ("/drawdown-planning.html", "/legacy-planning.html"):
+            self.assertIn(href, body)
 
     def test_advanced_parts_are_tagged_not_removed(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")

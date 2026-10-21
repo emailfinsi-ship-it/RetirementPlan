@@ -407,9 +407,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("expenses")
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
-        # Today's answer first, then what to do about it: the steps come right after the verdict and
-        # before the charts that explain it.
-        self.assertLess(body.index("What should I do next?"), body.index("Total Asset over time"))
+        # The answer and the charts that explain it come first; "What should I do next?" closes the page.
+        self.assertLess(body.index("Total Asset over time"), body.index("What should I do next?"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
@@ -1129,13 +1128,13 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
         self.assertIn("Unknown", body)
         self.assertIn("$5,000", body)
 
-    def test_charts_appear_after_the_line_item_tables(self):
+    def test_charts_appear_before_the_line_item_tables(self):
         db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertLess(
-            body.index("<h2>Expenses</h2>"),
             body.index("Expenses by category (annual, nominal)"),
+            body.index("<h2>Expenses</h2>"),
         )
 
     def test_income_comes_before_expenses(self):

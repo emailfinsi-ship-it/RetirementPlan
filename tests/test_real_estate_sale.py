@@ -218,27 +218,28 @@ class TestSaleCardsOnThePages(DashboardTestCase):
         self.assertIn('name="re_selling_cost_pct"', body)
         self.assertIn("Net proceeds", body)
 
-    def test_each_tab_shows_a_keep_vs_sell_card(self):
-        for path, marker in (
-            ("/monte-carlo.html", "Success rate (random returns)"),
-            ("/drawdown-planning.html", "Total savings at the end incl. property"),
-            ("/legacy-planning.html", "Total legacy incl. property"),
-        ):
+    def test_the_keep_vs_sell_card_lives_only_on_the_will_my_money_last_tab(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("If you sold your real estate", body)
+        self.assertIn("Success rate (random returns)", body)
+        for path in ("/drawdown-planning.html", "/legacy-planning.html"):
             body = self._get(path).read().decode("utf-8")
-            self.assertIn("If you sold your real estate", body, path)
-            self.assertIn(marker, body, path)
+            self.assertNotIn("If you sold your real estate", body, path)
+            self.assertIn("/monte-carlo.html#sell-real-estate", body, path)
 
     def test_no_card_without_properties(self):
         db.clear_section("real_estate")
         for path in ("/monte-carlo.html", "/drawdown-planning.html", "/legacy-planning.html"):
-            self.assertNotIn("If you sold your real estate", self._get(path).read().decode("utf-8"), path)
+            body = self._get(path).read().decode("utf-8")
+            self.assertNotIn("If you sold your real estate", body, path)
+            self.assertNotIn("Thinking of selling your real estate", body, path)
 
     def test_saving_the_form_values_persists_them(self):
         status, _ = self._post("/api/assumptions", {"re_sale_year": "2031", "re_selling_cost_pct": "5", "re_appreciation_pct": "2"})
         self.assertEqual(status, 200)
         body = self._get("/real-estate.html").read().decode("utf-8")
         self.assertIn('value="2031"', body)
-        self.assertIn("in 2031", self._get("/drawdown-planning.html").read().decode("utf-8"))
+        self.assertIn("in 2031", self._get("/monte-carlo.html").read().decode("utf-8"))
 
 
 if __name__ == "__main__":

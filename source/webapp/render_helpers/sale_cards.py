@@ -67,7 +67,7 @@ def sale_comparison_card_html(*, sale: dict, rows: list[dict], intro: str, extra
         + "."
     )
     return f"""
-<div class="card" style="border: 2px solid #1b7f3b;">
+<div class="card" id="sell-real-estate" style="border: 2px solid #1b7f3b;">
 <h2 style="margin-top:0">If you sold your real estate</h2>
 <p class="muted">{intro} {summary} Change the year, selling cost and appreciation on the
 <a href="/real-estate.html">Real Estate</a> tab.</p>
