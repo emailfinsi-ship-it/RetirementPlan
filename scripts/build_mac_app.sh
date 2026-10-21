@@ -92,6 +92,13 @@ if [ ! -x "dist/$SERVER_NAME/$SERVER_NAME" ]; then
   exit 1
 fi
 
+# Keep the app lean: --collect-all also copies the libraries' own test suites and type stubs, which the
+# running app never opens (about 23 MB). Removed here, BEFORE the start-up check below, so that check
+# proves the app still runs without them.
+echo "Removing libraries' test suites and type stubs..."
+find "dist/$SERVER_NAME" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
+find "dist/$SERVER_NAME" -type f -name "*.pyi" -delete 2>/dev/null || true
+
 echo "Checking the built program starts..."
 if ! "dist/$SERVER_NAME/$SERVER_NAME" --selftest; then
   echo "The built program failed its start-up check (see the error above)." >&2

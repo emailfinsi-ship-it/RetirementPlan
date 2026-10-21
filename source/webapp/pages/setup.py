@@ -104,24 +104,20 @@ def _render_setup_page() -> str:
     household_html = _household_card_html()
     sample_html = _sample_data_card_html()
     body = f"""
-<p class="muted">New here? <a href="/setup-wizard.html">Run the setup wizard</a> for a guided walk through the basics.</p>
+<div class="wizard-callout">
+<div><strong>New here? Start with the Setup Wizard.</strong><br><span>A guided walk through the basics, with Fin to explain each step.</span></div>
+<a class="wizard-btn" href="/setup-wizard.html">Run the Setup Wizard</a>
+</div>
+<style>
+.wizard-callout {{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:6px 0 16px; padding:16px 20px;
+  border-radius:16px; border:2px solid var(--brand); background:color-mix(in srgb, var(--brand) 12%, var(--surface)); }}
+.wizard-callout strong {{ font-size:18px; font-weight:700; color:var(--ink); }}
+.wizard-callout span {{ font-size:14.5px; color:var(--ink-soft); }}
+.wizard-btn {{ display:inline-block; padding:11px 22px; border-radius:999px; background:var(--brand); color:#fff !important; font-size:16px; font-weight:700; text-decoration:none; }}
+.wizard-btn:hover {{ background:var(--brand-dark); }}
+</style>
 {household_html}
 {sample_html}
-<details class="card" style="padding:12px 16px;">
-<summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
-<h2 style="margin-top:8px">One-time workbook import</h2>
-<p class="muted">Point this at a retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the plan assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
-<p class="status-line">{'Last imported: ' + html.escape(last_import) if last_import else 'Not imported yet.'}</p>
-<form class="inline" onsubmit="event.preventDefault();
-  postJSON('/api/import', {{path: this.path.value, password: this.password.value}})
-    .then(function(d) {{ alert('Imported: ' + JSON.stringify(d.summary)); location.reload(); }})
-    .catch(function(e) {{ alert(e.message); }});">
-  <label>Workbook path<input name="path" style="width:300px" value="{html.escape(import_path)}"></label>
-  <button type="button" onclick="chooseWorkbookFile(this.form)">Browse&hellip;</button>
-  <label>Password (if protected)<input name="password" type="password"></label>
-  <button type="submit" class="primary">Import</button>
-</form>
-</details>
 
 <h2 id="plaid-keys">Plaid API keys</h2>
 <p class="muted">Two independent Plaid credential profiles -- Primary and Secondary -- each with its own client ID and per-environment secret, stored only in this Mac's Keychain (never sent anywhere except directly to Plaid). Most people only ever need Primary; Secondary is there if you have a second Plaid developer account (e.g. a separate app, or you've hit a per-app linked-Item limit) and want this dashboard to link/sync accounts under both side by side.</p>
@@ -213,6 +209,22 @@ def _render_setup_page() -> str:
 {network_html}
 </details>
 {quit_html}
+
+<details class="card" style="padding:12px 16px;">
+<summary style="font-weight:600;">Advanced: import a spreadsheet (one time)</summary>
+<h2 style="margin-top:8px">One-time workbook import</h2>
+<p class="muted">Point this at a retirement-plan .xlsx once to seed Real Estate, Assets (401k/IRA, Liquid), Expenses, Income (Rental, Social Security), and the plan assumptions from its Summary &amp; Assumptions and Real Estate sheets. This program becomes the system of record after that -- re-running this only refreshes rows it previously imported (source='imported'); anything you've typed in by hand is left alone.</p>
+<p class="status-line">{'Last imported: ' + html.escape(last_import) if last_import else 'Not imported yet.'}</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/import', {{path: this.path.value, password: this.password.value}})
+    .then(function(d) {{ alert('Imported: ' + JSON.stringify(d.summary)); location.reload(); }})
+    .catch(function(e) {{ alert(e.message); }});">
+  <label>Workbook path<input name="path" style="width:300px" value="{html.escape(import_path)}"></label>
+  <button type="button" onclick="chooseWorkbookFile(this.form)">Browse&hellip;</button>
+  <label>Password (if protected)<input name="password" type="password"></label>
+  <button type="submit" class="primary">Import</button>
+</form>
+</details>
 """
     return _shell(title="Setup", active="setup.html", body=body)
 
