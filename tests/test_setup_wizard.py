@@ -95,8 +95,9 @@ class TestSetupPageSections(DashboardTestCase):
 
 class TestDrawdownCollapsedByDefault(DashboardTestCase):
     def test_chart_and_sources_table_start_collapsed(self):
-        body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        for needle in ("Show chart: resources by tax bucket", "Show table: resources by source"):
+        drawdown = self._get("/drawdown-planning.html").read().decode("utf-8")
+        linked = self._get("/linked-accounts.html").read().decode("utf-8")
+        for body, needle in ((drawdown, "Show chart: resources by tax bucket"), (linked, "Show table: resources by source")):
             i = body.index(needle)
             tag = body[body.rfind("<details", 0, i):i]
             self.assertNotIn(" open", tag, needle)

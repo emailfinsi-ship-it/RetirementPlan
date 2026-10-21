@@ -371,7 +371,8 @@ class TestOwnerEndpointsAndPages(DashboardTestCase):
         db.set_assumption("birth_year", "1955")
         db.set_assumption("spouse_birth_year", "1962")
         body = self._get("/drawdown-planning.html").read().decode("utf-8")
-        self.assertIn("<th>Owner</th>", body)
+        # The per-account Owner column moved to the Linked Accounts tab with the tax-bucket table.
+        self.assertIn("<th>Owner</th>", self._get("/linked-accounts.html").read().decode("utf-8"))
         self.assertIn("Required Minimum Distributions, by person", body)
         self.assertIn("RMD: Person 2", body)
         self.assertIn("Person 2 age", body)

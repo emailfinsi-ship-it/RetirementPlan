@@ -32,3 +32,8 @@ original app (port 8898).
 
 ## Not changed
 All calculations, saved data and the Plaid connection. The tutorial video was not re-recorded.
+
+## Added after review
+- **Fin, the robot guide** in the setup wizard (speech bubble, spoken voice with an on/off switch) and in the tutorial video.
+- **Tax buckets moved to Linked Accounts:** the "resources by source" table and "Split a linked account across tax buckets".
+- Clearer "show more" toggles; the safe-spending confidence level is remembered on the Summary; header buttons stay at the top right.

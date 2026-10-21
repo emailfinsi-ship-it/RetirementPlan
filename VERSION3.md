@@ -27,3 +27,11 @@ are not touched.
 5. **Suggested spending from your real transactions.** On Income & Expenses, a card lists real
    spending categories that are not in your plan yet. Tick the ones you want and press Add.
 6. The quick tour now describes Today / My Plan / Explore.
+7. **Fin, the robot guide.** In the setup wizard a small robot says what each step is for in a
+   speech bubble and can say it out loud (**Hear this**; **Voice on/off** is remembered). Fin
+   also narrates the tutorial video.
+8. **Tax buckets moved to Linked Accounts.** The "resources by source" table (tax bucket and owner
+   of every account) and "Split a linked account across tax buckets" now live at the bottom of
+   Linked Accounts. Drawdown Planning keeps a link to them.
+9. Clearer "show more" toggles (chevron badge, larger label); the safe-spending confidence level
+   you pick is remembered on the Summary; header buttons stay at the top right.

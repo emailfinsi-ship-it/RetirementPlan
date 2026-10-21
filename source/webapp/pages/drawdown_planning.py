@@ -578,10 +578,9 @@ subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never force
 opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
 <div class="tiles">{tiles}</div>
 <details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
-<details class="how-it-works" id="resources-by-source"><summary>Show table: resources by source ({len(sources)})</summary>
-{_sources_table_html(sources)}</details>
+<p class="muted small" style="margin:6px 0 10px">Each account's tax bucket and owner, and splitting one account across buckets, are now set on the
+<a href="/linked-accounts.html#tax-buckets">Linked Accounts</a> tab ({len(sources)} sources).</p>
 {_rmd_by_person_card_html(s, assumptions)}
-{_account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
 {_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
 {sale_card}
 <h2>Year-by-year withdrawal sequence</h2>
