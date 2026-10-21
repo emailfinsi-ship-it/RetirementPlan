@@ -57,6 +57,26 @@ def _investment_balance_history_series(investment_accounts: list[dict]) -> list[
     return series
 
 
+def _tax_buckets_section_html() -> str:
+    """Where each account's tax bucket and owner are set, and where one
+    account can be split across buckets (a 401k that mixes pre-tax, Roth
+    and after-tax money). The Drawdown Planning, Will my money last? and
+    Legacy pages all read these. The pieces are built by drawdown_planning
+    (where they started) and shown here."""
+    from source.reporting.aggregate import build_summary
+    from source.webapp.pages import drawdown_planning as dd
+
+    s = build_summary()
+    sources = s["drawdown_sources"]
+    return f"""
+<h2 id="tax-buckets">Tax buckets and owners</h2>
+<p class="muted">Each account is placed in a tax bucket (taxable, tax-deferred or Roth) and given an owner. This decides how withdrawals are taxed and whose required withdrawals apply. Drawdown Planning and Will my money last? use it.</p>
+<details class="how-it-works" id="resources-by-source"><summary>Show table: resources by source ({len(sources)})</summary>
+{dd._sources_table_html(sources)}</details>
+{dd._account_splits_card_html(s["splittable_investment_accounts"], s["account_tax_splits"], s["account_split_mismatches"])}
+"""
+
+
 def _render_linked_accounts_page() -> str:
     linked_accounts = linked_data.read_linked_account_balances()
     investment_accounts = [a for a in linked_data.linkable_accounts() if a.get("type") == "investment"]
@@ -185,6 +205,7 @@ def _render_linked_accounts_page() -> str:
         empty_message="Balance history accumulates one point per linked investment account each day this app is opened or synced -- check back after a day or two.",
     )
 
+    tax_buckets_html = _tax_buckets_section_html()
     body = f"""
 <h2 style="margin-top:0">Linked Accounts <span class="muted" style="font-size:13px; font-weight:400">(live, read-only)</span></h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Assets-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Assets tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
@@ -216,5 +237,6 @@ def _render_linked_accounts_page() -> str:
 </table>
 <datalist id="linked-accounts-categories">{category_options_html}</datalist>
 <p class="muted">Investment holdings (and their own charts) are on the <a href="/linked-positions.html">Linked Positions</a> tab.</p>
+{tax_buckets_html}
 """
     return _shell(title="Linked Accounts", active="linked-accounts.html", body=body)
