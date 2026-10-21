@@ -180,6 +180,12 @@ def _render_monte_carlo_page() -> str:
   <label>Annual income offset<input name="annual_income_offset" type="number" step="0.01" value="{html.escape(str(assumptions.get('annual_income_offset', 0)))}"></label>
   <label>Taxable gains %<input name="taxable_gains_fraction_pct" type="number" step="1" value="{_pct(assumptions, 'taxable_gains_fraction', 0.4)}"></label>'''
     )
+    from source.reporting import benefits as _benefits
+
+    # Social Security is folded away once it is set up (its one-line status is in the summary); it stays
+    # open while nothing is entered yet, and opens itself when a link or a save points at it.
+    _ss_planned = [r for r in _benefits.planned_rows(assumptions)["income"] if r.get("annual_amount")]
+    ss_open = "" if _ss_planned else " open"
     body = f"""
 <div class="card-head"><h2 style="margin:0">Will my money last?</h2>{blocks.dollars_toggle_html(mode)}</div>
 <div class="card hero tone-{status['tone']}">
@@ -194,37 +200,10 @@ def _render_monte_carlo_page() -> str:
 <p class="muted small" style="margin-bottom:0">We ran {result['iterations']:,} possible market futures against your own savings and spending. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
 </div>
 {chart}
-{explorer_html}
+<p class="muted small jump-links" style="margin:2px 0 10px">Jump to: <a href="#levers">Biggest levers</a> &middot; <a href="#assumptions">What-if and assumptions</a> &middot; <a href="#safe-spending">Safe spending</a> &middot; <a href="#ss-fold">Social Security</a></p>
 {double_social_security_html(s["income"], assumptions)}
-{social_security_medicare_card_html(assumptions)}
-<div class="card" id="safe-spending">
-<h3 class="sub" style="margin-top:0">How much can I safely spend?</h3>
-{blocks.safe_spending_html(selector=True)}
-<p class="muted small" style="margin:8px 0 0">The most you could spend each year, starting next year, while keeping your chance of lasting at the level you pick. Higher confidence means a smaller number.</p>
-</div>
-<details class="how-it-works adv-only"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
-<div class="tiles">{pool_tiles}
-  <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
-{tax_tiles}</div>
-<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Investable savings ({_money(starting_balance)}) -- the total of every Assets-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Investable savings tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Assets tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income &amp; Expenses tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
-</details>
-<div class="adv-only">
-<h2>What could go wrong?</h2>
-<p class="muted small">Three ways to test your plan against bad luck: markets replaying their real history, real recessions starting the day your plan does, and what changes if you sell a property.</p>
-<h3 class="sub">Real market history replayed &mdash; S&amp;P 500 historical-returns simulation</h3>
-<details class="how-it-works"><summary>How this works</summary><p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p></details>
-<p class="note-box"><strong>Read this as a cross-check, not a forecast.</strong> It replays the real S&amp;P 500&#x27;s past years, which were one unusually strong stretch for one country&#x27;s stocks and never include a future shock. A very high result here is a best-case reference; the simulation above (and the stress test below) are the better guide to planning.</p>
-<div class="tiles">
-  <div class="tile"><div class="label">S&amp;P 500 chance your money lasts</div><div class="value">{pres.percent_display(sp500_result['success_rate'])}</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 cautious case</div><div class="value">{_money(sp_display['p10_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 typical case</div><div class="value">{_money(sp_display['median_ending_balance'])}</div></div>
-  <div class="tile"><div class="label">S&amp;P 500 strong case</div><div class="value">{_money(sp_display['p90_ending_balance'])}</div></div>
-</div>
-{sale_card}
 {stress_html}
 {sensitivity_html}
-{saved_scenarios_card_html(db.list_scenarios(), assumptions)}
-</div>
 <div class="card" id="assumptions">
 <h2 style="margin-top:0">Assumptions &amp; what-if</h2>
 <p class="muted">Two ways to change the plan in one place: test an idea first (nothing is saved), then enter the numbers you want to keep.</p>
@@ -250,6 +229,49 @@ def _render_monte_carlo_page() -> str:
 </form>
 <p class="muted">Birth year is used only to time Required Minimum Distributions (RMDs) from the Tax-deferred pool -- leave it blank to skip RMD modeling entirely. Retirement year zeroes out every simulated year's withdrawal before it -- income is assumed to cover expenses until then -- across this simulation, the historical stress test below, and the Drawdown Planning tab; leave it blank to withdraw starting this year, same as before this field existed. Taxable gains % is the assumed fraction of any Taxable-brokerage withdrawal that's a capital gain rather than a return of already-taxed cost basis (this program doesn't track per-lot cost basis, so this is a deliberate, adjustable simplification) -- only the gains portion is taxed, at federal long-term capital-gains rates plus California's ordinary rates (California has no capital-gains preference).</p>
 </div>
+<div class="adv-only">
+{saved_scenarios_card_html(db.list_scenarios(), assumptions)}
+</div>
+<div class="card" id="safe-spending">
+<h3 class="sub" style="margin-top:0">How much can I safely spend?</h3>
+{blocks.safe_spending_html(selector=True)}
+<p class="muted small" style="margin:8px 0 0">The most you could spend each year, starting next year, while keeping your chance of lasting at the level you pick. Higher confidence means a smaller number.</p>
+</div>
+{explorer_html}
+<div class="adv-only">
+<h2>What could go wrong?</h2>
+<p class="muted small">Two more ways to test your plan against bad luck: markets replaying their real history, and what changes if you sell a property. Real recessions starting the day your plan does are shown above.</p>
+<h3 class="sub">Real market history replayed &mdash; S&amp;P 500 historical-returns simulation</h3>
+<details class="how-it-works"><summary>How this works</summary><p class="muted">Same starting balances and the same per-year withdrawal need as the simulation above, but instead of drawing each simulated year's return from the Expected return/Return volatility assumptions, each of the {sp500_result['iterations']:,} paths draws (with replacement) from the {sp500_result['sample_size']} actual recorded S&amp;P 500 annual total returns -- real boom years and real crashes (1931, 2008, 2022, ...) mixed in, not a bell curve. These figures are this method's own 10th-90th percentile ending balance range, grounded in market history rather than this plan's own return assumptions.</p></details>
+<p class="note-box"><strong>Read this as a cross-check, not a forecast.</strong> It replays the real S&amp;P 500&#x27;s past years, which were one unusually strong stretch for one country&#x27;s stocks and never include a future shock. A very high result here is a best-case reference; the simulation above (and the stress test below) are the better guide to planning.</p>
+<div class="tiles">
+  <div class="tile"><div class="label">S&amp;P 500 chance your money lasts</div><div class="value">{pres.percent_display(sp500_result['success_rate'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 cautious case</div><div class="value">{_money(sp_display['p10_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 typical case</div><div class="value">{_money(sp_display['median_ending_balance'])}</div></div>
+  <div class="tile"><div class="label">S&amp;P 500 strong case</div><div class="value">{_money(sp_display['p90_ending_balance'])}</div></div>
+</div>
+{sale_card}
+</div>
+<details class="how-it-works ss-fold" id="ss-fold"{ss_open}><summary>Social Security and Medicare: start ages and amounts</summary>
+{social_security_medicare_card_html(assumptions)}
+</details>
+<details class="how-it-works adv-only"><summary>The numbers behind this (starting balance, accounts, tax)</summary>
+<div class="tiles">{pool_tiles}
+  <div class="tile"><div class="label">Iterations</div><div class="value">{result['iterations']:,}</div></div>
+{tax_tiles}</div>
+<h3 class="sub">How this works</h3><p class="muted">Starting balance is your Investable savings ({_money(starting_balance)}) -- the total of every Assets-tab row checked "In the plan?", net of liabilities (same figure as the Summary tab's Investable savings tile) -- not full net worth, since {excluded_from_net_liquid} aren't money you'd draw down in retirement unless you opt them in. It's split into three pools by each checked row's Tax treatment (set on the Assets tab): Tax-deferred, Roth, and Taxable, shown below.{real_estate_pool_clause} Each simulated year withdraws that year's net need -- the Income &amp; Expenses tab's Expenses total minus the total of Income rows checked "In simulation?", with any row flagged "Inflates" grown from its own Base Year by the Inflation % assumption below -- plus the flat Annual income offset if you've set one, drawn Taxable first, then Tax-deferred, then Roth last{withdrawal_order_suffix} (the conventional tax-efficient order), {tax_intro_clause}and applies a random annual return drawn from the assumptions below to every pool shown above alike.{rmd_note}{retirement_year_note}</p>
+</details>
+<script>
+(function () {{
+  function openSs() {{
+    var h = location.hash;
+    if (h === '#benefits-planner' || h === '#benefits-saved' || h === '#ss-fold') {{
+      var f = document.getElementById('ss-fold'); if (f) {{ f.open = true; f.scrollIntoView({{block: 'start'}}); }}
+    }}
+  }}
+  openSs(); window.addEventListener('hashchange', openSs);
+}})();
+</script>
 """
     return _shell(title="Will my money last?", active="monte-carlo.html", body=body)
 
@@ -435,7 +457,7 @@ def _historical_stress_test_html(result: dict) -> str:
 <tbody>{summary_rows}</tbody>
 </table>
 </div>
-<details class="how-it-works" style="margin-top:14px"><summary>Show the year-by-year numbers</summary>
+<details class="how-it-works" style="margin-top:14px" open><summary>Show the year-by-year numbers</summary>
 <h3 style="font-size:13px; margin:10px 0 4px 0;">Year-by-year detail</h3>
 {hidden_years_note_html}
 <div style="overflow-x:auto">

@@ -484,9 +484,6 @@ then, is compared below too, alongside the Roth-conversion strategies. The table
 plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the
 Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p></details>
 {_this_years_plan_html(result, retirement_year)}
-{_how_we_arrived_html(result)}
-{_heir_assumptions_card_html(result, assumptions)}
-{sale_card}
 <h2>Strategy comparison</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no
 randomness) once per strategy, converting Tax-deferred to Roth every year up to that strategy's target -- capped so the
@@ -496,9 +493,12 @@ Tax-deferred survives net of the Estimated heir tax column. A depleted strategy 
 lifetime) is flagged rather than hidden -- a smaller legacy from a strategy that never ran out beats a larger one on
 paper that only looks that way because the money ran out.</p></details>
 {_early_age_note_html(result)}
-{_whatif_card_html(result)}
 {_comparison_table_html(result)}
 {_recommended_year_by_year_html(result, retirement_year)}
+{_how_we_arrived_html(result)}
+{_whatif_card_html(result)}
+{_heir_assumptions_card_html(result, assumptions)}
+{sale_card}
 <p class="muted">This compares strategies against each other for legacy purposes. For your day-to-day plan under
 today's default order (or your own Withdrawal order choice), see the <a href="/drawdown-planning.html">Drawdown
 Planning</a> tab.</p>

@@ -86,12 +86,12 @@ def _render_expense_page() -> str:
 </div>
 {double_social_security_html(s["income"], assumptions)}
 <div class="card" id="ss-pointer"><p style="margin:0"><strong>Social Security and Medicare</strong> are set on the <a href="/monte-carlo.html#benefits-planner">Will my money last?</a> tab. Rows marked &ldquo;set by the planner&rdquo; below change when you change them there.</p></div>
+{income_section_html}
+{expense_section_html}
 <div class="group-section">
 {income_chart_html}
 {expense_chart_html}
 </div>
-{income_section_html}
-{expense_section_html}
 """
     return _shell(title="Income & Expenses", active="expense.html", body=body)
 

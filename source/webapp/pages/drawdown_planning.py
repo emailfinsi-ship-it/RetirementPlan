@@ -566,7 +566,7 @@ def _render_drawdown_planning_page() -> str:
     early_tax_deferred_age = schedule.get("early_tax_deferred_age")
     early_tax_deferred_note = (
         f' <span class="muted">Once you reach age {early_tax_deferred_age}, spending draws Tax-deferred first '
-        "instead of Taxable first (see the Withdrawal order card above).</span>"
+        "instead of Taxable first (see the Withdrawal order card below).</span>"
         if early_tax_deferred_age is not None else ""
     )
 
@@ -576,23 +576,24 @@ def _render_drawdown_planning_page() -> str:
 (brokerage, taxed on gains as you withdraw), Tax-deferred (401k/Traditional IRA, taxed as ordinary income and
 subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never forces an RMD), and Real estate equity
 opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
-<div class="tiles">{tiles}</div>
-<details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
-<p class="muted small" style="margin:6px 0 10px">Each account's tax bucket and owner, and splitting one account across buckets, are now set on the
-<a href="/linked-accounts.html#tax-buckets">Linked Accounts</a> tab ({len(sources)} sources).</p>
-{_rmd_by_person_card_html(s, assumptions)}
-{_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
-{sale_card}
+{_this_years_plan_html(_visible_schedule_rows(schedule))}
+{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
 <h2>Year-by-year withdrawal sequence</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random-markets band -- see the Will my money last? tab for
 that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
 set on the Will my money last? tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
 last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
 pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
-{_this_years_plan_html(_visible_schedule_rows(schedule))}
-{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
 {rental_tax_note}{_year_by_year_table_html(schedule)}
-<p class="muted">This is the plan under today's default order (with your own Withdrawal order choice above, if set).
+<h2 id="where-the-money-is">Where your money sits, by tax bucket</h2>
+<div class="tiles">{tiles}</div>
+<details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>
+<p class="muted small" style="margin:6px 0 10px">Each account's tax bucket and owner, and splitting one account across buckets, are set on the
+<a href="/linked-accounts.html#tax-buckets">Linked Accounts</a> tab ({len(sources)} sources).</p>
+{_rmd_by_person_card_html(s, assumptions)}
+{_early_tax_deferred_card_html(assumptions, early_tax_deferred_age)}
+{sale_card}
+<p class="muted">This is the plan under today's default order (with your own Withdrawal order choice below, if set).
 Looking to also minimize what an heir owes in tax, or considering a Roth conversion? See the
 <a href="/legacy-planning.html">Legacy Planning</a> tab, which compares several strategies against this one.</p>
 """

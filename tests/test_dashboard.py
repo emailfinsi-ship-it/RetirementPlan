@@ -406,8 +406,9 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("expenses")
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
-        # It closes the page: after the insight card, right before the footer.
-        self.assertGreater(body.index("What should I do next?"), body.index("Total Asset over time"))
+        # Today's answer first, then what to do about it: the steps come right after the verdict and
+        # before the charts that explain it.
+        self.assertLess(body.index("What should I do next?"), body.index("Total Asset over time"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
@@ -1127,13 +1128,13 @@ class TestExpensePageCategoryCharts(DashboardTestCase):
         self.assertIn("Unknown", body)
         self.assertIn("$5,000", body)
 
-    def test_charts_appear_before_the_line_item_tables(self):
+    def test_charts_appear_after_the_line_item_tables(self):
         db.add_line_item("expenses", {"name": "Rent", "category": "Fixed", "annual_amount": 30_000})
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertLess(
-            body.index("Expenses by category (annual, nominal)"),
             body.index("<h2>Expenses</h2>"),
+            body.index("Expenses by category (annual, nominal)"),
         )
 
     def test_income_comes_before_expenses(self):
@@ -3543,14 +3544,21 @@ class TestMonteCarloSensitivitySection(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("This plan's baseline Success rate is", body)
 
-    def test_section_sits_between_the_stress_test_and_the_assumptions_form(self):
+    def test_scenarios_come_right_after_the_answer_then_the_levers_then_the_assumptions(self):
         resp = self._get("/monte-carlo.html")
         body = resp.read().decode("utf-8")
         stress_idx = body.index("Historical recession stress test")
         sensitivity_idx = body.index("What moves your plan most")
         assumptions_idx = body.index('id="assumptions"')
+        # Scenario table and year-by-year returns come first (right after the answer), then the levers.
         self.assertLess(stress_idx, sensitivity_idx)
         self.assertLess(sensitivity_idx, assumptions_idx)
+
+    def test_year_by_year_numbers_start_expanded_and_social_security_is_folded_below(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn('style="margin-top:14px" open><summary>Show the year-by-year numbers</summary>', body)
+        self.assertIn('id="ss-fold"', body)
+        self.assertLess(body.index("Historical recession stress test"), body.index('id="ss-fold"'))
 
 
 class TestMonteCarloPoolsAndRmd(DashboardTestCase):
