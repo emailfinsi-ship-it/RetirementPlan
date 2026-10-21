@@ -180,16 +180,6 @@ def _render_linked_positions_page() -> str:
 <h2 style="margin-top:0">Linked Positions <span class="muted" style="font-size:13px; font-weight:400">(live, read-only)</span></h2>
 <p class="muted">Investment holdings pulled directly from Plaid for accounts that requested the "investments" product, each time this page loads. Industry is auto-classified for equities from Yahoo Finance during sync ("Sync now", top right) -- Plaid has no industry data, so a cash position, ETF, mutual fund, or anything not yet classified shows as "Unclassified"/"Unknown"; check the box next to one or more rows below and use the bar that appears to tag them yourself. Sector normally rolls each industry up to one of Yahoo Finance's ~11 broad sectors, for a coarser view than the full industry list -- but a mutual fund, ETF, or target-date fund never gets an industry in the first place (it holds many at once), so it stays in "Unknown" forever unless you tag its sector directly with the "Set sector" bar. Click a slice, bar, or legend entry in any chart below to filter the list to just that type, institution, sector, or industry; click it again (or "Clear all") to reset. See <a href="/portfolio-positions.html">portfolio-positions.html</a> for the standalone export.</p>
 {checkup_html}
-<div class="group-section">
-{type_chart_html}
-{institution_chart_html}
-</div>
-<div class="group-section">
-{sector_chart_html}
-</div>
-<div class="group-section">
-{industry_chart_html}
-</div>
 <div id="positions-filter-bar" class="filter-bar"></div>
 <div id="industry-bulk-bar" class="industry-bulk-bar">
   <span class="bulk-count">0 selected</span>
@@ -213,6 +203,17 @@ def _render_linked_positions_page() -> str:
 <tfoot><tr><td colspan="7">Total</td><td class="num" id="linked-positions-total">{_money(market_value_total)}</td><td></td></tr></tfoot>
 </table>
 <p class="muted">Account balances (and their own "by institution"/"by account type" charts) are on the <a href="/linked-accounts.html">Linked Accounts</a> tab.</p>
+<h2 id="position-charts" style="margin-top:26px">Your holdings, in charts</h2>
+<div class="group-section">
+{type_chart_html}
+{institution_chart_html}
+</div>
+<div class="group-section">
+{sector_chart_html}
+</div>
+<div class="group-section">
+{industry_chart_html}
+</div>
 """
     return _shell(title="Linked Positions", active="linked-positions.html", body=body)
 

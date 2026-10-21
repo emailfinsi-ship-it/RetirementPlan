@@ -35,3 +35,14 @@ are not touched.
    Linked Accounts. Drawdown Planning keeps a link to them.
 9. Clearer "show more" toggles (chevron badge, larger label); the safe-spending confidence level
    you pick is remembered on the Summary; header buttons stay at the top right.
+10. **Every tab leads with its answer, then the detail.**
+    - *Will my money last?* shows the chance and chart first, then the stress scenarios (Great
+      Depression, dot-com bust, year-by-year returns), then the biggest levers, assumptions,
+      saved scenarios and safe spending. The year-by-year numbers are open by default. Social
+      Security details are folded below.
+    - *Drawdown Planning* and *Legacy Planning* open with "this year's plan" and the year-by-year
+      sequence or strategy comparison; background cards move down.
+    - *Summary* order: answer, next steps, the picture, then data check.
+    - *Income & Expenses* and *Accounts* and *Positions*: the tables come first and the charts
+      last. *Risk & Suggestions*: your risk choice, then "what to do in each account", then the
+      mix by institution.
