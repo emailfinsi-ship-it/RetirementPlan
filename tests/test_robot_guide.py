@@ -1,4 +1,4 @@
-"""Fin, the robot guide: the drawing, and its place in the setup wizard."""
+"""Fin, the friendly guide: the drawings (person and robot), and the person's place in the setup wizard."""
 
 from __future__ import annotations
 
@@ -26,7 +26,20 @@ class TestRobotPieces(unittest.TestCase):
         self.assertIn("window.rpFin", robot.ROBOT_JS)
 
 
+class TestPersonPiece(unittest.TestCase):
+    def test_person_shares_the_robots_animation_hooks(self):
+        svg = robot.person_svg(76)
+        self.assertIn('class="rb rb-person"', svg)
+        self.assertIn('class="rb-mouth"', svg)
+        self.assertIn('width="76"', svg)
+        self.assertNotIn("{size}", svg)
+
+
 class TestWizardGuide(DashboardTestCase):
+    def test_wizard_guide_is_the_person(self):
+        body = self._get("/setup-wizard.html").read().decode("utf-8")
+        self.assertIn("rb-person", body)
+
     def test_every_step_has_a_line_for_fin(self):
         self.assertEqual(len(setup_wizard.GUIDE_LINES), len(setup_wizard._STEPS))
         self.assertTrue(all(len(line) > 20 for line in setup_wizard.GUIDE_LINES))

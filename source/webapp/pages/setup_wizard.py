@@ -18,7 +18,7 @@ from source.webapp.render_helpers import robot
 
 _STEPS = ("About you", "Your dates", "Spending & growth", "Your money", "All set")
 
-# What Fin, the robot guide, says on each step (shown in a speech bubble and spoken when the voice is on).
+# What Fin, the friendly guide, says on each step (shown in a speech bubble and spoken when the voice is on).
 GUIDE_LINES = (
     "Hi, I'm Fin, your guide. Let's get your plan started. First, who is this plan for? First names are fine.",
     "Now two quick dates. They help me work out your ages and when you'd like to retire. A rough year is fine.",
@@ -75,7 +75,7 @@ def _wizard_card_html() -> str:
 <h2 style="margin-top:0">Setup wizard</h2>
 <p class="muted">{intro}</p>
 <div class="rb-guide" id="wz-guide">
-  {robot.robot_svg(76)}
+  {robot.person_svg(76)}
   <div class="rb-bubble">
     <div class="rb-name">{robot.ROBOT_NAME}</div>
     <div id="wz-bubble" aria-live="polite">{html.escape(GUIDE_LINES[0])}</div>
