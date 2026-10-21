@@ -1491,7 +1491,7 @@ def _header_sync_html() -> str:
 
 
 def _header_quit_html() -> str:
-    """A Quit button in the page header, next to Sync now: the Mac app has no
+    """A Quit button in the page header, right after the Theme button: the Mac app has no
     window of its own to close, so this stops the program (same request as
     the Setup tab's Quit card). Always shown; asks before it quits."""
     name = html.escape(branding.PRODUCT_NAME)
@@ -1537,7 +1537,7 @@ def _shell(*, title: str, active: str, body: str) -> str:
     annotated_body, explain_extra = explain.condense(annotated_body)
     return PAGE_SHELL.format(
         title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + _header_quit_html() + THEME_TOGGLE_HTML,
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML + _header_quit_html(),
     )
 
 

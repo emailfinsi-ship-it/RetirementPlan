@@ -123,11 +123,11 @@ class TestPlanReport(DashboardTestCase):
             self.assertIn('href="/report.html"', body, page)
             self.assertLess(body.index('id="report-btn"'), body.index('id="hide-toggle"'), page)
 
-    def test_header_has_a_quit_button_beside_the_report_button(self):
+    def test_header_has_a_quit_button_right_after_the_theme_button(self):
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn('id="quit-btn"', body)
         self.assertIn("/api/quit", body)
-        self.assertLess(body.index('id="quit-btn"'), body.index('id="report-btn"'))
+        self.assertLess(body.index('id="theme-toggle"'), body.index('id="quit-btn"'))
 
     def test_setup_leads_with_the_wizard_banner_and_ends_with_the_import(self):
         body = self._get("/setup.html").read().decode("utf-8")

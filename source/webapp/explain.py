@@ -617,8 +617,9 @@ def page_button_html(page: str) -> str:
         return ""
     tour = (' <button type="button" class="ex-btn ex-page-btn" onclick="startTour()">Take a quick tour</button>'
             if page == "summary.html" else "")
+    from source.webapp.pages.tutorial import chapter_link_html
     return ('<div class="ex-pagebar"><button type="button" class="ex-btn ex-page-btn" data-ex="'
-            f'{html.escape(key, quote=True)}">i&nbsp; About this page</button>{tour}</div>')
+            f'{html.escape(key, quote=True)}">i&nbsp; About this page</button>{tour}{chapter_link_html(page)}</div>')
 
 
 _CSS = """
