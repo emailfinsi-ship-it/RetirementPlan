@@ -55,6 +55,7 @@ def _render_tutorial_page() -> str:
 <div class="card" id="videos">
 <h3 class="sub" style="margin-top:0">Watch the videos</h3>
 <video class="tut-video" id="tut-video" controls preload="metadata" src="/tutorial/tour-setup-dark.mp4"></video>
+<p id="tut-note" class="status-warn" style="margin:8px 0 0; font-size:14px;" hidden>Press the play button &#9654; to start. The video is already set to the screen you chose.</p>
 <p style="margin:10px 0 2px"><strong>1. Setting up</strong> <span class="muted">(password, the setup wizard, linking accounts)</span></p>
 <p class="small muted" style="margin:4px 0 8px">
   <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-setup-dark.mp4'; v.play();">Narrated by Fin (dark, voice-over)</button>
@@ -69,12 +70,20 @@ def _render_tutorial_page() -> str:
 <script>
 if (location.hash === '#guide') document.getElementById('guide').open = true;
 (function () {{
-  var q = new URLSearchParams(location.search), v = document.getElementById('tut-video');
-  if (q.get('v') === 'screens') {{
-    var t = parseInt(q.get('t') || '0', 10) || 0;
-    v.src = '/tutorial/tour-screens-dark.mp4#t=' + t;
-    v.addEventListener('loadedmetadata', function () {{ try {{ v.currentTime = t; v.play(); }} catch (e) {{}} }}, {{once: true}});
+  var q = new URLSearchParams(location.search), v = document.getElementById('tut-video'), note = document.getElementById('tut-note');
+  if (q.get('v') !== 'screens') {{ return; }}
+  var t = parseInt(q.get('t') || '0', 10) || 0;
+  v.preload = 'auto';
+  v.src = '/tutorial/tour-screens-dark.mp4';
+  function start() {{
+    try {{ v.currentTime = t; }} catch (e) {{}}
+    var pr = v.play();
+    // Some browsers (Safari) refuse to start a video without a click: say so instead of sitting silent.
+    if (pr && pr.catch) {{ pr.catch(function () {{ if (note) {{ note.hidden = false; }} }}); }}
   }}
+  if (v.readyState >= 1) {{ start(); }} else {{ v.addEventListener('loadedmetadata', start, {{once: true}}); }}
+  v.load();
+  v.addEventListener('error', function () {{ if (note) {{ note.hidden = false; note.textContent = 'This video could not be played here. Try the Silent with captions versions below.'; }} }});
 }})();
 </script>
 """
