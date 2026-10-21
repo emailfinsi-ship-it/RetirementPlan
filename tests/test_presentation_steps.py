@@ -119,7 +119,7 @@ class TestPlanReport(DashboardTestCase):
     def test_every_page_header_has_the_report_button_before_the_eye_icon(self):
         for page in ("/summary.html", "/asset.html", "/setup.html"):
             body = self._get(page).read().decode("utf-8")
-            self.assertIn("Download plan report", body, page)
+            self.assertIn("Report Download", body, page)
             self.assertIn('href="/report.html"', body, page)
             self.assertLess(body.index('id="report-btn"'), body.index('id="hide-toggle"'), page)
 

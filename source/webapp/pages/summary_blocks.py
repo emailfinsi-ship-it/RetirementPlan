@@ -84,7 +84,7 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: 
 {watch}
 <div class="tiles">{tiles}</div>
 {in_plan_line}
-<p class="muted small" style="margin-bottom:0">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
+<p class="hero-note">{html.escape(retirement_text)}. We tried {int(result['iterations']):,} possible market futures, assuming
 {_pct(assumptions, 'expected_return', 0.06)}% yearly growth and {_pct(assumptions, 'inflation_rate', 0.03)}% price rises. Amounts are in {"today&#x27;s dollars (what the money buys now)" if mode == "today" else "future dollars (grown by inflation)"}.
 <a href="/monte-carlo.html#assumptions">Change assumptions</a></p>
 </div>

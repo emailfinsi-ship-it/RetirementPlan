@@ -33,8 +33,6 @@ from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.rmd import rmd_age_for_birth_year
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
-from source.reporting.monte_carlo.real_estate_sale_compare import drawdown_sale_comparison
-from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
     _donut_chart_html,
     _editable_number_cell,
@@ -536,19 +534,11 @@ def _render_drawdown_planning_page() -> str:
         "pushes your withdrawals into higher brackets from then on.</p>"
         if assumptions.get("rental_taxable_schedule") else ""
     )
-    sale = s["real_estate_sale"]
-    sale_card = sale_comparison_card_html(
-        sale=sale,
-        intro=(
-            "Your year-by-year plan below re-run with every property sold: the proceeds join the Taxable pool, "
-            "rental income stops, and everything else stays the same."
-        ),
-        rows=drawdown_sale_comparison(
-            keep_schedule=schedule, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"],
-            assumptions=schedule_assumptions, sale=sale, real_estate=s["real_estate"],
-            loan_balances=s["real_estate_loan_balances"],
-        ),
-    ) if sale["has_properties"] else ""
+    sale_card = (
+        '<p class="muted small" style="margin:10px 0"><strong>Thinking of selling your real estate?</strong> '
+        'The side-by-side keep-vs-sell comparison is on the <a href="/monte-carlo.html#sell-real-estate">'
+        'Will my money last?</a> tab.</p>'
+    ) if s["real_estate_sale"]["has_properties"] else ""
     has_birth_year = (assumptions.get("birth_year") or "").strip() != ""
     rmd_note = (
         "" if has_birth_year else

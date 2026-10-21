@@ -29,6 +29,10 @@ def _guide_html() -> str:
 def _render_tutorial_page() -> str:
     body = f"""{_CSS}
 <h2 style="margin-top:0">Tutorial</h2>
+<details class="card tut-guide" id="guide">
+<summary style="font-weight:650; font-size:15px; cursor:pointer;">User guide <span class="muted">(click to open)</span></summary>
+{_guide_html()}
+</details>
 <div class="card">
 <h3 class="sub" style="margin-top:0">Watch the tour</h3>
 <video class="tut-video" id="tut-video" controls preload="metadata" src="/tutorial/tour-dark.mp4"></video>
@@ -37,10 +41,6 @@ def _render_tutorial_page() -> str:
   <button type="button" class="chip" onclick="var v=document.getElementById('tut-video'); v.src='/tutorial/tour-light.mp4'; v.play();">Silent tour with captions (light, no sound)</button>
 </p>
 </div>
-<details class="card tut-guide" id="guide">
-<summary style="font-weight:650; font-size:15px; cursor:pointer;">User guide <span class="muted">(click to open)</span></summary>
-{_guide_html()}
-</details>
 <script>if (location.hash === '#guide') document.getElementById('guide').open = true;</script>
 """
     return _shell(title="Tutorial", active="tutorial.html", body=body)

@@ -32,8 +32,6 @@ from source.reporting.monte_carlo import (
     compare_roth_conversion_strategies,
     normalize_custom_strategy,
 )
-from source.reporting.monte_carlo.real_estate_sale_compare import legacy_sale_comparison
-from source.webapp.render_helpers.sale_cards import sale_comparison_card_html
 from source.webapp.render_helpers import (
     _money,
     _shell,
@@ -447,19 +445,11 @@ def _render_legacy_planning_page() -> str:
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions, custom=custom,
     )
     total_pool = sum(pools.values())
-    sale = s["real_estate_sale"]
-    sale_card = sale_comparison_card_html(
-        sale=sale,
-        intro=(
-            "Your current plan (the baseline row below, no conversions) re-run with every property sold, compared "
-            "on what's left for your heirs."
-        ),
-        rows=legacy_sale_comparison(
-            keep_result=result, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"],
-            assumptions=assumptions, sale=sale, real_estate=s["real_estate"],
-            loan_balances=s["real_estate_loan_balances"],
-        ),
-    ) if sale["has_properties"] else ""
+    sale_card = (
+        '<p class="muted small" style="margin:10px 0"><strong>Thinking of selling your real estate?</strong> '
+        'The side-by-side keep-vs-sell comparison is on the <a href="/monte-carlo.html#sell-real-estate">'
+        'Will my money last?</a> tab.</p>'
+    ) if s["real_estate_sale"]["has_properties"] else ""
     retirement_year = _resolve_retirement_year(assumptions)
     retirement_year_note = (
         f' <span class="muted">No withdrawal happens before {retirement_year} (your set Retirement year), same as '
