@@ -12,9 +12,9 @@ TUTORIAL_DIR = Path(__file__).resolve().parent.parent / "static" / "tutorial"
 # Where each screen starts in the "A tour of every screen" video (seconds). The "About this page" bar on
 # each tab links straight to that moment, so there is no extra video file (and no extra app size).
 SCREEN_CHAPTERS: dict[str, int] = {
-    "summary.html": 35, "asset.html": 83, "real-estate.html": 98, "linked-accounts.html": 110,
-    "linked-positions.html": 122, "rebalance.html": 140, "expense.html": 164, "monte-carlo.html": 210,
-    "drawdown-planning.html": 233, "legacy-planning.html": 255, "setup.html": 265,
+    "summary.html": 29, "asset.html": 77, "real-estate.html": 92, "linked-accounts.html": 103,
+    "linked-positions.html": 114, "rebalance.html": 133, "expense.html": 157, "monte-carlo.html": 211,
+    "drawdown-planning.html": 235, "legacy-planning.html": 259, "setup.html": 270,
 }
 
 
