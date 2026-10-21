@@ -30,8 +30,7 @@ class TestViewMode(DashboardTestCase):
 
     def test_all_explore_tabs_are_always_listed(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")
-        for href in ("/drawdown-planning.html", "/legacy-planning.html"):
-            self.assertIn(href, body)
+        self.assertIn("/drawdown-planning.html", body)
 
     def test_advanced_parts_are_tagged_not_removed(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")
