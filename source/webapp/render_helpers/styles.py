@@ -314,7 +314,7 @@ PAGE_CSS = """
     .hdr-brand { min-width: 0; }
     .hdr-brand p { display: none; }
   }
-  #hide-toggle, #theme-toggle, #report-btn, #sync-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  #hide-toggle, #theme-toggle, #report-btn, #sync-btn, #quit-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }

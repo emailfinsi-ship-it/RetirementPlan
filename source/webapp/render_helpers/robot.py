@@ -35,6 +35,36 @@ def robot_svg(size: int = 84) -> str:
     return _SVG.replace("{size}", str(int(size)))
 
 
+# A friendly human presenter, original artwork, for the tutorial video. It reuses the robot's CSS hooks
+# (.rb for the whole figure, .rb-eye for the blink, .rb-mouth for the talking mouth) so the same
+# "talking" switch animates either character.
+_PERSON_SVG = """<svg class="rb rb-person" viewBox="0 0 100 112" width="{size}" height="{size}" role="img" aria-label="Fin, your friendly guide" xmlns="http://www.w3.org/2000/svg">
+<path d="M6 112C6 91 24 82 50 82s44 9 44 30z" fill="#0b5fc7"/>
+<path d="M37 82 50 101 63 82z" fill="#ffffff"/>
+<path d="M44 90l6 11 6-11-6-5z" fill="#e9eef7"/>
+<rect x="43" y="68" width="14" height="18" rx="6" fill="#e2a47c"/>
+<circle cx="50" cy="12" r="9.5" fill="#4a2a17"/>
+<ellipse cx="50" cy="42" rx="31" ry="32" fill="#4a2a17"/>
+<ellipse cx="23" cy="52" rx="5" ry="6.5" fill="#e9b189"/>
+<ellipse cx="77" cy="52" rx="5" ry="6.5" fill="#e9b189"/>
+<ellipse cx="50" cy="50" rx="26" ry="29.5" fill="#f3c4a1"/>
+<path d="M23 44C22 23 40 14 52 15c16 1 27 13 25 29-6-10-17-17-30-15-11 2-19 8-24 15z" fill="#4a2a17"/>
+<path d="M30 40q8-5 15-2" fill="none" stroke="#4a2a17" stroke-width="2.6" stroke-linecap="round"/>
+<path d="M55 38q7-3 15 2" fill="none" stroke="#4a2a17" stroke-width="2.6" stroke-linecap="round"/>
+<ellipse class="rb-eye" cx="39" cy="49" rx="3.3" ry="4.2" fill="#2a1a12"/>
+<ellipse class="rb-eye" cx="61" cy="49" rx="3.3" ry="4.2" fill="#2a1a12"/>
+<circle cx="40.2" cy="47.6" r="1.1" fill="#fff"/><circle cx="62.2" cy="47.6" r="1.1" fill="#fff"/>
+<path d="M50 52q-3 6 0 8" fill="none" stroke="#d9996f" stroke-width="1.8" stroke-linecap="round"/>
+<circle cx="32" cy="60" r="4.2" fill="#ff8fab" opacity=".35"/><circle cx="68" cy="60" r="4.2" fill="#ff8fab" opacity=".35"/>
+<path d="M42 64q8 6 16 0" fill="none" stroke="#9b2c3f" stroke-width="1.6" stroke-linecap="round"/>
+<ellipse class="rb-mouth" cx="50" cy="66" rx="5.5" ry="1.7" fill="#9b2c3f"/>
+</svg>"""
+
+
+def person_svg(size: int = 84) -> str:
+    return _PERSON_SVG.replace("{size}", str(int(size)))
+
+
 ROBOT_CSS = """
 .rb { display: block; overflow: visible; flex: none; }
 .rb-eye, .rb-mouth { transform-box: fill-box; transform-origin: center; }
