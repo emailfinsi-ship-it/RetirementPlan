@@ -34,6 +34,9 @@ class TestTutorial(DashboardTestCase):
     def test_about_this_page_links_to_that_screens_part_of_the_video(self):
         body = self._get("/monte-carlo.html").read().decode("utf-8")
         self.assertIn("/tutorial.html?v=screens&amp;t=", body)
+        # The About-this-page script swallows clicks on anything with the ex-btn class, so the link must not carry it.
+        link = body.split("/tutorial.html?v=screens")[0].rsplit("<a ", 1)[1]
+        self.assertNotIn("ex-btn", link)
         self.assertNotIn("Watch this screen", self._get("/tutorial.html").read().decode("utf-8").split("<video")[0])
 
     def test_four_videos_are_offered(self):
