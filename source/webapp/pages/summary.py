@@ -122,7 +122,7 @@ def _render_summary_page() -> str:
 
     _liquid_points, _total_points = _liquid_and_total_points(db.list_net_worth_snapshots())
     history_html = _line_chart_html(
-        "Total Asset over time", _total_points,
+        "Total assets over time", _total_points,
         note="One point per day, captured automatically. Individual accounts and property lines are on the Assets tab.",
         empty_message="The trend appears here after a couple of days of history -- it's captured automatically each day the program runs.",
     )

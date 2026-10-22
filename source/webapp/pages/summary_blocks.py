@@ -92,7 +92,7 @@ def hero_html(s: dict, result: dict, retirement_text: str, mode: str, schedule: 
     in_plan_line = (
         f'<p class="small" style="margin:8px 0 0">Plus <strong>{_money(re_in_plan)}</strong> of home equity you marked '
         f'&ldquo;In the plan?&rdquo; on <a href="/real-estate.html">Real Estate</a>. Investable savings above are your accounts only; '
-        f'the simulation below can also draw on that equity, last and with no tax modelled.</p>'
+        f'the simulation below can also draw on that equity, last and with no tax modeled.</p>'
     ) if re_in_plan > 0 else ""
     return f"""
 <div class="card hero tone-{status['tone']}">

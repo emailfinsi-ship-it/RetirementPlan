@@ -153,7 +153,7 @@ def evaluate(summary: dict, chance: float | None, positions: list[dict], data_is
             if abs(worst["drift_pts"]) >= DRIFT_ALERT_PTS:
                 word = "more" if worst["drift_pts"] > 0 else "less"
                 add("drift", "info", "Your mix has drifted from your goal",
-                    f"You hold {abs(worst['drift_pts']):.0f} points {word} {worst['cls'].lower()} than your goal.",
+                    f"You hold {abs(worst['drift_pts']):.0f} percentage points {word} in {worst['cls'].lower()} than your goal.",
                     "/rebalance.html")
     return out
 

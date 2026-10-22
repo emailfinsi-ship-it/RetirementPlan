@@ -18,6 +18,7 @@ import json
 import re
 
 from source.reporting import presentation as pres
+from source.webapp import wording
 
 _E: dict[str, dict] = {}
 
@@ -132,7 +133,7 @@ _add("money_last", "Will your money last?",
      "Each thin line is one possible future. The shaded band holds the middle 8 in 10 outcomes and the solid line is the typical one.",
      "The wider the band, the more uncertain the result. Try what-ifs on the 'Will my money last?' tab.")
 _add("start_balance", "Starting balance",
-     "The money the simulation starts with: accounts marked 'In the plan?' plus property you chose to include, less debts.",
+     "The money the simulation starts with: accounts marked 'In the plan?' plus property you chose to include, minus debts.",
      "It can differ from your net worth because it leaves out things you would not spend, such as a home you live in.")
 _add("chance", "Chance your money lasts",
      "Out of all the simulated futures, how often you do not run out of money before the end of the plan.",
@@ -152,7 +153,7 @@ _add("spending_sources", "Where your retirement spending comes from",
      "A bar for each year of retirement showing which money pays the bills: income, taxable accounts, tax-deferred accounts or Roth.",
      "The dashed line is that year's spending plus taxes. Hover or tap a year for exact amounts.",
      "The Drawdown tab shows the same plan in more detail, and lets you change the order.")
-_add("trend", "Total asset over time",
+_add("trend", "Total assets over time",
      "A daily record of your total assets, captured automatically each day the app runs.",
      "The figure beside the title is the change over the period shown. Dips usually follow the market.",
      "Give it a few days of history first; the line fills in over time.")
@@ -436,7 +437,7 @@ RULES: list[tuple[str, str, set | None]] = [
     (r"^typical case", "typical", None),
     (r"^strong case", "strong", None),
     (r"^where your retirement spending comes from$", "spending_sources", None),
-    (r"^total asset over time", "trend", None),
+    (r"^total assets? over time", "trend", None),
     (r"^net liquid asset over time", "liquid_trend", None),
     (r"^summary insight$", "insight", None),
     (r"income covers expenses$", "coverage", None),
@@ -699,6 +700,7 @@ def assets_html(page: str, targets: list[list[str]], extra: dict | None = None) 
         return ""
     entries = {k: _E[k] for k in sorted(keys)}
     entries.update(extra)
+    entries = wording.plain_entries(entries)
     payload = json.dumps({"entries": entries, "targets": targets}).replace("</", "<\\/")
     return f'{_CSS}<script type="application/json" id="ex-data">{payload}</script>{_JS}'
 

@@ -67,7 +67,7 @@ def build_actions(summary: dict, chance: float | None, positions: list[dict], da
             worst = max(plan["rows"], key=lambda r: abs(r["drift_pts"]))
             direction = "more" if worst["drift_pts"] > 0 else "less"
             add(55, "info", "Rebalance your mix",
-                f"You hold {abs(worst['drift_pts']):.0f} points {direction} {worst['cls'].lower()} than your goal. "
+                f"You hold {abs(worst['drift_pts']):.0f} percentage points {direction} in {worst['cls'].lower()} than your goal. "
                 "The Risk & Suggestions tab says what to move.", "/rebalance.html")
 
     # 5. Social Security timing matters most in the years just before claiming.

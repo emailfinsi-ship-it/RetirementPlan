@@ -167,6 +167,7 @@ THEME_TOGGLE_HTML = (
     '<button type="button" class="primary" id="tutorial-btn">Tutorial</button></a>'
     '<button type="button" id="hide-toggle" onclick="rpToggleHide()" aria-label="Hide balances" '
     f'title="Hide balances -- blur every dollar amount, handy for demos and screenshots">{_EYE_SVG}</button>'
+    '<!--wording-toggle-->'
     '<button type="button" id="theme-toggle" onclick="rpCycleTheme()" '
     'title="Switch between Auto (follow your Mac), Light and Dark">Theme: Auto</button>'
     "<script>rpThemeSync();</script>"
@@ -338,7 +339,7 @@ PAGE_CSS = """
     .hdr-brand { min-width: 0; }
     .hdr-brand p { display: none; }
   }
-  #hide-toggle, #theme-toggle, #report-btn, #sync-btn, #quit-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  #hide-toggle, #theme-toggle, #wording-toggle, #report-btn, #sync-btn, #quit-btn { align-self: flex-start; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }

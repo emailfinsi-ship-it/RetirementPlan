@@ -50,3 +50,14 @@ are not touched.
     - The Simple/Full switch is removed; every tab and tool is always shown. The header button is now "Report Download". The Tutorial page lists the User guide above the video.
     - The tutorial video is now two videos (Setting up; A tour of every screen), narrated by an illustrated presenter named Fin instead of the robot. Every tab's "About this page" bar has a "Watch this screen" link that opens the screens video at that tab. A Quit button sits after the Theme button; the Setup Wizard is a banner at the top of Setup; the spreadsheet import is last on Setup.
     - Setup Wizard guide is now the person (Fin) as in the videos; the V3 videos were re-recorded with the new My Plan tab order.
+11. **Plain / Technical wording switch.** A **Wording** button in the header (next to Theme) flips
+    every page between everyday words (the default) and the full financial wording. Plain mode
+    uses short, friendly sentences ("Bad-luck case", "Count in my plan?", "Pre-tax retirement")
+    and keeps the technical term behind the small "i". Page names (Drawdown Planning, Legacy
+    Planning, Budget vs Actual) never change. It only changes words. No number changes.
+    The choice is saved. A view-only login can switch it too.
+    - The words live in `source/webapp/plain_rules.py`; `source/webapp/wording.py` applies them
+      after a page is built. Technical mode applies nothing, so it is the original wording.
+    - Grammar fixes in both modes: a spaced `--` is shown as a proper dash; "Total assets over
+      time"; "an 11.0% rate"; "percentage points less in bonds than your goal"; "modeled",
+      "organized".

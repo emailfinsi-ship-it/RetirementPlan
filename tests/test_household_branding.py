@@ -122,7 +122,7 @@ class TestBranding(DashboardTestCase):
     def test_pages_carry_the_product_name_and_no_personal_names(self):
         for path in ("/summary.html", "/setup.html", "/drawdown-planning.html", "/expense.html", "/asset.html"):
             body = self._get(path).read().decode("utf-8")
-            self.assertIn(f"<title>{branding.PRODUCT_NAME} -- ", body, path)
+            self.assertIn(f"<title>{branding.PRODUCT_NAME} — ", body, path)
             self.assertNotIn("Retirement Plan --", body, path)
             self.assertIn('src="/icons/logo.svg"', body, path)
             self.assertIn(branding.PRODUCT_TAGLINE, body, path)
