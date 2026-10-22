@@ -68,6 +68,7 @@ from source.webapp.render_helpers import (
     _shell,
     _sync_now_button_html,
 )
+from source.webapp import wording
 from source.webapp.render_helpers.shell import set_request_role
 from source.webapp.pages.asset import _group_by_category, _render_asset_page, _sync_linked_institution_fields
 from source.webapp.pages.budget_vs_actual import _render_budget_vs_actual_page
@@ -126,7 +127,7 @@ _PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker
 # show something, and change nothing that is saved.
 _VIEWER_POSTS = {
     "/api/logout", "/api/login", "/api/reset-password", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
-    "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/tour-seen",
+    "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/wording-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
 _OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html"}
@@ -239,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send_html(self, content: str, status: int = 200) -> None:
-        body = content.encode("utf-8")
+        body = wording.fix_typography(content).encode("utf-8")
         try:
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -507,7 +508,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/setup-wizard.html":
                 self._send_html(_render_wizard_page())
             elif path == "/report.html":
-                self._send_html(_render_report_page())
+                self._send_html(wording.plain_html(_render_report_page()))
             elif path == "/account-balances.html":
                 self._send_export_html(config.account_balances_html_path())
             elif path == "/portfolio-positions.html":
@@ -878,6 +879,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/view-mode":
                 db.set_view_mode(str(payload.get("mode") or ""))
                 self._send_json({"ok": True, "mode": db.view_mode()})
+            elif path == "/api/wording-mode":
+                db.set_wording_mode(str(payload.get("mode") or ""))
+                self._send_json({"ok": True, "mode": db.wording_mode()})
             elif path == "/api/dollars-mode":
                 db.set_dollars_mode(str(payload.get("mode") or ""))
                 self._send_json({"ok": True, "mode": db.dollars_mode()})

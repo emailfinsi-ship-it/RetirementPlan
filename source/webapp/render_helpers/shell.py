@@ -12,7 +12,7 @@ from datetime import datetime
 
 from source.common import auth_store, branding, config, db
 from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THEME_TOGGLE_HTML
-from source.webapp import explain
+from source.webapp import explain, wording
 
 
 # Eight top-level tabs. Four of them hold two related pages each (the
@@ -839,7 +839,7 @@ function refreshLinkedPositionsBarCharts() {{
     bars.slice().sort(function(a, b) {{ return values[b.dataset.sliceId] - values[a.dataset.sliceId]; }})
       .forEach(function(bar) {{ container.appendChild(bar); }});
     var totalLabel = bars[0].closest('.card').querySelector('.bar-chart-total-label');
-    if (totalLabel) {{ totalLabel.textContent = '-- ' + moneyShort(total) + ' total'; }}
+    if (totalLabel) {{ totalLabel.textContent = '\u2014 ' + moneyShort(total) + ' total'; }}
   }});
 }}
 var EXPENDITURE_FILTER_DIMS = ['expense-category', 'expense-month', 'income-category', 'income-month', 'kind'];
@@ -1461,6 +1461,25 @@ def _header_sync_html() -> str:
     )
 
 
+def _header_wording_html() -> str:
+    """The Plain / Technical wording switch, just before the Theme button. Plain
+    (the default) uses everyday words; Technical keeps the full financial terms.
+    It only changes the words on the page, never a calculated number."""
+    plain = db.wording_mode() == "plain"
+    nxt = "technical" if plain else "plain"
+    label = "Wording: Plain" if plain else "Wording: Technical"
+    js = (
+        f"var b=this; b.disabled=true; postJSON('/api/wording-mode', {{mode: '{nxt}'}})"
+        ".then(function(){location.reload();}).catch(function(e){alert(e.message); b.disabled=false;});"
+    )
+    title = ("Everyday words are shown. Press to switch to the full technical wording."
+             if plain else "Full technical wording is shown. Press to switch to everyday words.")
+    return (
+        f'<button type="button" id="wording-toggle" data-mode="{"plain" if plain else "technical"}" '
+        f'title="{html.escape(title)}" onclick="{html.escape(js, quote=True)}">{label}</button>'
+    )
+
+
 def _header_quit_html() -> str:
     """A Quit button in the page header, right after the Theme button: the Mac app has no
     window of its own to close, so this stops the program (same request as
@@ -1498,6 +1517,33 @@ def _tour_state(active: str) -> str:
     return "auto"
 
 
+def _plain_targets(body: str, targets: list[list[str]]) -> list[list[str]]:
+    """The "i" button list with each heading's text turned into its plain-mode
+    form, so the buttons still find their headings after the words change."""
+    wanted = {text for text, _key in targets}
+    plain: dict[str, str] = {}
+    for rx, group, kind in ((explain._TEXT_HEAD, 3, "h"), (explain._TEXT_LABEL, 2, "l")):
+        for m in rx.finditer(body):
+            old = explain._norm(m.group(group))
+            if old in wanted:
+                plain.setdefault(old, wording.plain_node_text(m.group(group), kind))
+    return [[plain.get(text, text), key] for text, key in targets]
+
+
+_PLAIN_SHELL: str | None = None
+
+
+def _page_shell() -> str:
+    """The page template. In plain mode its own words (the "+ Add" window, the
+    what-if table the page script builds) are rewritten once and kept."""
+    global _PLAIN_SHELL
+    if not wording.is_plain():
+        return PAGE_SHELL
+    if _PLAIN_SHELL is None:
+        _PLAIN_SHELL = wording.plain_html(PAGE_SHELL)
+    return _PLAIN_SHELL
+
+
 def _shell(*, title: str, active: str, body: str) -> str:
     # Threaded through as <body data-current-year="..."> so the shared "+
     # Add" modal's Category field (see PAGE_SHELL) can drive the same
@@ -1506,9 +1552,15 @@ def _shell(*, title: str, active: str, body: str) -> str:
     current_year = int(db.get_assumptions().get("current_year") or datetime.now().year)
     annotated_body, explain_targets = explain.annotate(body, active)
     annotated_body, explain_extra = explain.condense(annotated_body)
-    return PAGE_SHELL.format(
-        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + _motto_html(active) + explain.page_button_html(active) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
-        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML + _header_quit_html(),
+    if wording.is_plain():
+        # Plain wording: the "i" buttons are matched on heading text, so the
+        # matching list is rebuilt from the plain headings before the page
+        # text itself is rewritten.
+        explain_targets = _plain_targets(annotated_body, explain_targets)
+        annotated_body = wording.plain_html(annotated_body)
+    return _page_shell().format(
+        title=html.escape(title), css=PAGE_CSS, nav=_nav_html(active), body=_viewer_banner_html() + _demo_banner_html() + _subnav_html(active) + wording.plain_html(_motto_html(active) + explain.page_button_html(active)) + annotated_body + _disclaimer_html() + explain.assets_html(active, explain_targets, explain_extra), current_year=current_year, view_mode=db.view_mode(), tour=_tour_state(active),
+        product_name=html.escape(branding.PRODUCT_NAME), product_tagline=html.escape(branding.PRODUCT_TAGLINE), product_headline=html.escape(branding.PRODUCT_HEADLINE), logout_html=_logout_html(), owner_options_html=_owner_options_html(), theme_head_script=THEME_INIT_SCRIPT, theme_toggle_html=_alert_bell_html() + _header_sync_html() + THEME_TOGGLE_HTML.replace("<!--wording-toggle-->", _header_wording_html()) + _header_quit_html(),
     )
 
 

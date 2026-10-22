@@ -51,3 +51,9 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
   - "If you sold your real estate" now appears only on *Will my money last?*; Drawdown and Legacy link to it.
   - The Simple/Full switch is removed; every tab and tool is always shown. The header button is now "Report Download". The Tutorial page lists the User guide above the video.
   - The tutorial video is now two videos (Setting up; A tour of every screen), narrated by an illustrated presenter named Fin instead of the robot. Every tab's "About this page" bar has a "Watch this screen" link that opens the screens video at that tab. A Quit button sits after the Theme button; the Setup Wizard is a banner at the top of Setup; the spreadsheet import is last on Setup.
+
+## Plain / Technical wording
+A **Wording** button in the header (next to Theme) switches every page between everyday words
+(the default) and the full financial wording. Page names never change and no number changes.
+The words live in `source/webapp/plain_rules.py`; `source/webapp/wording.py` applies them.
+Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11.0%", and more).
