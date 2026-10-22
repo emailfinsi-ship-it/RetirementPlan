@@ -82,6 +82,23 @@ def set_view_mode(mode: str) -> None:
     set_meta(_META_VIEW_MODE, mode)
 
 
+_META_WORDING_MODE = "wording_mode"
+WORDING_MODES = ("plain", "technical")
+
+
+def wording_mode() -> str:
+    """"plain" (the default: everyday words) or "technical" (the full financial
+    wording). A display preference only -- it never changes a calculated number."""
+    value = get_meta(_META_WORDING_MODE)
+    return value if value in WORDING_MODES else "plain"
+
+
+def set_wording_mode(mode: str) -> None:
+    if mode not in WORDING_MODES:
+        raise ValueError("Wording must be 'plain' or 'technical'.")
+    set_meta(_META_WORDING_MODE, mode)
+
+
 _META_TOUR_SEEN = "tour_seen"
 
 

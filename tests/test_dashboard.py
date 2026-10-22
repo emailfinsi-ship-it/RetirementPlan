@@ -57,6 +57,10 @@ class DashboardTestCase(unittest.TestCase):
         db.init_db()
         secrets_store.clear_vault_cache()
         auth_store.clear_auth_cache()
+        # Everyday (plain) wording is the app's default, but the tests below
+        # check the page text as written in the code, which is the technical
+        # wording. tests/test_wording.py covers the plain wording itself.
+        db.set_wording_mode("technical")
         # No test in this file sets a login password unless it says so
         # explicitly, so the auth gate in dashboard.Handler stays off by
         # default here -- same "every existing test keeps behaving
@@ -203,7 +207,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
         self.assertRegex(body, r'href="/expense.html" class="active">.*<span class="nl">Income &amp; Expenses</span></a>')
-        self.assertIn("<title>" + branding.PRODUCT_NAME + " -- Income &amp; Expenses</title>", body)
+        self.assertIn("<title>" + branding.PRODUCT_NAME + " — Income &amp; Expenses</title>", body)
 
     def test_monte_carlo_page_renders_with_no_data(self):
         resp = self._get("/monte-carlo.html")
@@ -407,7 +411,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
         # The answer and the charts that explain it come first; "What should I do next?" closes the page.
-        self.assertLess(body.index("Total Asset over time"), body.index("What should I do next?"))
+        self.assertLess(body.index("Total assets over time"), body.index("What should I do next?"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):
@@ -416,7 +420,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
                 real_estate_equity_total=0.0, retirement_liquid_total=total, snapshot_date=day,
             )
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn("Total Asset over time", body)
+        self.assertIn("Total assets over time", body)
         self.assertIn("<svg", body)
 
     def test_setup_page_has_the_excel_export_button(self):
@@ -1399,7 +1403,7 @@ class TestLinkAccountEndpoint(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("62,000", body)  # the live Plaid balance
         self.assertNotIn("$100", body)  # not the stale typed-in balance
-        self.assertIn("Fidelity -- APPLE 401(K) PLAN", body)
+        self.assertIn("Fidelity — APPLE 401(K) PLAN", body)
 
     def test_linked_accounts_page_shows_which_line_item_its_folded_into(self):
         db.update_line_item("assets", self.item_id, {"linked_account_id": "acc-401k"})
@@ -1638,7 +1642,7 @@ class TestFullAccountNumber(DashboardTestCase):
     def test_link_dropdown_label_shows_the_full_number(self):
         resp = self._get("/asset.html")
         body = resp.read().decode("utf-8")
-        self.assertIn("Wells Fargo -- Everyday Checking (1234567890)", body)
+        self.assertIn("Wells Fargo — Everyday Checking (1234567890)", body)
 
     def test_linked_accounts_table_shows_the_full_number_instead_of_the_mask(self):
         # The "Linked accounts (live, read-only)" table lives on its own
@@ -1731,7 +1735,7 @@ class TestRealEstateLinkAndIncome(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("480,000", body)  # the live balance
         self.assertIn("420,000", body)  # equity: 900,000 - 480,000
-        self.assertIn("Wells Fargo -- MORTGAGE ...7982", body)
+        self.assertIn("Wells Fargo — MORTGAGE ...7982", body)
 
     def test_asset_page_real_estate_line_reflects_live_loan_balance_once_linked(self):
         # The Assets tab's collapsed real-estate summary line shows equity,
@@ -4202,7 +4206,7 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1000.0, snapshot_date="2026-09-01")
         db.record_account_balance_snapshot(account_id="acc-brokerage", balance=1200.0, snapshot_date="2026-09-15")
         body = self._get("/linked-accounts.html").read().decode("utf-8")
-        self.assertIn("Fidelity -- Fidelity Brokerage", body)
+        self.assertIn("Fidelity — Fidelity Brokerage", body)
         # A lone account's own line already IS the total, so no separate
         # "Total" series/legend entry is added for it.
         self.assertNotIn(">Total<", body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0])
@@ -4245,8 +4249,8 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         db.record_account_balance_snapshot(account_id="acc-ira", balance=3100.0, snapshot_date="2026-09-15")
         body = self._get("/linked-accounts.html").read().decode("utf-8")
         section = body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0]
-        self.assertIn("Fidelity -- Fidelity Brokerage", section)
-        self.assertIn("Fidelity -- Fidelity IRA", section)
+        self.assertIn("Fidelity — Fidelity Brokerage", section)
+        self.assertIn("Fidelity — Fidelity IRA", section)
         self.assertIn(">Total<", section)
         # Headline change figure reads off the Total (the emphasized
         # series): 4,000 on 09-01 -> 4,200 on 09-15, a +$200 change.
@@ -5584,7 +5588,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         self._link_fidelity_401k(balance=100_000.0)
         body = self._get("/linked-accounts.html").read().decode("utf-8")
         self.assertIn("Split a linked account across tax buckets", body)
-        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
+        self.assertIn('<option value="acc-401k">Fidelity — 401(K) PLAN ($100,000)</option>', body)
 
     def test_no_unlinked_investment_accounts_shows_a_helpful_message_instead_of_the_add_form(self):
         body = self._get("/linked-accounts.html").read().decode("utf-8")
@@ -5607,8 +5611,8 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         })
         self.assertEqual(status, 200)
         body = self._get("/linked-accounts.html").read().decode("utf-8")
-        self.assertIn("401(K) PLAN -- Base Pay Traditional", body)
-        self.assertIn("401(K) PLAN -- Roth In-Plan Conversion", body)
+        self.assertIn("401(K) PLAN — Base Pay Traditional", body)
+        self.assertIn("401(K) PLAN — Roth In-Plan Conversion", body)
         self.assertNotIn(">401(K) PLAN</td>", body)  # the lump source row is gone
         self.assertNotIn("adjust the amounts below so they match", body)  # 70k + 30k == the account's own balance
 
@@ -5632,7 +5636,7 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         item_id = db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "401k", "balance": 1, "include_in_monte_carlo": 1})
         db.update_line_item("assets", item_id, {"linked_account_id": "acc-401k"})
         body = self._get("/linked-accounts.html").read().decode("utf-8")
-        self.assertIn('<option value="acc-401k">Fidelity -- 401(K) PLAN ($100,000)</option>', body)
+        self.assertIn('<option value="acc-401k">Fidelity — 401(K) PLAN ($100,000)</option>', body)
 
         status, _ = self._post("/api/line-item/add", {
             "section": "account_tax_splits",
@@ -5645,8 +5649,8 @@ class TestDrawdownPlanningPage(DashboardTestCase):
         })
         self.assertEqual(status, 200)
         body = self._get("/linked-accounts.html").read().decode("utf-8")
-        self.assertIn("401k -- Base Pay Traditional", body)
-        self.assertIn("401k -- Roth In-Plan Conversion", body)
+        self.assertIn("401k — Base Pay Traditional", body)
+        self.assertIn("401k — Roth In-Plan Conversion", body)
         # The lump "401k" source row (and its old single bucket) is gone,
         # and the tiles above reflect the split too -- $30,000 now
         # shows up as Roth rather than all $100,000 sitting under

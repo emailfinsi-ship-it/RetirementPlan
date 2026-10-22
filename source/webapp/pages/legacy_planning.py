@@ -23,6 +23,7 @@ and heir-tax content below is unique to this tab.
 from __future__ import annotations
 
 import html
+import re
 
 from source.common import db
 from source.reporting.aggregate import build_summary
@@ -41,6 +42,11 @@ from source.webapp.render_helpers import (
     _withdrawn_ending_cells_html,
     _withdrawn_ending_header_html,
 )
+
+def _a_an(number_text: str) -> str:
+    """"an" before a number said with a vowel sound (8, 11, 18, 80-89), else "a"."""
+    return "an" if re.match(r"(8|11(?!\d)|18(?!\d))", number_text) else "a"
+
 
 _HEIR_TYPE_LABELS = {
     "non_spouse": "Non-spouse (adult child, etc.)",
@@ -74,7 +80,7 @@ for the heir picked below (10 for non-spouse, matching the SECURE Act's own defa
 placeholder for "a long remaining lifetime") -- type over it for your own real situation. "Heir's assumed income" is
 what their own inherited distributions are assumed to stack on top of -- auto-filled from this plan's own current
 Yearly Drawdown need ("use my own current bracket as a stand-in"), estimated right now at {_money(heir_base_income)}
-(about a {heir_marginal_rate * 100:.1f}% combined federal + California marginal rate) -- type over it if you have a
+(about {_a_an(f'{heir_marginal_rate * 100:.1f}')} {heir_marginal_rate * 100:.1f}% combined federal + California marginal rate) -- type over it if you have a
 better estimate of your heir's own income.</p></details>
 <form class="inline" onsubmit="event.preventDefault();
   var fields = {{}};
@@ -264,10 +270,11 @@ def _how_we_arrived_html(result: dict) -> str:
             "-- a clear but not overwhelming lead. Small changes to the assumptions can still move it.</p>"
         )
     spread = result["heir_spread_years"]
+    rate_text = f"{result['heir_marginal_rate'] * 100:.1f}"
     heir_html = (
         f"<p><strong>Heir assumptions used.</strong> {_HEIR_TYPE_LABELS.get(result['heir_type'], result['heir_type'])}, "
         f"withdrawing the inherited Tax-deferred balance evenly over {spread} years on top of an assumed "
-        f"{_money(result['heir_base_income'])} of their own income (about a {result['heir_marginal_rate'] * 100:.1f}% "
+        f"{_money(result['heir_base_income'])} of their own income (about {_a_an(rate_text)} {rate_text}% "
         "combined federal + California marginal rate). You can change all three in the Heir assumptions card above.</p>"
     )
     return f"""

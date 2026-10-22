@@ -106,7 +106,7 @@ from source.common.db.owners import (
 from source.common.db.meta import (
     dollars_mode, get_meta, legacy_whatif, set_dollars_mode, set_legacy_whatif, set_meta, set_setup_complete,
     safe_spend_target, set_safe_spend_target,
-    setup_complete, setup_needed, set_tour_seen, set_view_mode, tour_seen, view_mode,
+    setup_complete, setup_needed, set_tour_seen, set_view_mode, set_wording_mode, tour_seen, view_mode, wording_mode,
 )
 from source.common.db.plaid import (
     account_balances_from_payload,
@@ -189,6 +189,8 @@ __all__ = [
     "set_safe_spend_target",
     "set_tour_seen",
     "set_view_mode",
+    "set_wording_mode",
+    "wording_mode",
     "tour_seen",
     "view_mode",
     "legacy_whatif",

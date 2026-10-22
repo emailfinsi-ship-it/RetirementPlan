@@ -150,11 +150,11 @@ function analyzeClaiming(key) {{
       return '<tr' + (r.age === d.recommended_age ? ' style="font-weight:600;"' : '') + '><td>' + r.age + tags + '</td><td class="num">' + wiMoney(r.annual) + '</td><td class="num">' +
         wiPct(r.success_rate) + '</td><td class="num">' + wiMoney(r.median) + '</td><td class="num">' + wiMoney(r.p10) + '</td></tr>';
     }}).join('');
-    var survivor = d.married ? '<p class="muted small">For couples, the larger benefit also becomes the surviving spouse&#39;s benefit, so delaying the higher earner&#39;s claim often matters more than this single-person comparison shows. Survivor benefits are not modelled here.</p>' : '';
+    var survivor = d.married ? '<p class="muted small">For couples, the larger benefit also becomes the surviving spouse&#39;s benefit, so delaying the higher earner&#39;s claim often matters more than this single-person comparison shows. Survivor benefits are not modeled here.</p>' : '';
     out.innerHTML = '<div class="card" style="margin:8px 0"><p style="margin-top:0">' + msg + '</p>' +
       '<table><thead><tr><th>Claim at</th><th class="num">Per year</th><th class="num">Chance money lasts</th><th class="num">Typical ending balance</th><th class="num">Cautious ending balance</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<p style="margin:10px 0 4px"><button type="button" onclick="var s = document.querySelector(\\'[name=ss_claim_age_' + key + ']\\'); s.value = ' + d.recommended_age + '; s.scrollIntoView({{block: \\'center\\'}});">Use ' + d.recommended_age + ' in the form above</button> <span class="muted small">then Save &amp; apply</span></p>' +
-      '<p class="muted small">Every age runs your whole plan on the same random markets, so only the claiming age differs. Balances are in today&#39;s dollars. Estimates, not advice: taxes on benefits, spousal benefits and health are not modelled, and your own Social Security statement has the real amounts.</p>' + survivor + '</div>';
+      '<p class="muted small">Every age runs your whole plan on the same random markets, so only the claiming age differs. Balances are in today&#39;s dollars. Estimates, not advice: taxes on benefits, spousal benefits and health are not modeled, and your own Social Security statement has the real amounts.</p>' + survivor + '</div>';
     btn.disabled = false; btn.textContent = label;
   }}).catch(function(e) {{ out.innerHTML = '<p class="status-line status-warn">' + e.message + '</p>'; btn.disabled = false; btn.textContent = label; }});
 }}
