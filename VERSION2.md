@@ -57,3 +57,11 @@ A **Wording** button in the header (next to Theme) switches every page between e
 (the default) and the full financial wording. Page names never change and no number changes.
 The words live in `source/webapp/plain_rules.py`; `source/webapp/wording.py` applies them.
 Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11.0%", and more).
+
+- **Debt paydown over time (Assets & Debts).** A "Debt paydown over time" chart now sits right
+  under the Liabilities table. It follows every liability and every home mortgage (your share of
+  the loan) one point a day, with a "paid down $X since DATE" headline (falling is green). The
+  default line is All debts (liabilities plus mortgages); chips plot Liabilities, Home mortgages
+  or any single debt, in $ or % change. Each debt's own history starts the day this ships
+  (new table `debt_balance_snapshots`); the Liabilities total already had history. A workbook
+  re-import keeps the history of imported loans and properties (matched by name).

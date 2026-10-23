@@ -6062,6 +6062,102 @@ class TestThemeToggle(DashboardTestCase):
         self.assertNotIn('fill="#0b0b0b"', html_out)
 
 
+class TestDebtPaydownChart(DashboardTestCase):
+    """The "Debt paydown over time" card under the Liabilities table
+    (asset.py's _debt_paydown_html, drawn by charts._net_worth_explorer_html
+    in debt mode)."""
+
+    def tearDown(self):
+        db.clear_section("assets")
+        db.clear_section("real_estate")
+        with db.connect() as conn:
+            conn.execute("DELETE FROM net_worth_snapshots")
+            conn.execute("DELETE FROM debt_balance_snapshots")
+
+    def _snap(self, liabilities, snapshot_date, *, re_value=None, re_equity=0.0):
+        db.record_snapshot(
+            net_worth=0, manual_asset_total=0, linked_asset_total=0, liability_total=liabilities,
+            real_estate_equity_total=re_equity, retirement_liquid_total=0,
+            real_estate_value_total=re_value, snapshot_date=snapshot_date,
+        )
+
+    def _card(self, name, values):
+        row = db.add_line_item("assets", {"kind": "liability", "category": "Card", "name": name, "balance": values[-1]})
+        for i, v in enumerate(values, start=1):
+            db.record_debt_balance_snapshot(source="liability", row_id=row, balance=v, name=name, snapshot_date=f"2026-09-0{i}")
+        return row
+
+    def test_no_card_at_all_without_any_debt(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertNotIn("Debt paydown over time", body)
+        self.assertNotIn('id="debt-explorer"', body)
+
+    def test_one_day_of_history_shows_the_come_back_tomorrow_message(self):
+        self._card("Visa", [5_000.0])
+        self._snap(5_000.0, "2026-09-01")
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("Debt paydown over time", body)
+        self.assertIn("Come back tomorrow to see debt paydown", body)
+        self.assertNotIn('id="debt-explorer"', body)
+
+    def test_the_card_sits_under_the_liabilities_table_with_a_paid_down_headline(self):
+        card = self._card("Visa", [5_000.0, 4_500.0, 4_000.0])
+        for i, v in enumerate((5_000.0, 4_500.0, 4_000.0), start=1):
+            self._snap(v, f"2026-09-0{i}")
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertEqual(body.count('id="debt-explorer"'), 1)
+        self.assertLess(body.index("Total liabilities:"), body.index('id="debt-explorer"'))
+        self.assertIn("Debt paydown over time", body)
+        self.assertIn("paid down $1,000 (20.0%) since 2026-09-01", body)
+        self.assertIn(f'data-id="{card}"', body)
+        self.assertIn("Visa", body)
+        self.assertIn("rp-debt-assets", body)
+        self.assertIn("Debt balances over time", body)
+        # The asset chart is untouched and keeps its own storage keys.
+        self.assertNotIn('id="nw-explorer"', body.split('id="debt-explorer"')[0].split("Total liabilities:")[1])
+
+    def test_a_rise_reads_up_and_is_not_called_paid_down(self):
+        self._snap(4_000.0, "2026-09-01")
+        self._snap(5_000.0, "2026-09-02")
+        self._card("Visa", [4_000.0, 5_000.0])
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("up $1,000 (25.0%) since 2026-09-01", body)
+        self.assertNotIn("paid down $1,000", body)
+
+    def test_mortgages_join_into_all_debts_and_become_the_headline(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
+        self._snap(5_000.0, "2026-09-01", re_value=None, re_equity=590_000.0)
+        self._snap(5_000.0, "2026-09-02", re_value=900_000.0, re_equity=600_000.0)
+        self._snap(4_000.0, "2026-09-03", re_value=900_000.0, re_equity=602_000.0)
+        body = self._get("/asset.html").read().decode("utf-8")
+        card = body[body.index('id="debt-explorer"'):]
+        self.assertIn('"name": "All debts"', card)
+        self.assertIn('"headlineTotal": true', card)
+        self.assertIn('["2026-09-02", 305000.0], ["2026-09-03", 302000.0]', card)
+        self.assertIn('data-re="mort"', card)
+        self.assertIn('data-re="liab"', card)
+        self.assertIn("paid down $3,000 (1.0%) since 2026-09-02", card)
+
+    def test_without_mortgage_history_the_headline_is_just_liabilities(self):
+        db.add_line_item("real_estate", {"name": "Home", "current_value": 900_000.0, "loan_balance": 300_000.0})
+        self._snap(5_000.0, "2026-09-01", re_equity=600_000.0)
+        self._snap(4_000.0, "2026-09-02", re_equity=600_000.0)
+        body = self._get("/asset.html").read().decode("utf-8")
+        card = body[body.index('id="debt-explorer"'):]
+        self.assertIn('"total": null', card)
+        self.assertNotIn('data-re="mort"', card)
+        self.assertIn('"headlineTotal": false', card)
+
+    def test_each_chart_keeps_its_own_storage_keys(self):
+        self._card("Visa", [5_000.0, 4_000.0])
+        self._snap(5_000.0, "2026-09-01")
+        self._snap(4_000.0, "2026-09-02")
+        body = self._get("/asset.html").read().decode("utf-8")
+        debt_part = body[body.index('id="debt-explorer"'):]
+        self.assertNotIn("rp-nw-", debt_part)
+        self.assertIn("rp-debt-show", debt_part)
+
+
 class TestNetWorthExplorer(DashboardTestCase):
     """The Assets tab's net-worth card with a picker for plotting individual
     assets next to the total (charts._net_worth_explorer_html)."""
