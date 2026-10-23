@@ -513,6 +513,9 @@ function updateMoneyField(section, id, field, inputEl) {{
 }}
 function formatMoneyInputs() {{
   document.querySelectorAll('input[data-money]').forEach(function(el) {{
+    // Only plain text boxes: a type="number" box (the Add forms) cannot hold
+    // "12,345", so writing commas into it makes the browser wipe what was typed.
+    if (el.type !== 'text') return;
     el.addEventListener('focus', function() {{ el.value = el.value.replace(/,/g, ''); el.select(); }});
     el.addEventListener('blur', function() {{
       var n = Number(String(el.value).replace(/[$,\\s]/g, ''));
