@@ -26,6 +26,7 @@ NAV_ITEMS = (
     ("summary.html", "Today"),
     ("linked-accounts.html", "My Plan"),
     ("monte-carlo.html", "Explore"),
+    ("trading.html", "Trading"),
     ("setup.html", "Setup"),
 )
 
@@ -39,7 +40,6 @@ NAV_GROUPS = (
     (
         ("monte-carlo.html", "Will my money last?"), ("rebalance.html", "Risk & Suggestions"),
         ("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning"),
-        ("trading.html", "Trading"),
     ),
 )
 

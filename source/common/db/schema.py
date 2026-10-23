@@ -478,6 +478,21 @@ CREATE TABLE IF NOT EXISTS debt_balance_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_debt_balance_snapshots_row
     ON debt_balance_snapshots(source, row_id, snapshot_date);
+
+-- Every real-money (live) Alpaca order this program sent, newest last: the audit
+-- trail behind the Trading tab's daily limit. Practice (paper) orders are not logged.
+CREATE TABLE IF NOT EXISTS live_order_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    placed_at TEXT NOT NULL,
+    day TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    order_type TEXT NOT NULL,
+    estimate REAL NOT NULL,
+    order_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT ''
+);
 """
 
 

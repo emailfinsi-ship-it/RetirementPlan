@@ -241,7 +241,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
 
     def test_nav_has_three_tabs_plus_setup_and_grouped_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Setup"])
+        self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Trading", "Setup"])
         groups = {
             "/linked-accounts.html": ["/linked-positions.html", "/asset.html", "/real-estate.html", "/expense.html",
                                       "/real-expenditure.html", "/budget-vs-actual.html"],
@@ -6108,9 +6108,14 @@ class TestTradingTab(DashboardTestCase):
         with patch("urllib.request.urlopen", fake):
             return self._post("/api/alpaca-keys", {"key_id": "PKX", "secret": "S3"})
 
-    def test_trading_is_in_the_navigation(self):
-        body = self._get("/monte-carlo.html").read().decode("utf-8")   # the Explore tab's own sub-menu
-        self.assertIn('href="/trading.html"', body)
+    def test_trading_is_its_own_main_icon_next_to_explore(self):
+        from source.webapp.render_helpers.shell import NAV_ITEMS
+        labels = [label for _h, label in NAV_ITEMS]
+        self.assertEqual(labels.index("Trading"), labels.index("Explore") + 1)
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading.html"', body)
+        page = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading.html" class="active">', page)
 
     def test_the_trading_tab_has_its_own_icon_not_the_blank_default(self):
         from source.webapp.render_helpers.shell import _NAV_ICONS, _nav_icon_html

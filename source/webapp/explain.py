@@ -58,9 +58,9 @@ _add("page:rebalance.html", "About Risk & Suggestions",
      "'Your mix today' is what you hold. The suggestions per account say what to buy or sell to get closer to your goal.",
      "Pick a risk level first. This app only suggests; it never buys or sells anything.")
 _add("page:trading.html", "About Trading",
-     "A practice account at Alpaca: real market prices, play money. You can look at it, place practice orders and cancel them.",
-     "Orders are checked and priced first, then you confirm. Each practice order is limited in size.",
-     "Nothing here uses real money, and the practice balances are never counted in your net worth or plan.")
+     "Your Alpaca brokerage account: balances, positions and orders. A practice (play money) account and a live (real money) account each have their own page.",
+     "Every order is checked and priced first, then you confirm. Live trading is switched off until you turn it on, turns itself off after a few hours, and has limits you set.",
+     "Live orders use real money. This app never places an order by itself and does not give investment advice.")
 _add("page:expense.html", "About Income & Expenses",
      "What comes in and what goes out each year, now and in retirement. These numbers drive how much you need to withdraw from savings.",
      "Each row is a yearly amount, optionally limited to certain years. Rows that inflate grow with the inflation rate.",

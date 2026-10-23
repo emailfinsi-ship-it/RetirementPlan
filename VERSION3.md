@@ -78,3 +78,14 @@ are not touched.
     single-use token that expires in 5 minutes. The key pair is stored in the Keychain vault, checked with Alpaca
     before it is saved, and removable with *Disconnect*. Practice balances are never counted in net worth or the
     plan. Code: `source/collector/alpaca.py`, `source/webapp/pages/trading.py`.
+
+    **Live (real-money) trading, added to the Trading tab.** *Trading* is now its own main icon next to
+    Explore, with two pages: the practice account and a separate **Live account (REAL money)** page. Live
+    keys are stored apart from the practice keys and checked with Alpaca before saving. Live trading is
+    **off** until you type `TRADE REAL MONEY`; it then stays on for 8 hours and switches itself off (or turn
+    it off any time). While it is on, every order still needs *Preview*, then you must **type the symbol again**
+    to send it. You set a per-order limit and a per-day limit (defaults $2,000 and $5,000; the app never allows
+    more than $25,000 per order or $50,000 per day), the daily total counts what this app already sent today,
+    and every real-money order sent is recorded in an audit list on the page. Cancelling an order never needs the
+    switch. Removing the live keys also switches live trading off. Code: `source/webapp/trading_api.py`,
+    `source/common/db/live_trading.py`.
