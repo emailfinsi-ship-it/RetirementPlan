@@ -82,10 +82,25 @@ class TestPaperOnly(unittest.TestCase):
         self.assertEqual(call["headers"]["Apca-api-secret-key"], "secret")
         self.assertNotIn("PKTEST", call["url"])
 
-    def test_no_live_host_is_mentioned_anywhere_in_the_module(self):
-        with open(alpaca.__file__, encoding="utf-8") as handle:
-            source = handle.read().replace("paper-api.alpaca.markets", "")
-        self.assertNotIn("//api.alpaca.markets", source)
+    def test_the_live_host_is_used_only_when_live_is_asked_for(self):
+        fake = FakeAlpaca({
+            ("GET", "paper-api.alpaca.markets/v2/account"): {}, ("GET", "api.alpaca.markets/v2/account"): {},
+            ("GET", "paper-api.alpaca.markets/v2/positions"): [], ("GET", "paper-api.alpaca.markets/v2/orders"): [],
+        })
+        alpaca.get_account(KEYS, urlopen=fake)
+        alpaca.list_positions(KEYS, urlopen=fake)
+        alpaca.list_orders(KEYS, urlopen=fake)
+        self.assertTrue(all("paper-api" in c["url"] for c in fake.calls))
+        alpaca.get_account(KEYS, mode="live", urlopen=fake)
+        self.assertEqual(fake.calls[-1]["url"], "https://api.alpaca.markets/v2/account")
+
+    def test_an_unknown_mode_is_refused_before_any_request(self):
+        fake = FakeAlpaca()
+        with self.assertRaises(alpaca.AlpacaError):
+            alpaca.get_account(KEYS, mode="sandbox", urlopen=fake)
+        with self.assertRaises(alpaca.AlpacaError):
+            alpaca.preview_order({"symbol": "VTI", "side": "buy", "qty": 1, "type": "limit", "limit_price": 1}, KEYS, mode="x", urlopen=fake)
+        self.assertEqual(fake.calls, [])
 
 
 class TestReading(unittest.TestCase):
@@ -214,6 +229,61 @@ class TestPreviewThenPlace(unittest.TestCase):
         self.assertIn("insufficient buying power", str(ctx.exception))
 
 
+class TestLiveOrders(unittest.TestCase):
+    def setUp(self):
+        alpaca._previews.clear()
+
+    ORDER = {"symbol": "VTI", "side": "buy", "qty": "10", "type": "market"}
+
+    def routes(self):
+        return {**trade_route(250.0), ("POST", "api.alpaca.markets/v2/orders"): {"id": "L-1", "status": "accepted"}}
+
+    def test_a_live_order_goes_to_the_live_host_only(self):
+        fake = FakeAlpaca(self.routes())
+        token = alpaca.preview_order(self.ORDER, KEYS, mode="live", urlopen=fake)["token"]
+        placed = alpaca.place_order(token, KEYS, mode="live", urlopen=fake)
+        post = [c for c in fake.calls if c["method"] == "POST"][0]
+        self.assertEqual(post["url"], "https://api.alpaca.markets/v2/orders")
+        self.assertEqual((placed["mode"], placed["estimate"], placed["id"]), ("live", 2500.0, "L-1"))
+
+    def test_a_preview_made_for_one_mode_cannot_place_in_the_other(self):
+        fake = FakeAlpaca(self.routes())
+        token = alpaca.preview_order(self.ORDER, KEYS, mode="paper", urlopen=fake)["token"]
+        with self.assertRaises(alpaca.AlpacaError) as ctx:
+            alpaca.place_order(token, KEYS, mode="live", urlopen=fake)
+        self.assertIn("different account", str(ctx.exception))
+        self.assertFalse([c for c in fake.calls if c["method"] == "POST"])
+
+    def test_the_per_order_limit_can_only_tighten(self):
+        fake = FakeAlpaca(self.routes())
+        with self.assertRaises(alpaca.AlpacaError) as ctx:
+            alpaca.preview_order(self.ORDER, KEYS, mode="live", max_notional=2_000.0, urlopen=fake)  # $2,500
+        self.assertIn("limited to $2,000", str(ctx.exception))
+        # a "higher" limit never lifts the built-in ceiling
+        fake2 = FakeAlpaca(trade_route(5_000.0))
+        with self.assertRaises(alpaca.AlpacaError):
+            alpaca.preview_order({**self.ORDER, "qty": "6"}, KEYS, mode="live", max_notional=1e9, urlopen=fake2)
+
+    def test_the_daily_limit_is_checked_at_preview_and_again_at_place(self):
+        fake = FakeAlpaca(self.routes())
+        with self.assertRaises(alpaca.AlpacaError) as ctx:
+            alpaca.preview_order(self.ORDER, KEYS, mode="live", daily_remaining=1_000.0, urlopen=fake)
+        self.assertIn("today's trading limit", str(ctx.exception))
+        token = alpaca.preview_order(self.ORDER, KEYS, mode="live", daily_remaining=3_000.0, urlopen=fake)["token"]
+        with self.assertRaises(alpaca.AlpacaError):
+            alpaca.place_order(token, KEYS, mode="live", daily_remaining=1_000.0, urlopen=fake)  # spent elsewhere meanwhile
+        self.assertFalse([c for c in fake.calls if c["method"] == "POST"])
+
+    def test_preview_details_peeks_without_using_the_token_up(self):
+        fake = FakeAlpaca(self.routes())
+        token = alpaca.preview_order(self.ORDER, KEYS, mode="live", urlopen=fake)["token"]
+        details = alpaca.preview_details(token)
+        self.assertEqual((details["symbol"], details["mode"], details["estimate"]), ("VTI", "live", 2500.0))
+        self.assertIsNotNone(alpaca.preview_details(token))
+        self.assertIsNone(alpaca.preview_details("nope"))
+        self.assertIsNone(alpaca.preview_details(token, now=9e12))
+
+
 class TestCancel(unittest.TestCase):
     def test_cancel_deletes_that_order_on_the_paper_host(self):
         oid = "61e69015-8549-4bfd-b9c3-01e75843f47d"
@@ -255,6 +325,17 @@ class TestKeyStorage(unittest.TestCase):
         self.assertFalse(secrets_store.has_alpaca_keys())
         with self.assertRaises(secrets_store.SecretNotFoundError):
             secrets_store.get_alpaca_keys()
+
+    def test_live_keys_are_a_separate_pair_from_the_practice_keys(self):
+        secrets_store.set_alpaca_keys("PKPAPER", "p-sec")
+        secrets_store.set_alpaca_keys("AKLIVE", "l-sec", mode="live")
+        self.assertEqual(secrets_store.get_alpaca_keys(), ("PKPAPER", "p-sec"))
+        self.assertEqual(secrets_store.get_alpaca_keys(mode="live"), ("AKLIVE", "l-sec"))
+        secrets_store.delete_alpaca_keys(mode="live")
+        self.assertFalse(secrets_store.has_alpaca_keys(mode="live"))
+        self.assertTrue(secrets_store.has_alpaca_keys())
+        with self.assertRaises(ValueError):
+            secrets_store.get_alpaca_keys(mode="other")
 
     def test_both_parts_are_required(self):
         with self.assertRaises(secrets_store.SecretNotFoundError):

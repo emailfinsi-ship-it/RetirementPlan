@@ -73,3 +73,12 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
   live trading are not supported), one order is limited to $25,000, and confirming needs a single-use token that
   expires in 5 minutes. Keys are stored in the Keychain vault and checked before saving. Practice balances
   are never counted in net worth or the plan.
+
+- **Live (real-money) trading on the Trading tab.** The Trading tab now has two pages: the practice account and a
+  separate **Live account (REAL money)** page. Live keys are stored apart from the practice keys and checked with
+  Alpaca before saving. Live trading is **off** until you type `TRADE REAL MONEY`; it then stays on for 8 hours
+  and switches itself off (or turn it off any time). While it is on, every order needs *Preview*, then you must
+  **type the symbol again** to send it. You set a per-order limit and a per-day limit (defaults $2,000 and
+  $5,000; never more than $25,000 per order or $50,000 per day); the daily total counts what this app already
+  sent today, and every real-money order sent is recorded in a list on the page. Cancelling never needs the
+  switch, and removing the live keys also switches live trading off.

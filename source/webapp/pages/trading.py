@@ -1,14 +1,17 @@
-"""The Trading tab: an Alpaca PAPER (practice) account -- balances, positions and
-orders, plus a preview-then-confirm order ticket. Paper only (see
-source.collector.alpaca): no real money can move here, and the practice
-balances are never counted in net worth or the retirement plan."""
+"""The Trading tab: Alpaca balances, positions and orders plus a preview-then-
+confirm order ticket, for a PRACTICE (paper) account (/trading.html) and, as a
+separate page, a LIVE real-money account (/trading-live.html). Live trading is
+off until the owner arms it (see source.common.db.live_trading and
+source.webapp.trading_api). Neither account's balances are counted in net
+worth or the retirement plan."""
 
 from __future__ import annotations
 
 import html
+from datetime import datetime
 
 from source.collector import alpaca
-from source.common import secrets_store
+from source.common import db, secrets_store
 from source.webapp.render_helpers import _money, _shell
 
 _OPEN_STATUSES = {"new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding", "pending_replace"}
@@ -24,16 +27,43 @@ def _signed_money(value) -> str:
     return f"{'+' if value >= 0 else '-'}{_money(abs(value), cents=True)}"
 
 
-def _connect_card_html() -> str:
-    return """
+def _mode_switch_html(mode: str) -> str:
+    def pill(href: str, label: str, on: bool, danger: bool = False) -> str:
+        cls = "primary" if on and not danger else ""
+        style = ' style="background:#c94a4a; color:#fff; border-color:#c94a4a;"' if on and danger else ""
+        return f'<a href="{href}" class="pill-link"><button type="button" class="{cls}"{style}>{label}</button></a>'
+    return (
+        '<p style="display:flex; gap:8px; flex-wrap:wrap;">'
+        + pill("/trading.html", "Practice account (play money)", mode == "paper")
+        + pill("/trading-live.html", "Live account (REAL money)", mode == "live", danger=True)
+        + "</p>"
+    )
+
+
+def _connect_card_html(mode: str) -> str:
+    if mode == "live":
+        blurb = (
+            '<p class="status-line status-warn"><strong>Real money.</strong> These are your live Alpaca keys. Orders sent from this tab '
+            'buy and sell real investments in your Alpaca brokerage account. Keys are stored in the macOS Keychain, never in the database, '
+            'and live trading stays switched off until you turn it on here.</p>'
+            '<p class="muted">In your Alpaca dashboard, switch to <em>Live</em>, open <em>API Keys</em>, generate a key and paste both parts. '
+            'A key you create for this app can be revoked at any time from the Alpaca dashboard.</p>'
+        )
+        title = "Connect your Alpaca live account"
+    else:
+        blurb = (
+            '<p class="muted">Alpaca offers a free <strong>paper trading</strong> account: play money, real market prices. In your Alpaca '
+            'dashboard switch to <em>Paper</em>, open <em>API Keys</em>, generate a key, and paste both parts here. They are stored in the '
+            'macOS Keychain with your other credentials, never in the database.</p>'
+        )
+        title = "Connect your Alpaca practice account"
+    return f"""
 <div class="card">
-<h3 style="margin-top:0;">Connect your Alpaca practice account</h3>
-<p class="muted">Alpaca offers a free <strong>paper trading</strong> account: play money, real market prices. In your Alpaca
-dashboard switch to <em>Paper</em>, open <em>API Keys</em>, generate a key, and paste both parts here. They are stored in the
-macOS Keychain with your other credentials, never in the database. Live (real-money) keys are not supported.</p>
+<h3 style="margin-top:0;">{title}</h3>
+{blurb}
 <form class="inline" onsubmit="event.preventDefault();
-  postJSON('/api/alpaca-keys', {key_id: this.key_id.value, secret: this.secret.value})
-    .then(function() { location.reload(); }).catch(function(e) { alert(e.message); });">
+  postJSON('/api/alpaca-keys', {{key_id: this.key_id.value, secret: this.secret.value, mode: '{mode}'}})
+    .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>Key ID<input name="key_id" autocomplete="off" style="width:220px" required></label>
   <label>Secret<input name="secret" type="password" autocomplete="off" style="width:260px" required></label>
   <button type="submit" class="primary">Connect</button>
@@ -42,13 +72,14 @@ macOS Keychain with your other credentials, never in the database. Live (real-mo
 """
 
 
-_DISCONNECT_JS = (
-    "if (confirm('Remove the saved Alpaca keys from this computer?')) "
-    "postJSON('/api/alpaca-keys/delete', {}).then(function() { location.reload(); }).catch(function(e) { alert(e.message); });"
-)
+def _disconnect_js(mode: str) -> str:
+    return (
+        "if (confirm('Remove the saved Alpaca keys from this computer?')) "
+        f"postJSON('/api/alpaca-keys/delete', {{mode: '{mode}'}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});"
+    )
 
 
-def _account_card_html(acct: dict) -> str:
+def _account_card_html(acct: dict, mode: str) -> str:
     change = None
     if acct["equity"] is not None and acct["last_equity"] is not None:
         change = acct["equity"] - acct["last_equity"]
@@ -59,14 +90,14 @@ def _account_card_html(acct: dict) -> str:
     return f"""
 <div class="card">
 <div class="tiles">
-  <div class="tile"><div class="label">Practice account value</div><div class="value">{_money(acct["equity"], cents=True)}</div></div>
+  <div class="tile"><div class="label">{"Account value" if mode == "live" else "Practice account value"}</div><div class="value">{_money(acct["equity"], cents=True)}</div></div>
   <div class="tile"><div class="label">Cash</div><div class="value">{_money(acct["cash"], cents=True)}</div></div>
   <div class="tile"><div class="label">Buying power</div><div class="value">{_money(acct["buying_power"], cents=True)}</div></div>
   <div class="tile"><div class="label">Change since yesterday</div><div class="value">{_signed_money(change)}</div></div>
 </div>
 {blocked}
 <p class="muted" style="margin-bottom:0;">Account {html.escape(acct["account_number"] or "--")} ({html.escape(acct["status"] or "unknown")}).
-<button type="button" onclick="{html.escape(_DISCONNECT_JS)}">Disconnect</button></p>
+<button type="button" onclick="{html.escape(_disconnect_js(mode))}">Disconnect</button></p>
 </div>
 """
 
@@ -95,7 +126,7 @@ def _positions_html(positions: list[dict]) -> str:
     )
 
 
-def _orders_html(orders: list[dict]) -> str:
+def _orders_html(orders: list[dict], mode: str) -> str:
     if not orders:
         return '<p class="muted">No orders yet.</p>'
     rows = []
@@ -121,11 +152,60 @@ def _orders_html(orders: list[dict]) -> str:
     )
 
 
-_TICKET_HTML = """
-<div class="card">
-<h3 style="margin-top:0;">Place a practice order</h3>
-<p class="muted">Step 1: fill in the order and press Preview. Step 2: read the summary and confirm. Orders are practice orders only
-and are limited to $__LIMIT__ each.</p>
+def _live_controls_html() -> str:
+    """The live-trading switch, its limits, and today's usage."""
+    lt = db.live_trading
+    until = lt.armed_until()
+    spent, daily, per_order = lt.spent_today(), lt.daily_limit(), lt.per_order_limit()
+    if until is not None:
+        when = datetime.fromtimestamp(until).strftime("%I:%M %p").lstrip("0")
+        state = f"""
+<p class="status-line" style="color:#c94a4a; font-weight:700;">LIVE TRADING IS ON until about {html.escape(when)} (it switches itself off).</p>
+<p><button type="button" class="primary" style="background:#c94a4a;" onclick="postJSON('/api/alpaca/live/disarm', {{}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">Turn live trading OFF now</button></p>"""
+    else:
+        state = f"""
+<p class="status-line">Live trading is <strong>off</strong>. You can look at your account, but no real-money order can be previewed or sent.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/alpaca/live/arm', {{phrase: this.phrase.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>To turn it on for {lt.ARM_HOURS} hours, type <strong>{html.escape(lt.CONFIRM_PHRASE)}</strong>
+    <input name="phrase" autocomplete="off" style="width:200px" required></label>
+  <button type="submit">Turn live trading on</button>
+</form>"""
+    return f"""
+<div class="card" style="border:2px solid #c94a4a;">
+<h3 style="margin-top:0; color:#c94a4a;">Live trading switch and limits</h3>
+{state}
+<p class="muted">Sent from this app today: <strong>{_money(spent, cents=True)}</strong> of the {_money(daily)} daily limit.
+One order may be at most {_money(per_order)}.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/alpaca/live/limits', {{per_order: this.per_order.value, daily: this.daily.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Most per order ($)<input name="per_order" type="number" min="1" max="{lt.PER_ORDER_CEILING:.0f}" step="1" value="{per_order:.0f}" style="width:110px"></label>
+  <label>Most per day ($)<input name="daily" type="number" min="1" max="{lt.DAILY_CEILING:.0f}" step="1" value="{daily:.0f}" style="width:110px"></label>
+  <button type="submit">Save limits</button>
+</form>
+<p class="muted" style="margin-bottom:0;">The highest limits this app allows are {_money(lt.PER_ORDER_CEILING)} per order and {_money(lt.DAILY_CEILING)} per day.</p>
+</div>
+"""
+
+
+def _live_log_html() -> str:
+    rows = db.live_trading.list_live_orders(15)
+    if not rows:
+        return '<p class="muted">No real-money orders have been sent from this app yet.</p>'
+    body = "".join(
+        f"<tr><td>{html.escape(r['placed_at'].replace('T', ' '))}</td><td>{html.escape(r['side'])}</td>"
+        f"<td><strong>{html.escape(r['symbol'])}</strong></td><td class=\"num\">{r['qty']}</td>"
+        f"<td>{html.escape(r['order_type'])}</td><td class=\"num\">{_money(r['estimate'], cents=True)}</td>"
+        f"<td>{html.escape(r['status'])}</td></tr>"
+        for r in rows
+    )
+    return (
+        '<table><thead><tr><th>Sent</th><th>Side</th><th>Symbol</th><th class="num">Shares</th><th>Type</th>'
+        f'<th class="num">About</th><th>Status</th></tr></thead><tbody>{body}</tbody></table>'
+    )
+
+
+_TICKET_FORM = """
 <form id="ticket" class="inline" onsubmit="event.preventDefault(); previewOrder(this);">
   <label>Buy or sell<select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
   <label>Symbol<input name="symbol" autocomplete="off" style="width:90px; text-transform:uppercase;" required></label>
@@ -136,66 +216,115 @@ and are limited to $__LIMIT__ each.</p>
   <button type="submit" class="primary">Preview order</button>
 </form>
 <div id="ticket-preview" style="margin-top:10px;"></div>
-</div>
+"""
+
+_TICKET_JS = """
 <script>
+var TRADE_MODE = '__MODE__';
 var pendingToken = null;
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function previewOrder(form) {
   var box = document.getElementById('ticket-preview');
   pendingToken = null;
-  var body = {side: form.side.value, symbol: form.symbol.value, qty: form.qty.value, type: form.type.value,
+  var body = {mode: TRADE_MODE, side: form.side.value, symbol: form.symbol.value, qty: form.qty.value, type: form.type.value,
               limit_price: form.limit_price.value, time_in_force: form.time_in_force.value};
   postJSON('/api/alpaca/preview', body).then(function (r) {
     pendingToken = r.token;
-    var o = r.order;
-    box.innerHTML = '<div class="status-line"><strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> as a ' +
+    var o = r.order, live = TRADE_MODE === 'live';
+    var summary = '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> as a ' +
       esc(o.type) + ' order' + (o.limit_price ? ' at $' + o.limit_price.toFixed(2) : '') + ', about <strong>$' +
-      r.estimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong> (at about $' + r.price.toFixed(2) +
-      ' a share). Practice account, no real money.</div>' +
-      '<button type="button" class="primary" onclick="confirmOrder()">Place practice order</button> ' +
-      '<button type="button" onclick="clearPreview()">Cancel</button>';
+      r.estimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong> (at about $' + r.price.toFixed(2) + ' a share).';
+    if (live) {
+      box.innerHTML = '<div class="status-line" style="border:2px solid #c94a4a; padding:10px; border-radius:10px;">' +
+        '<div style="color:#c94a4a; font-weight:700;">REAL MONEY</div>' + summary +
+        '<div style="margin-top:8px;"><label>Type the symbol (<strong>' + esc(o.symbol) + '</strong>) to confirm ' +
+        '<input id="confirm-symbol" autocomplete="off" style="width:90px; text-transform:uppercase;"></label></div></div>' +
+        '<button type="button" class="primary" style="background:#c94a4a;" onclick="confirmOrder()">Send REAL order</button> ' +
+        '<button type="button" onclick="clearPreview()">Cancel</button>';
+    } else {
+      box.innerHTML = '<div class="status-line">' + summary + ' Practice account, no real money.</div>' +
+        '<button type="button" class="primary" onclick="confirmOrder()">Place practice order</button> ' +
+        '<button type="button" onclick="clearPreview()">Cancel</button>';
+    }
   }).catch(function (e) { box.innerHTML = '<p class="status-line status-warn">' + esc(e.message) + '</p>'; });
 }
 function clearPreview() { pendingToken = null; document.getElementById('ticket-preview').innerHTML = ''; }
 function confirmOrder() {
   if (!pendingToken) { return; }
-  var token = pendingToken;
-  pendingToken = null;
-  postJSON('/api/alpaca/order', {token: token}).then(function () { location.reload(); })
-    .catch(function (e) { document.getElementById('ticket-preview').innerHTML = '<p class="status-line status-warn">' + esc(e.message) + '</p>'; });
+  var box = document.getElementById('ticket-preview');
+  var sym = document.getElementById('confirm-symbol');
+  var body = {mode: TRADE_MODE, token: pendingToken};
+  if (sym) { body.confirm_symbol = sym.value; }
+  postJSON('/api/alpaca/order', body).then(function () { pendingToken = null; location.reload(); })
+    .catch(function (e) { box.insertAdjacentHTML('beforeend', '<p class="status-line status-warn">' + esc(e.message) + '</p>'); });
 }
 function cancelOrder(id) {
-  postJSON('/api/alpaca/cancel', {id: id}).then(function () { location.reload(); }).catch(function (e) { alert(e.message); });
+  postJSON('/api/alpaca/cancel', {mode: TRADE_MODE, id: id}).then(function () { location.reload(); }).catch(function (e) { alert(e.message); });
 }
 </script>
-""".replace("__LIMIT__", f"{alpaca.MAX_ORDER_NOTIONAL:,.0f}")
+"""
 
 
-def _render_trading_page() -> str:
-    intro = (
-        '<h2 style="margin-top:0">Trading (practice account)</h2>'
-        '<p class="muted"><strong>Practice only.</strong> This tab uses an Alpaca <em>paper</em> account: real market prices, play money. '
-        'No real money can be spent here, and these balances are not counted in your net worth or your retirement plan.</p>'
+def _ticket_html(mode: str, *, armed: bool) -> str:
+    limit_text = f"${alpaca.MAX_ORDER_NOTIONAL:,.0f}"
+    js = _TICKET_JS.replace("__MODE__", mode)
+    if mode == "live":
+        if not armed:
+            return (
+                '<div class="card"><h3 style="margin-top:0;">Place a real-money order</h3>'
+                '<p class="muted">Turn live trading on above to place an order.</p></div>' + js
+            )
+        return (
+            '<div class="card" style="border:2px solid #c94a4a;"><h3 style="margin-top:0; color:#c94a4a;">Place a real-money order</h3>'
+            '<p class="muted">Step 1: fill in the order and press Preview. Step 2: read the summary, type the symbol again and send. '
+            f'Your per-order and daily limits above apply, and no order can be worth more than {limit_text}.</p>'
+            + _TICKET_FORM + "</div>" + js
+        )
+    return (
+        '<div class="card"><h3 style="margin-top:0;">Place a practice order</h3>'
+        '<p class="muted">Step 1: fill in the order and press Preview. Step 2: read the summary and confirm. Orders are practice orders only '
+        f'and are limited to {limit_text} each.</p>' + _TICKET_FORM + "</div>" + js
     )
-    if not secrets_store.has_alpaca_keys():
-        return _shell(title="Trading", active="trading.html", body=intro + _connect_card_html())
+
+
+def _render_trading_page(mode: str = "paper") -> str:
+    live = mode == "live"
+    title = "Trading (live account)" if live else "Trading (practice account)"
+    intro = f'<h2 style="margin-top:0">{title}</h2>' + _mode_switch_html(mode)
+    if live:
+        intro += (
+            '<p class="status-line" style="color:#c94a4a; font-weight:700;">REAL MONEY. Orders sent from this page buy and sell real investments '
+            'in your Alpaca brokerage account. This app does not give investment advice and never places an order by itself.</p>'
+            '<p class="muted">These balances are not added to your net worth or plan here. (Link the account with Plaid if you want it counted.)</p>'
+        )
+    else:
+        intro += (
+            '<p class="muted"><strong>Practice only.</strong> This page uses an Alpaca <em>paper</em> account: real market prices, play money. '
+            'No real money can be spent here, and these balances are not counted in your net worth or your retirement plan.</p>'
+        )
+    if not secrets_store.has_alpaca_keys(mode=mode):
+        return _shell(title="Trading", active="trading.html", body=intro + _connect_card_html(mode))
     problem = ""
     acct, positions, orders = None, [], []
     try:
-        keys = secrets_store.get_alpaca_keys()
-        acct = alpaca.get_account(keys)
-        positions = alpaca.list_positions(keys)
-        orders = alpaca.list_orders(keys)
+        keys = secrets_store.get_alpaca_keys(mode=mode)
+        acct = alpaca.get_account(keys, mode=mode)
+        positions = alpaca.list_positions(keys, mode=mode)
+        orders = alpaca.list_orders(keys, mode=mode)
     except (alpaca.AlpacaError, secrets_store.SecretNotFoundError) as exc:
         problem = f'<p class="status-line status-warn">{html.escape(str(exc))}</p>'
     body = intro + problem
+    if live:
+        body += _live_controls_html()
     if acct is not None:
-        body += _account_card_html(acct)
+        body += _account_card_html(acct, mode)
         body += f"<h3>Positions</h3>{_positions_html(positions)}"
-        body += _TICKET_HTML
-        body += f"<h3>Recent orders</h3>{_orders_html(orders)}"
+        body += _ticket_html(mode, armed=db.live_trading.is_armed() if live else True)
+        body += f"<h3>Recent orders at Alpaca</h3>{_orders_html(orders, mode)}"
     else:
         body += (
-            f'<p><button type="button" onclick="{html.escape(_DISCONNECT_JS)}">Remove saved keys</button></p>'
+            f'<p><button type="button" onclick="{html.escape(_disconnect_js(mode))}">Remove saved keys</button></p>'
         )
+    if live:
+        body += f"<h3>Real-money orders sent from this app</h3>{_live_log_html()}"
     return _shell(title="Trading", active="trading.html", body=body)

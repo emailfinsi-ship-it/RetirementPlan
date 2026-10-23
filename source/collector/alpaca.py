@@ -1,15 +1,22 @@
-"""Alpaca PAPER trading (https://docs.alpaca.markets) for the Trading tab.
+"""Alpaca trading (https://docs.alpaca.markets) for the Trading tab -- a PAPER
+(practice) account by default, and a LIVE (real-money) account only when the
+caller says ``mode="live"``.
 
-Safety rules, enforced here rather than in the page so nothing can bypass them:
+Safety rules, enforced here and in source.common.db.live_trading rather than
+in the page so nothing can bypass them:
 
-* **Paper only.** The only trading host this module can talk to is
-  ``PAPER_URL``. There is no parameter, setting or key that switches it to the
-  live host, so no real money can move through this program.
+* **Paper is the default for every call.** Live is reached only by passing
+  ``mode="live"`` explicitly; the dashboard does that only while live trading
+  has been armed by the owner.
 * **Preview, then confirm.** An order is placed only with a single-use token
   that ``preview_order`` issued for exactly those details a few minutes
-  earlier, so a stray or replayed request cannot place one.
-* **Size limit.** One order may not be worth more than ``MAX_ORDER_NOTIONAL``
-  (a market order needs a recent price so the size can be checked).
+  earlier, in the same mode, so a stray or replayed request cannot place one.
+* **Size limits.** One order may not be worth more than ``MAX_ORDER_NOTIONAL``
+  (a market order needs a recent price so the size can be checked), nor more
+  than whatever lower per-order or daily-remaining limit the caller passes.
+
+Reading (account, positions, orders) is always allowed once keys are saved;
+the dashboard allows previewing and placing live orders only while armed.
 
 Every network call takes an injectable ``urlopen`` so tests never touch the
 network. Keys travel only in the request headers and are never logged.
@@ -26,6 +33,8 @@ import urllib.parse
 import urllib.request
 
 PAPER_URL = "https://paper-api.alpaca.markets"
+LIVE_URL = "https://api.alpaca.markets"  # real money -- used only when mode="live"
+MODES = ("paper", "live")
 DATA_URL = "https://data.alpaca.markets"
 MAX_ORDER_NOTIONAL = 25_000.0
 MAX_SHARES = 10_000
@@ -35,6 +44,14 @@ _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
 _ORDER_TYPES = ("market", "limit")
 _SIDES = ("buy", "sell")
 _TIFS = ("day", "gtc")
+
+
+def _base(mode: str) -> str:
+    if mode == "paper":
+        return PAPER_URL
+    if mode == "live":
+        return LIVE_URL
+    raise AlpacaError("Unknown trading mode.")
 
 
 class AlpacaError(Exception):
@@ -66,7 +83,7 @@ def _request(
         except Exception:  # noqa: BLE001 -- an unreadable error body just means no extra detail
             pass
         reasons = {
-            401: "Alpaca rejected the keys. Check that they are PAPER keys and re-enter them.",
+            401: "Alpaca rejected the keys. Check that they are the right kind (paper keys for practice, live keys for real trading) and re-enter them.",
             403: "Alpaca refused this request (the key may not be allowed to trade).",
             404: "Alpaca could not find that.",
             422: f"Alpaca rejected the order: {message}" if message else "Alpaca rejected the order.",
@@ -90,8 +107,8 @@ def _f(value) -> float | None:
         return None
 
 
-def get_account(keys: tuple[str, str], **kw) -> dict:
-    raw = _request("GET", f"{PAPER_URL}/v2/account", keys, **kw)
+def get_account(keys: tuple[str, str], *, mode: str = "paper", **kw) -> dict:
+    raw = _request("GET", f"{_base(mode)}/v2/account", keys, **kw)
     if not isinstance(raw, dict):
         raise AlpacaError("Alpaca sent an account this program couldn't read.")
     return {
@@ -105,8 +122,8 @@ def get_account(keys: tuple[str, str], **kw) -> dict:
     }
 
 
-def list_positions(keys: tuple[str, str], **kw) -> list[dict]:
-    raw = _request("GET", f"{PAPER_URL}/v2/positions", keys, **kw) or []
+def list_positions(keys: tuple[str, str], *, mode: str = "paper", **kw) -> list[dict]:
+    raw = _request("GET", f"{_base(mode)}/v2/positions", keys, **kw) or []
     return [
         {
             "symbol": str(p.get("symbol") or ""), "qty": _f(p.get("qty")), "side": str(p.get("side") or "long"),
@@ -118,9 +135,9 @@ def list_positions(keys: tuple[str, str], **kw) -> list[dict]:
     ]
 
 
-def list_orders(keys: tuple[str, str], *, limit: int = 30, **kw) -> list[dict]:
+def list_orders(keys: tuple[str, str], *, limit: int = 30, mode: str = "paper", **kw) -> list[dict]:
     query = urllib.parse.urlencode({"status": "all", "limit": limit, "direction": "desc"})
-    raw = _request("GET", f"{PAPER_URL}/v2/orders?{query}", keys, **kw) or []
+    raw = _request("GET", f"{_base(mode)}/v2/orders?{query}", keys, **kw) or []
     return [
         {
             "id": str(o.get("id") or ""), "symbol": str(o.get("symbol") or ""), "side": str(o.get("side") or ""),
@@ -182,19 +199,29 @@ def clean_order(order: dict) -> dict:
             "limit_price": limit_price, "time_in_force": tif}
 
 
-_previews: dict[str, tuple[float, dict]] = {}
+_previews: dict[str, tuple[float, dict, str, float]] = {}
 
 
 def _forget_expired(now: float) -> None:
-    for token in [t for t, (expires, _o) in _previews.items() if expires < now]:
+    for token in [t for t, entry in _previews.items() if entry[0] < now]:
         _previews.pop(token, None)
 
 
-def preview_order(order: dict, keys: tuple[str, str], *, now: float | None = None, **kw) -> dict:
+def _money_text(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def preview_order(
+    order: dict, keys: tuple[str, str], *, mode: str = "paper", max_notional: float | None = None,
+    daily_remaining: float | None = None, now: float | None = None, **kw,
+) -> dict:
     """Checks an order and prices it, without sending it. Returns the clean
     order, its estimated value, and the single-use token that place_order
-    needs. Raises AlpacaError when the order is invalid, too large, or (for a
-    market order) cannot be sized."""
+    needs. ``max_notional`` (a per-order limit) and ``daily_remaining`` (what
+    is left of a daily limit) can only tighten the built-in limit. Raises
+    AlpacaError when the order is invalid, too large, or (for a market order)
+    cannot be sized."""
+    _base(mode)
     clean = clean_order(order)
     price = clean["limit_price"] or last_price(clean["symbol"], keys, **kw)
     if price is None:
@@ -203,37 +230,60 @@ def preview_order(order: dict, keys: tuple[str, str], *, now: float | None = Non
             "Check the symbol, or use a limit order with your own price."
         )
     estimate = round(price * clean["qty"], 2)
-    if estimate > MAX_ORDER_NOTIONAL:
+    limit = MAX_ORDER_NOTIONAL if max_notional is None else min(MAX_ORDER_NOTIONAL, max_notional)
+    if estimate > limit:
+        raise AlpacaError(f"That order is worth about {_money_text(estimate)}. One order here is limited to {_money_text(limit)}.")
+    if daily_remaining is not None and estimate > daily_remaining:
         raise AlpacaError(
-            f"That order is worth about ${estimate:,.0f}. One paper order here is limited to ${MAX_ORDER_NOTIONAL:,.0f}."
+            f"That order is worth about {_money_text(estimate)}, which is more than the {_money_text(max(daily_remaining, 0))} "
+            "left of today's trading limit."
         )
     stamp = time.time() if now is None else now
     _forget_expired(stamp)
     token = secrets.token_urlsafe(24)
-    _previews[token] = (stamp + PREVIEW_SECONDS, clean)
-    return {"order": clean, "price": price, "estimate": estimate, "token": token, "expires_in": PREVIEW_SECONDS}
+    _previews[token] = (stamp + PREVIEW_SECONDS, clean, mode, estimate)
+    return {"order": clean, "price": price, "estimate": estimate, "token": token, "expires_in": PREVIEW_SECONDS, "mode": mode}
 
 
-def place_order(token: str, keys: tuple[str, str], *, now: float | None = None, **kw) -> dict:
-    """Sends the order a preview token was issued for. The token is single-use
-    and expires after a few minutes."""
+def preview_details(token: str, *, now: float | None = None) -> dict | None:
+    """The order a still-valid preview token was issued for (without using the
+    token up), or None -- lets the caller check what is about to be sent."""
+    stamp = time.time() if now is None else now
+    entry = _previews.get(str(token or ""))
+    if entry is None or entry[0] < stamp:
+        return None
+    return {**entry[1], "estimate": entry[3], "mode": entry[2]}
+
+
+def place_order(
+    token: str, keys: tuple[str, str], *, mode: str = "paper", daily_remaining: float | None = None,
+    now: float | None = None, **kw,
+) -> dict:
+    """Sends the order a preview token was issued for. The token is single-use,
+    expires after a few minutes, and works only in the mode it was issued for."""
+    _base(mode)
     stamp = time.time() if now is None else now
     entry = _previews.pop(str(token or ""), None)
     if entry is None or entry[0] < stamp:
         raise AlpacaError("That order's preview has expired. Preview it again, then confirm.")
-    clean = entry[1]
+    _expires, clean, entry_mode, estimate = entry
+    if entry_mode != mode:
+        raise AlpacaError("That preview was made for a different account. Preview it again, then confirm.")
+    if daily_remaining is not None and estimate > daily_remaining:
+        raise AlpacaError("That order would go over today's trading limit.")
     body = {
         "symbol": clean["symbol"], "qty": str(clean["qty"]), "side": clean["side"], "type": clean["type"],
         "time_in_force": clean["time_in_force"], "client_order_id": "fs-" + secrets.token_hex(8),
     }
     if clean["limit_price"] is not None:
         body["limit_price"] = str(clean["limit_price"])
-    raw = _request("POST", f"{PAPER_URL}/v2/orders", keys, body=body, **kw)
-    return {"id": str((raw or {}).get("id") or ""), "status": str((raw or {}).get("status") or "accepted"), **clean}
+    raw = _request("POST", f"{_base(mode)}/v2/orders", keys, body=body, **kw)
+    return {"id": str((raw or {}).get("id") or ""), "status": str((raw or {}).get("status") or "accepted"),
+            "estimate": estimate, "mode": mode, **clean}
 
 
-def cancel_order(order_id: str, keys: tuple[str, str], **kw) -> None:
+def cancel_order(order_id: str, keys: tuple[str, str], *, mode: str = "paper", **kw) -> None:
     order_id = str(order_id or "")
     if not re.fullmatch(r"[0-9a-fA-F-]{8,64}", order_id):
         raise AlpacaError("That order id isn't valid.")
-    _request("DELETE", f"{PAPER_URL}/v2/orders/{order_id}", keys, **kw)
+    _request("DELETE", f"{_base(mode)}/v2/orders/{order_id}", keys, **kw)

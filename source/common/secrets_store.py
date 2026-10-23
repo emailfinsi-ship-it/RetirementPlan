@@ -116,6 +116,7 @@ def _empty_vault() -> dict:
         "rentcast_api_key": "",
         "smtp_password": "",
         "alpaca_keys": {"key_id": "", "secret": ""},
+        "alpaca_live_keys": {"key_id": "", "secret": ""},
     }
 
 
@@ -127,8 +128,9 @@ def _vault_has_any_secret(vault: dict) -> bool:
             return True
     if str(vault.get("rentcast_api_key") or "").strip() or str(vault.get("smtp_password") or "").strip():
         return True
-    if any(str(v).strip() for v in (vault.get("alpaca_keys") or {}).values()):
-        return True
+    for slot in ("alpaca_keys", "alpaca_live_keys"):
+        if any(str(v).strip() for v in (vault.get(slot) or {}).values()):
+            return True
     return any(str(v).strip() for v in (vault.get("access_tokens") or {}).values())
 
 
@@ -155,8 +157,9 @@ def _normalize_vault(raw: dict) -> dict:
     vault["access_tokens"] = dict(raw.get("access_tokens") or {})
     vault["rentcast_api_key"] = str(raw.get("rentcast_api_key") or "")
     vault["smtp_password"] = str(raw.get("smtp_password") or "")
-    alpaca = raw.get("alpaca_keys") or {}
-    vault["alpaca_keys"] = {"key_id": str(alpaca.get("key_id") or ""), "secret": str(alpaca.get("secret") or "")}
+    for slot in ("alpaca_keys", "alpaca_live_keys"):
+        pair = raw.get(slot) or {}
+        vault[slot] = {"key_id": str(pair.get("key_id") or ""), "secret": str(pair.get("secret") or "")}
     return vault
 
 
@@ -298,37 +301,50 @@ def has_rentcast_api_key() -> bool:
         return bool(str(_load_vault_unlocked().get("rentcast_api_key") or "").strip())
 
 
-def set_alpaca_keys(key_id: str, secret: str) -> None:
-    """The Alpaca PAPER-trading key pair (Trading tab) -- kept in the same
+def _alpaca_slot(mode: str) -> str:
+    if mode == "paper":
+        return "alpaca_keys"
+    if mode == "live":
+        return "alpaca_live_keys"
+    raise ValueError("Unknown trading mode.")
+
+
+def set_alpaca_keys(key_id: str, secret: str, *, mode: str = "paper") -> None:
+    """An Alpaca key pair for the Trading tab -- the practice (paper) pair by
+    default, or the real-money (live) pair with mode="live". Kept in the same
     Keychain vault as the Plaid credentials, never in the database."""
+    slot = _alpaca_slot(mode)
     key_id, secret = (key_id or "").strip(), (secret or "").strip()
     if not key_id or not secret:
         raise SecretNotFoundError("Both the Alpaca key ID and the secret are needed.")
     with _lock:
         vault = _load_vault_unlocked()
-        vault["alpaca_keys"] = {"key_id": key_id, "secret": secret}
+        vault[slot] = {"key_id": key_id, "secret": secret}
         _save_vault_unlocked(vault)
 
 
-def get_alpaca_keys() -> tuple[str, str]:
+def get_alpaca_keys(*, mode: str = "paper") -> tuple[str, str]:
+    slot = _alpaca_slot(mode)
     with _lock:
-        keys = _load_vault_unlocked().get("alpaca_keys") or {}
+        keys = _load_vault_unlocked().get(slot) or {}
     key_id, secret = str(keys.get("key_id") or ""), str(keys.get("secret") or "")
     if not key_id or not secret:
-        raise SecretNotFoundError("No Alpaca keys saved yet. Add them on the Trading tab.")
+        raise SecretNotFoundError(f"No Alpaca {'live ' if mode == 'live' else ''}keys saved yet. Add them on the Trading tab.")
     return key_id, secret
 
 
-def has_alpaca_keys() -> bool:
+def has_alpaca_keys(*, mode: str = "paper") -> bool:
+    slot = _alpaca_slot(mode)
     with _lock:
-        keys = _load_vault_unlocked().get("alpaca_keys") or {}
+        keys = _load_vault_unlocked().get(slot) or {}
         return bool(str(keys.get("key_id") or "").strip() and str(keys.get("secret") or "").strip())
 
 
-def delete_alpaca_keys() -> None:
+def delete_alpaca_keys(*, mode: str = "paper") -> None:
+    slot = _alpaca_slot(mode)
     with _lock:
         vault = _load_vault_unlocked()
-        vault["alpaca_keys"] = {"key_id": "", "secret": ""}
+        vault[slot] = {"key_id": "", "secret": ""}
         if _vault_has_any_secret(vault):
             _save_vault_unlocked(vault)
         else:
