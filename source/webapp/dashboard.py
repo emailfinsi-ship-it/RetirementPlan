@@ -32,7 +32,7 @@ from urllib.parse import urlparse
 
 from source.collector import auto_sync
 from source.collector import link_item as plaid_link_item
-from source.collector import alpaca, rentcast
+from source.collector import rentcast
 from source.collector import remove_item as plaid_remove_item
 from source.collector import sync as plaid_sync
 from source.common import app_settings, auth_store, backup, branding, config, db, demo_data, first_run, linked_data, production, secrets_store, transfer
@@ -68,7 +68,7 @@ from source.webapp.render_helpers import (
     _shell,
     _sync_now_button_html,
 )
-from source.webapp import wording
+from source.webapp import trading_api, wording
 from source.webapp.render_helpers.shell import set_request_role
 from source.webapp.pages.asset import _group_by_category, _render_asset_page, _sync_linked_institution_fields
 from source.webapp.pages.budget_vs_actual import _render_budget_vs_actual_page
@@ -131,7 +131,7 @@ _VIEWER_POSTS = {
     "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/wording-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
-_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html"}
+_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html"}
 
 
 def _is_public_path(path: str) -> bool:
@@ -475,7 +475,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/rebalance.html":
                 self._send_html(_render_rebalance_page())
             elif path == "/trading.html":
-                self._send_html(_render_trading_page())
+                self._send_html(_render_trading_page("paper"))
+            elif path == "/trading-live.html":
+                self._send_html(_render_trading_page("live"))
             elif path == "/diagnostics.txt":
                 if self._role() == "viewer":
                     self._send_redirect("/summary.html")
@@ -963,29 +965,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/rentcast-key":
                 secrets_store.set_rentcast_api_key(payload.get("api_key") or "")
                 self._send_json({"ok": True})
-            elif path in ("/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel"):
-                # The Trading tab (Alpaca PAPER account only -- see
-                # source.collector.alpaca for the safety rules).
-                try:
-                    if path == "/api/alpaca-keys":
-                        keys = (str(payload.get("key_id") or "").strip(), str(payload.get("secret") or "").strip())
-                        if not keys[0] or not keys[1]:
-                            raise secrets_store.SecretNotFoundError("Both the Alpaca key ID and the secret are needed.")
-                        alpaca.get_account(keys)  # a wrong key is refused now, not saved
-                        secrets_store.set_alpaca_keys(*keys)
-                        self._send_json({"ok": True})
-                    elif path == "/api/alpaca-keys/delete":
-                        secrets_store.delete_alpaca_keys()
-                        self._send_json({"ok": True})
-                    elif path == "/api/alpaca/preview":
-                        self._send_json({"ok": True, **alpaca.preview_order(payload, secrets_store.get_alpaca_keys())})
-                    elif path == "/api/alpaca/order":
-                        self._send_json({"ok": True, **alpaca.place_order(payload.get("token"), secrets_store.get_alpaca_keys())})
-                    else:
-                        alpaca.cancel_order(payload.get("id"), secrets_store.get_alpaca_keys())
-                        self._send_json({"ok": True})
-                except (alpaca.AlpacaError, secrets_store.SecretNotFoundError) as exc:
-                    raise ValueError(str(exc)) from exc
+            elif path in trading_api.ROUTES:
+                # The Trading tab (Alpaca practice and live accounts) -- see
+                # source.webapp.trading_api for the safety rules.
+                self._send_json({"ok": True, **trading_api.handle(path, payload)})
             elif path == "/api/real-estate/refresh-value":
                 # One RentCast lookup (one request against the plan's monthly
                 # allowance) for one property, on a button press only.

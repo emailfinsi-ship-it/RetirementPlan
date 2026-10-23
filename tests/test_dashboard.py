@@ -6097,9 +6097,13 @@ class TestTradingTab(DashboardTestCase):
         with patch("urllib.request.urlopen", fake):
             return self._post("/api/alpaca-keys", {"key_id": "PKX", "secret": "S3"})
 
-    def test_trading_is_in_the_navigation(self):
-        body = self._get("/monte-carlo.html").read().decode("utf-8")   # the Explore tab's own sub-menu
-        self.assertIn('href="/trading.html"', body)
+    def test_trading_is_its_own_main_tab(self):
+        from source.webapp.render_helpers.shell import NAV_ITEMS
+        self.assertIn(("trading.html", "Trading"), NAV_ITEMS)
+        body = self._get("/summary.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading.html"', body)
+        page = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading.html" class="active">', page)
 
     def test_the_trading_tab_has_its_own_icon_not_the_blank_default(self):
         from source.webapp.render_helpers.shell import _NAV_ICONS, _nav_icon_html
