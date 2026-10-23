@@ -238,9 +238,9 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn('id="wi-spend"', mc)
         self.assertLess(mc.index('id="wi-spend"'), mc.index('name="expected_return_pct"'))
 
-    def test_nav_has_eight_tabs_and_paired_pages_share_one(self):
+    def test_nav_has_nine_tabs_and_paired_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertEqual(len(NAV_ITEMS), 8)
+        self.assertEqual(len(NAV_ITEMS), 9)  # the eight plan tabs + Trading
         pairs = {
             "/asset.html": ("/real-estate.html", "Real Estate"),
             "/linked-accounts.html": ("/rebalance.html", "Risk &amp; Suggestions"),
