@@ -102,3 +102,8 @@ are not touched.
     past market crashes, (4) the income and tax picture for the retirement years, and (5) assumptions and an
     "Important information" disclosures list. Each part starts on its own printed page, with page numbers; save it
     as a PDF from the print window. Code: `source/webapp/pages/report.py`.
+
+16. **Fix: amounts typed into the Add forms and the live-trading limits no longer vanish.** The comma
+    formatting for dollar boxes was also being applied to number-type boxes (which cannot hold "12,345"), so the
+    browser wiped the value when you tabbed away. It now formats text boxes only. Affects the Add dialogs and
+    the live-trading "Most per order / Most per day" boxes.
