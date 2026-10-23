@@ -1295,6 +1295,9 @@ _NAV_ICONS = {
         '<circle cx="5" cy="12" r="1.6" fill="#fff"/>'),
     "drawdown-planning.html": ("#8a96ff", "#3338c0",
         '<path d="M3 7l6 6 4-4 8 8"/><path d="M21 17v-5M21 17h-5"/>'),
+    "trading.html": ("#ffd75e", "#d98a00",
+        '<rect x="5" y="8" width="4" height="7" rx="1"/><path d="M7 5v3M7 15v4"/>'
+        '<rect x="15" y="6" width="4" height="9" rx="1"/><path d="M17 3v3M17 15v3"/>'),
     "setup.html": ("#bcc1ca", "#646a76",
         '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9" cy="7" r="2" fill="#fff"/>'
         '<circle cx="15" cy="12" r="2" fill="#fff"/><circle cx="8" cy="17" r="2" fill="#fff"/>'),
