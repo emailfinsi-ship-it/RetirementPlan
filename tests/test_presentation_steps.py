@@ -116,6 +116,30 @@ class TestPlanReport(DashboardTestCase):
         pat = r"Typical case</div><div class=\"value\">(\$[\d,.]+)</div>"
         self.assertEqual(re.search(pat, rep).group(1), re.search(pat, summ).group(1))
 
+    def test_report_reads_like_an_adviser_review_for_a_client(self):
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "K", "balance": 900_000, "include_in_monte_carlo": 1})
+        db.add_line_item("expenses", {"name": "Living", "category": "Fixed", "annual_amount": 50_000})
+        try:
+            body = self._get("/report.html").read().decode("utf-8")
+        finally:
+            db.clear_section("assets")
+            db.clear_section("expenses")
+        titles = re.findall(r'<h2 class="rep-title">\d\. ([^<]+)</h2>', body)
+        self.assertEqual(titles, [
+            "Your plan at a glance", "Goals and where you stand", "Good, expected and bad markets",
+            "Income and tax picture", "Assumptions and disclosures",
+        ])
+        self.assertIn("What we recommend", body)
+        self.assertIn("Important information", body)
+        self.assertIn("Retirement plan review prepared for", body)
+        # Good / expected / bad market columns, and the page numbers on paper.
+        for words in ("Bad market", "Expected market", "Good market"):
+            self.assertIn(words, body)
+        self.assertIn("counter(page)", body)
+        # One brand only, and nothing clickable on a printed page.
+        self.assertIn("FinSi", body)
+        self.assertNotRegex(body.split("</style>")[-1].split('<section')[1], r'<a href="/')
+
     def test_every_page_header_has_the_report_button_before_the_eye_icon(self):
         for page in ("/summary.html", "/asset.html", "/setup.html"):
             body = self._get(page).read().decode("utf-8")

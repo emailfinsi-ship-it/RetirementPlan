@@ -89,3 +89,16 @@ are not touched.
     and every real-money order sent is recorded in an audit list on the page. Cancelling an order never needs the
     switch. Removing the live keys also switches live trading off. Code: `source/webapp/trading_api.py`,
     `source/common/db/live_trading.py`.
+
+14. **Summary: a quick glance first, detail on tap.** Today now opens with the answer (plan check and the three
+    headline numbers), then *What should I do next?*, where you stand toward independence, and a one-line
+    what-if. The longer cards -- where the money comes from, the plan projection, what you own and owe, trends
+    and mix, and the data check -- sit under single-line bars that open on tap (the data check opens by itself when
+    it has something to fix). The alerts card shows the top two and a "Show N more" link.
+
+15. **Client-ready plan report.** *Report Download* now produces an adviser-style review for the household, under
+    the FinSi name only: (1) your plan at a glance with the top three recommendations and a suggested review
+    date, (2) goals and where you stand, (3) good / expected / bad market scenarios by year plus a replay of
+    past market crashes, (4) the income and tax picture for the retirement years, and (5) assumptions and an
+    "Important information" disclosures list. Each part starts on its own printed page, with page numbers; save it
+    as a PDF from the print window. Code: `source/webapp/pages/report.py`.

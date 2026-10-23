@@ -419,8 +419,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
             db.clear_section("expenses")
         self.assertIn("What should I do next?", body)
         self.assertIn("birth year isn&#x27;t set", body)
-        # The answer and the charts that explain it come first; "What should I do next?" closes the page.
-        self.assertLess(body.index("Total assets over time"), body.index("What should I do next?"))
+        # The answer comes first, then what to do next; the trend charts sit in a fold below.
+        self.assertLess(body.index("What should I do next?"), body.index("Total assets over time"))
 
     def test_summary_shows_a_total_asset_trend_once_there_is_history(self):
         for day, total in (("2026-01-01", 100_000.0), ("2026-02-01", 110_000.0)):

@@ -526,25 +526,49 @@ def standing_card_html(s: dict, snapshots: list, history: dict, plan_rate: float
 """
 
 
+_ALERTS_SHOWN = 2
+
+
+def fold_html(title: str, hint: str, inner: str, *, open_: bool = False, fold_id: str = "") -> str:
+    """A section that opens on tap: the Summary's detail layer. The inner HTML
+    is the card exactly as before, so nothing in it changes -- it is just
+    tucked under a one-line bar until the person wants it."""
+    if not inner.strip():
+        return ""
+    ident = f' id="{html.escape(fold_id)}"' if fold_id else ""
+    return (
+        f'<details class="fold"{ident}{" open" if open_ else ""}><summary><span class="fold-title">{html.escape(title)}</span>'
+        f'<span class="fold-hint">{html.escape(hint)}</span></summary>{inner}</details>'
+    )
+
+
 def alerts_card_html(alerts: list[dict]) -> str:
     """Open alerts (see source.reporting.alerts) with a Dismiss button each.
-    Renders nothing when there are none, so a quiet plan stays quiet."""
+    Renders nothing when there are none, so a quiet plan stays quiet. The two
+    most important show at once; the rest wait under "Show more"."""
     if not alerts:
         return ""
-    rows = ""
-    for a in alerts:
+
+    def item(a: dict) -> str:
         aid = html.escape(json.dumps(a["id"]), quote=True)
-        rows += (
+        return (
             f'<li class="{"status-warn" if a["level"] == "warn" else "muted"}"><strong>{html.escape(a["title"])}</strong>'
             f'<div class="small muted" style="margin-top:2px">{html.escape(a["detail"])} '
             f'<a href="{html.escape(a["href"])}">Open</a> '
             f'<button type="button" class="chip" onclick="postJSON(\'/api/alerts-dismiss\', {{id: {aid}}})'
             f'.then(function() {{ location.reload(); }});">Dismiss</button></div></li>'
         )
+    shown = "".join(item(a) for a in alerts[:_ALERTS_SHOWN])
+    more = ""
+    if len(alerts) > _ALERTS_SHOWN:
+        more = (
+            f'<details class="ns-more"><summary>Show {len(alerts) - _ALERTS_SHOWN} more</summary>'
+            f'<ul style="margin:6px 0 0 18px; padding:0; font-size:13px;">{"".join(item(a) for a in alerts[_ALERTS_SHOWN:])}</ul></details>'
+        )
     return f"""
 <div class="card" id="alerts">
 <h3 class="sub" style="margin-top:0">Alerts ({len(alerts)})</h3>
-<ul style="margin:6px 0 0 18px; padding:0; font-size:13px;">{rows}</ul>
+<ul style="margin:6px 0 0 18px; padding:0; font-size:13px;">{shown}</ul>{more}
 </div>"""
 
 
