@@ -27,6 +27,7 @@ NAV_ITEMS = (
     ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Will my money last?"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
+    ("trading.html", "Trading"),
     ("setup.html", "Setup"),
 )
 

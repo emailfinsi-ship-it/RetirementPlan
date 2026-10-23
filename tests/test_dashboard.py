@@ -6062,6 +6062,150 @@ class TestThemeToggle(DashboardTestCase):
         self.assertNotIn('fill="#0b0b0b"', html_out)
 
 
+class TestTradingTab(DashboardTestCase):
+    """The Trading tab (pages/trading.py + the /api/alpaca* routes): an Alpaca
+    PAPER account only. Every Alpaca call goes through a fake urlopen."""
+
+    def setUp(self):
+        from source.collector import alpaca
+        alpaca._previews.clear()
+
+    def tearDown(self):
+        from source.common import secrets_store
+        secrets_store.delete_alpaca_keys()
+
+    def _fake(self, extra=None):
+        from tests.test_alpaca import FakeAlpaca, trade_route
+        routes = {
+            ("GET", "paper-api.alpaca.markets/v2/account"): {
+                "status": "ACTIVE", "account_number": "PA123", "equity": "101000", "last_equity": "100000",
+                "cash": "90000", "buying_power": "180000"},
+            ("GET", "paper-api.alpaca.markets/v2/positions"): [
+                {"symbol": "VTI", "qty": "10", "avg_entry_price": "200", "current_price": "210",
+                 "market_value": "2100", "unrealized_pl": "100", "unrealized_plpc": "0.05"}],
+            ("GET", "paper-api.alpaca.markets/v2/orders"): [
+                {"id": "61e69015-8549-4bfd-b9c3-01e75843f47d", "symbol": "BND", "side": "buy", "qty": "5",
+                 "type": "limit", "limit_price": "70", "status": "new", "submitted_at": "2026-10-01T14:30:00Z"}],
+            **trade_route(250.0),
+            ("POST", "paper-api.alpaca.markets/v2/orders"): {"id": "o-9", "status": "accepted"},
+            **(extra or {}),
+        }
+        return FakeAlpaca(routes)
+
+    def _connect(self, fake):
+        from unittest.mock import patch
+        with patch("urllib.request.urlopen", fake):
+            return self._post("/api/alpaca-keys", {"key_id": "PKX", "secret": "S3"})
+
+    def test_trading_is_in_the_navigation(self):
+        body = self._get("/monte-carlo.html").read().decode("utf-8")   # the Explore tab's own sub-menu
+        self.assertIn('href="/trading.html"', body)
+
+    def test_without_keys_the_page_offers_to_connect_and_says_it_is_practice_only(self):
+        body = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn("Connect your Alpaca practice account", body)
+        self.assertIn("Practice only", body)
+        self.assertIn("/api/alpaca-keys", body)
+
+    def test_a_wrong_key_is_refused_and_not_saved(self):
+        from source.common import secrets_store
+        from tests.test_alpaca import FakeAlpaca, http_error
+        fake = FakeAlpaca({("GET", "paper-api.alpaca.markets/v2/account"): http_error(401)})
+        status, payload = self._connect(fake)
+        self.assertEqual(status, 400)
+        self.assertIn("rejected the keys", payload["error"])
+        self.assertFalse(secrets_store.has_alpaca_keys())
+
+    def test_connecting_then_the_page_shows_account_positions_and_orders(self):
+        from unittest.mock import patch
+        from source.common import secrets_store
+        fake = self._fake()
+        status, _ = self._connect(fake)
+        self.assertEqual(status, 200)
+        self.assertEqual(secrets_store.get_alpaca_keys(), ("PKX", "S3"))
+        with patch("urllib.request.urlopen", fake):
+            body = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn("Practice account value", body)
+        self.assertIn("$101,000.00", body)
+        self.assertIn("+$1,000.00", body)       # change since yesterday
+        self.assertIn("VTI", body)
+        self.assertIn("(+5.0%)", body)
+        self.assertIn("BND", body)
+        self.assertIn('data-order-id="61e69015-8549-4bfd-b9c3-01e75843f47d"', body)  # open order can be cancelled
+        self.assertIn("Place a practice order", body)
+        self.assertNotIn("S3", body)             # the secret is never shown
+
+    def test_a_down_connection_shows_a_message_not_an_error_page(self):
+        import urllib.error
+        from unittest.mock import patch
+        from tests.test_alpaca import FakeAlpaca
+        self._connect(self._fake())
+        down = FakeAlpaca({("GET", "paper-api.alpaca.markets/v2/account"): urllib.error.URLError("down")})
+        with patch("urllib.request.urlopen", down):
+            resp = self._get("/trading.html")
+            body = resp.read().decode("utf-8")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("reach Alpaca", body)
+        self.assertIn("Remove saved keys", body)
+
+    def test_preview_then_order_places_exactly_one_practice_order(self):
+        from unittest.mock import patch
+        fake = self._fake()
+        self._connect(fake)
+        order = {"symbol": "vti", "side": "buy", "qty": "10", "type": "market"}
+        with patch("urllib.request.urlopen", fake):
+            status, preview = self._post("/api/alpaca/preview", order)
+            self.assertEqual(status, 200)
+            self.assertEqual(preview["estimate"], 2500.0)
+            self.assertFalse([c for c in fake.calls if c["method"] == "POST"])   # nothing sent yet
+            status, placed = self._post("/api/alpaca/order", {"token": preview["token"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(placed["id"], "o-9")
+            status, again = self._post("/api/alpaca/order", {"token": preview["token"]})
+            self.assertEqual(status, 400)
+            self.assertIn("expired", again["error"])
+        posts = [c for c in fake.calls if c["method"] == "POST" and "/v2/orders" in c["url"] and "alpaca-keys" not in c["url"]]
+        self.assertEqual(len(posts), 1)
+        self.assertTrue(posts[0]["url"].startswith("https://paper-api.alpaca.markets/"))
+
+    def test_ordering_without_a_preview_is_refused(self):
+        from unittest.mock import patch
+        fake = self._fake()
+        self._connect(fake)
+        with patch("urllib.request.urlopen", fake):
+            status, payload = self._post("/api/alpaca/order", {"token": "made-up"})
+        self.assertEqual(status, 400)
+        self.assertFalse([c for c in fake.calls if c["method"] == "POST"])
+
+    def test_an_oversized_order_is_refused_with_a_reason(self):
+        from unittest.mock import patch
+        fake = self._fake()
+        self._connect(fake)
+        with patch("urllib.request.urlopen", fake):
+            status, payload = self._post("/api/alpaca/preview", {"symbol": "VTI", "side": "buy", "qty": "500", "type": "market"})
+        self.assertEqual(status, 400)
+        self.assertIn("limited", payload["error"])
+
+    def test_preview_without_keys_says_to_connect(self):
+        status, payload = self._post("/api/alpaca/preview", {"symbol": "VTI", "side": "buy", "qty": "1", "type": "market"})
+        self.assertEqual(status, 400)
+        self.assertIn("No Alpaca keys", payload["error"])
+
+    def test_cancel_and_disconnect(self):
+        from unittest.mock import patch
+        from source.common import secrets_store
+        oid = "61e69015-8549-4bfd-b9c3-01e75843f47d"
+        fake = self._fake({("DELETE", f"paper-api.alpaca.markets/v2/orders/{oid}"): {}})
+        self._connect(fake)
+        with patch("urllib.request.urlopen", fake):
+            status, _ = self._post("/api/alpaca/cancel", {"id": oid})
+        self.assertEqual(status, 200)
+        self.assertTrue([c for c in fake.calls if c["method"] == "DELETE"])
+        status, _ = self._post("/api/alpaca-keys/delete", {})
+        self.assertEqual(status, 200)
+        self.assertFalse(secrets_store.has_alpaca_keys())
+
+
 class TestDebtPaydownChart(DashboardTestCase):
     """The "Debt paydown over time" card under the Liabilities table
     (asset.py's _debt_paydown_html, drawn by charts._net_worth_explorer_html

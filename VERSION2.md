@@ -65,3 +65,11 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
   or any single debt, in $ or % change. Each debt's own history starts the day this ships
   (new table `debt_balance_snapshots`); the Liabilities total already had history. A workbook
   re-import keeps the history of imported loans and properties (matched by name).
+
+- **Trading tab (Alpaca practice account).** A new *Trading* tab (owner login only) connects to your Alpaca **paper**
+  account: practice account value, cash, buying power, positions with gain/loss, and recent orders (open ones can
+  be cancelled). The order ticket is two steps: *Preview* prices and size-checks the order, then *Place practice
+  order* sends exactly that order once. Safety is in code: only Alpaca's paper host is ever used (live keys and
+  live trading are not supported), one order is limited to $25,000, and confirming needs a single-use token that
+  expires in 5 minutes. Keys are stored in the Keychain vault and checked before saving. Practice balances
+  are never counted in net worth or the plan.

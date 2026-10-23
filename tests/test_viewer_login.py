@@ -86,6 +86,10 @@ class TestViewerHttp(AuthTestCase):
     def test_viewer_cannot_open_setup(self):
         self.assertEqual(self._get("/setup.html", cookie=self.viewer).status, 302)
         self.assertEqual(self._get("/setup.html", cookie=self.owner).status, 200)
+        # the Trading tab holds the broker keys and can place orders: owner only
+        self.assertEqual(self._get("/trading.html", cookie=self.viewer).status, 302)
+        for path in ("/api/alpaca-keys", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel", "/api/alpaca-keys/delete"):
+            self.assertEqual(self._post(path, {}, cookie=self.viewer)[0].status, 403, path)
 
     def test_owner_still_writes_and_viewer_banner_only_for_viewer(self):
         status = self._post("/api/viewer-password", {"password": "viewer-password-9"}, cookie=self.owner)[0].status
