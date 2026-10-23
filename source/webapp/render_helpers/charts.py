@@ -694,7 +694,7 @@ _NW_EXPLORER_DEFAULT_SELECTED = 3  # the largest assets are shown until the pers
 # series are currently picked, in either dollar or %-change terms.
 _NW_EXPLORER_JS = """
 (function () {
-  var root = document.getElementById('nw-explorer');
+  var root = document.getElementById(__ROOT_ID__);
   if (!root) return;
   var data = JSON.parse(root.querySelector('script[type="application/json"]').textContent);
   var chart = root.querySelector('.nw-chart');
@@ -735,20 +735,20 @@ _NW_EXPLORER_JS = """
   var valid = {};
   data.assets.forEach(function (a) { valid[a.id] = true; });
   var saved = null;
-  try { saved = JSON.parse(localStorage.getItem('rp-nw-assets') || 'null'); } catch (e) {}
+  try { saved = JSON.parse(localStorage.getItem(__K_ASSETS__) || 'null'); } catch (e) {}
   (Array.isArray(saved) ? saved.filter(function (id) { return valid[id]; }) : topIds).forEach(function (id) { selected[id] = true; });
-  try { var m = localStorage.getItem('rp-nw-mode'); if (m === 'value' || m === 'pct') mode = m; } catch (e) {}
-  try { if (localStorage.getItem('rp-nw-show') === '0') showNw = false; } catch (e) {}
+  try { var m = localStorage.getItem(__K_MODE__); if (m === 'value' || m === 'pct') mode = m; } catch (e) {}
+  try { if (localStorage.getItem(__K_SHOW__) === '0') showNw = false; } catch (e) {}
   var reKeys = {};
   data.re.forEach(function (r) { reKeys[r.key] = true; });
   try {
-    var savedRe = JSON.parse(localStorage.getItem('rp-nw-re') || 'null');
+    var savedRe = JSON.parse(localStorage.getItem(__K_RE__) || 'null');
     if (Array.isArray(savedRe)) savedRe.forEach(function (k) { if (reKeys[k]) reSel[k] = true; });
   } catch (e) {}
 
   // Picking either real-estate line switches the headline total from Net
   // Liquid Asset to Total Asset (Investable savings + real estate equity).
-  function anyRe() { return !!(data.total && Object.keys(reSel).some(function (k) { return reSel[k]; })); }
+  function anyRe() { return !!(data.total && (data.headlineTotal || Object.keys(reSel).some(function (k) { return reSel[k]; }))); }
   function totalDef() { return anyRe() ? data.total : data.liquid; }
 
   function series() {
@@ -779,7 +779,7 @@ _NW_EXPLORER_JS = """
 
     if (!list.length) {
       state = null; hideTip();
-      holder.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">Nothing selected -- pick the total line, real estate, or one or more assets above to plot them.</p>';
+      holder.innerHTML = '<p class="muted" style="margin:28px 0; text-align:center;">' + esc(__EMPTY__) + '</p>';
       return;
     }
     var d0 = Infinity, d1 = -Infinity, lo = Infinity, hi = -Infinity;
@@ -843,7 +843,7 @@ _NW_EXPLORER_JS = """
     });
     svg += '<line class="nw-guide" x1="0" y1="' + PT + '" x2="0" y2="' + PBOT + '" visibility="hidden" ' +
       'style="stroke:var(--ink-muted);" stroke-width="1" stroke-dasharray="2 3"/><g class="nw-hl"></g>';
-    holder.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Net worth and selected assets over time" ' +
+    holder.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(__ARIA__) + '" ' +
       'style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">' + svg + '</svg>';
     var dayset = {};
     list.forEach(function (s) { s.pts.forEach(function (p) { dayset[p.d] = true; }); });
@@ -922,10 +922,10 @@ _NW_EXPLORER_JS = """
   }
   function save() {
     try {
-      localStorage.setItem('rp-nw-assets', JSON.stringify(Object.keys(selected).filter(function (k) { return selected[k]; }).map(Number)));
-      localStorage.setItem('rp-nw-mode', mode);
-      localStorage.setItem('rp-nw-show', showNw ? '1' : '0');
-      localStorage.setItem('rp-nw-re', JSON.stringify(Object.keys(reSel).filter(function (k) { return reSel[k]; })));
+      localStorage.setItem(__K_ASSETS__, JSON.stringify(Object.keys(selected).filter(function (k) { return selected[k]; }).map(Number)));
+      localStorage.setItem(__K_MODE__, mode);
+      localStorage.setItem(__K_SHOW__, showNw ? '1' : '0');
+      localStorage.setItem(__K_RE__, JSON.stringify(Object.keys(reSel).filter(function (k) { return reSel[k]; })));
     } catch (e) {}
   }
   root.addEventListener('click', function (ev) {
@@ -954,11 +954,21 @@ _NW_EXPLORER_JS = """
 _NW_EXPLORER_RE_COLOR = "#8e5bd9"
 
 
-def _nw_change(points: list[tuple[str, float]]) -> tuple[str, bool]:
-    """("+$X (+Y%) since DATE", is_up) for a dated series' first-to-last move."""
+def _nw_change(points: list[tuple[str, float]], *, debt: bool = False) -> tuple[str, bool]:
+    """("+$X (+Y%) since DATE", is_good) for a dated series' first-to-last
+    move. For a debt series (debt=True) a fall is the good direction and the
+    wording says so: "paid down $X (Y%) since DATE" / "up $X (Y%) since DATE"."""
     first_date, first_value = points[0]
     change = points[-1][1] - first_value
     pct = (change / abs(first_value) * 100) if first_value else None
+    if debt:
+        word = "paid down" if change <= 0 else "up"
+        label = (
+            f"{word} {_money(abs(change))}"
+            + (f" ({abs(pct):.1f}%)" if pct is not None else "")
+            + f" since {first_date}"
+        )
+        return label, change <= 0
     label = (
         f"{'+' if change >= 0 else ''}{_money(change)}"
         + (f" ({'+' if pct >= 0 else ''}{pct:.1f}%)" if pct is not None else "")
@@ -970,6 +980,11 @@ def _nw_change(points: list[tuple[str, float]]) -> tuple[str, bool]:
 def _net_worth_explorer_html(
     liquid_points: list[tuple[str, float]], total_points: list[tuple[str, float]] | None,
     assets: list[dict], real_estate: list[dict], *, note: str = "",
+    element_id: str = "nw-explorer", storage_prefix: str = "rp-nw", debt: bool = False,
+    heading: str = "", total_name: str = "Total Asset", liquid_name: str = "Investable savings",
+    aria_label: str = "Net worth and selected assets over time",
+    empty_message: str = "Nothing selected -- pick the total line, real estate, or one or more assets above to plot them.",
+    default_selected: int = _NW_EXPLORER_DEFAULT_SELECTED,
 ) -> str:
     """The Assets tab's one over-time chart. The headline line is Net Liquid
     Asset by default; picking either real-estate line (value / equity)
@@ -983,13 +998,22 @@ def _net_worth_explorer_html(
     shape (largest first); `real_estate` is [{"key": "value"|"equity",
     "name", "points", "dash"}] (empty when there are no properties). The
     picked set and mode persist in localStorage. Drawn client-side from the
-    embedded JSON (same layout rules as _line_chart_html)."""
+    embedded JSON (same layout rules as _line_chart_html).
+
+    The same chart also draws the Assets & Debts page's debt-paydown chart
+    (debt=True): ``liquid_points`` is then the Liabilities total, the optional
+    ``total_points`` is All debts (liabilities + mortgages) and is the
+    headline whenever it exists, ``real_estate`` carries the extra lines
+    (Liabilities, Home mortgages), a falling line is the good (green)
+    direction and the headline reads "paid down $X since DATE". The id,
+    storage keys, heading and wording are parameters so two charts on one
+    page never share state."""
     def total_def(name: str, points: list[tuple[str, float]]) -> dict:
-        label, up = _nw_change(points)
+        label, up = _nw_change(points, debt=debt)
         return {"name": name, "points": [[d, v] for d, v in points], "change": label, "up": up}
 
-    liquid = total_def("Investable savings", liquid_points)
-    total = total_def("Total Asset", total_points) if total_points and real_estate else None
+    liquid = total_def(liquid_name, liquid_points)
+    total = total_def(total_name, total_points) if total_points and real_estate else None
     payload = {
         "liquid": liquid,
         "total": total,
@@ -1003,7 +1027,8 @@ def _net_worth_explorer_html(
             for a in assets
         ],
         "colors": list(_NW_EXPLORER_COLORS),
-        "defaultSelected": _NW_EXPLORER_DEFAULT_SELECTED,
+        "defaultSelected": default_selected,
+        "headlineTotal": bool(debt and total),
     }
     data_json = json.dumps(payload).replace("</", "<\\/")
     chips = "".join(
@@ -1023,11 +1048,26 @@ def _net_worth_explorer_html(
         for r in real_estate
     )
     note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(note)}</p>' if note else ""
+    headline = total if (debt and total) else liquid
+    title_html = (
+        f'{html.escape(heading)}' if heading
+        else f'<span class="nw-title">{html.escape(headline["name"])}</span> over time'
+    )
+    js = (
+        _NW_EXPLORER_JS
+        .replace("__ROOT_ID__", json.dumps(element_id))
+        .replace("__K_ASSETS__", json.dumps(storage_prefix + "-assets"))
+        .replace("__K_MODE__", json.dumps(storage_prefix + "-mode"))
+        .replace("__K_SHOW__", json.dumps(storage_prefix + "-show"))
+        .replace("__K_RE__", json.dumps(storage_prefix + "-re"))
+        .replace("__EMPTY__", json.dumps(empty_message))
+        .replace("__ARIA__", json.dumps(aria_label))
+    )
     return f"""
-<div class="card nw-explorer" id="nw-explorer" style="flex:2 1 480px;">
-<h3 style="margin-top:0; font-size:13px;"><span class="nw-title">{html.escape(liquid["name"])}</span> over time <span class="nw-change" style="color:{'#1baf7a' if liquid['up'] else '#c94a4a'}; font-weight:600;">{html.escape(liquid["change"])}</span></h3>
+<div class="card nw-explorer" id="{html.escape(element_id)}" style="flex:2 1 480px;">
+<h3 style="margin-top:0; font-size:13px;">{title_html} <span class="nw-change" style="color:{'#1baf7a' if headline['up'] else '#c94a4a'}; font-weight:600;">{html.escape(headline["change"])}</span></h3>
 <div class="nw-controls">
-  <button type="button" class="nw-chip" data-nw="1" aria-pressed="true" title="Show or hide the total line"><span class="nw-swatch" style="background:var(--ink);"></span><span class="nw-chip-label">{html.escape(liquid["name"])}</span></button>
+  <button type="button" class="nw-chip" data-nw="1" aria-pressed="true" title="Show or hide the total line"><span class="nw-swatch" style="background:var(--ink);"></span><span class="nw-chip-label">{html.escape(headline["name"])}</span></button>
   {re_chips}
   {chips}
   <span class="nw-tools">
@@ -1042,6 +1082,6 @@ def _net_worth_explorer_html(
 <div class="nw-chart"></div>
 {note_html}
 <script type="application/json">{data_json}</script>
-<script>{_NW_EXPLORER_JS}</script>
+<script>{js}</script>
 </div>
 """

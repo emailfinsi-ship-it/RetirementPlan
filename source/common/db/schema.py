@@ -456,6 +456,28 @@ CREATE TABLE IF NOT EXISTS asset_balance_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_asset_balance_snapshots_asset
     ON asset_balance_snapshots(asset_id, snapshot_date);
+
+-- Per-debt daily balance history, so the Assets & Debts tab can chart how each
+-- debt is being paid down. source is 'liability' (an Assets-tab Liabilities
+-- row, row_id = assets.id) or 'real_estate' (one property's mortgage, your
+-- share of it, row_id = real_estate.id). Same rules as asset_balance_snapshots
+-- above: one row per debt per day (capturing again overwrites that day), the
+-- name/category are kept so history reads sensibly after a rename, and there
+-- is deliberately no foreign key -- history outlives the row it came from.
+CREATE TABLE IF NOT EXISTS debt_balance_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,                     -- 'liability' | 'real_estate'
+    row_id INTEGER NOT NULL,
+    snapshot_date TEXT NOT NULL,              -- "YYYY-MM-DD", local date
+    balance REAL NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source, row_id, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_debt_balance_snapshots_row
+    ON debt_balance_snapshots(source, row_id, snapshot_date);
 """
 
 
