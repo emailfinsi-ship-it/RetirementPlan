@@ -82,3 +82,10 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
   $5,000; never more than $25,000 per order or $50,000 per day); the daily total counts what this app already
   sent today, and every real-money order sent is recorded in a list on the page. Cancelling never needs the
   switch, and removing the live keys also switches live trading off.
+
+## Summary quick glance and client report (also in version 3)
+
+- The Summary leads with the answer, *What should I do next?* and a quick what-if; the longer cards are tucked
+  under one-line bars that open on tap.
+- *Report Download* is now an adviser-style client report (plan at a glance with top recommendations, goals,
+  good / expected / bad market scenarios, income and tax picture, assumptions and disclosures), FinSi branding only.
