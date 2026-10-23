@@ -6112,6 +6112,11 @@ class TestTradingTab(DashboardTestCase):
         body = self._get("/monte-carlo.html").read().decode("utf-8")   # the Explore tab's own sub-menu
         self.assertIn('href="/trading.html"', body)
 
+    def test_the_trading_tab_has_its_own_icon_not_the_blank_default(self):
+        from source.webapp.render_helpers.shell import _NAV_ICONS, _nav_icon_html
+        self.assertIn("trading.html", _NAV_ICONS)
+        self.assertIn("<rect", _nav_icon_html("trading.html"))
+
     def test_without_keys_the_page_offers_to_connect_and_says_it_is_practice_only(self):
         body = self._get("/trading.html").read().decode("utf-8")
         self.assertIn("Connect your Alpaca practice account", body)
