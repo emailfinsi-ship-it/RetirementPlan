@@ -9,6 +9,7 @@ from source.common import db, linked_data
 from source.reporting.aggregate import (
     asset_balance_history,
     category_subtotals,
+    debt_balance_history,
     effective_loan_balance,
     effective_tax_treatment,
     real_estate_equity,
@@ -57,6 +58,70 @@ def _real_estate_series(snapshots: list[dict]) -> tuple[list[tuple[str, float]],
              if r.get("real_estate_value_total") is not None]
     equity = [(r["snapshot_date"], r["real_estate_equity_total"]) for r in ordered]
     return value, equity
+
+
+def _debt_series(
+    snapshots: list[dict],
+) -> tuple[list[tuple[str, float]], list[tuple[str, float]], list[tuple[str, float]]]:
+    """(Liabilities, Home mortgages, All debts) points from the daily net-worth
+    snapshots, in date order. Liabilities has a point for every snapshot; the
+    two mortgage-based series only for snapshots since property values started
+    being recorded (older rows have NULL value, and without it there is no
+    honest way to reconstruct what was owed). Mortgages = your share of value
+    less your share of equity = your share of the loans."""
+    ordered = sorted(snapshots, key=lambda r: r["snapshot_date"])
+    liabilities = [(r["snapshot_date"], r["liability_total"]) for r in ordered]
+    mortgages = [
+        (r["snapshot_date"], r["real_estate_value_total"] - r["real_estate_equity_total"])
+        for r in ordered if r.get("real_estate_value_total") is not None
+    ]
+    mortgage_by_date = dict(mortgages)
+    all_debts = [(d, v + mortgage_by_date[d]) for d, v in liabilities if d in mortgage_by_date]
+    return liabilities, mortgages, all_debts
+
+
+_DEBT_CHART_EMPTY_MESSAGE = (
+    "Come back tomorrow to see debt paydown here -- this chart plots one point per day and needs at least two "
+    "days of history. Balances are captured automatically once a day, so there's nothing to set up."
+)
+
+
+def _debt_paydown_html(snapshots: list[dict], liability_rows: list[dict], real_estate_rows: list[dict]) -> str:
+    """The "Debt paydown over time" card under the Liabilities table: the same
+    explorer chart the assets use, for liabilities plus home mortgages, with a
+    "paid down since" headline. Nothing at all when there is no debt to track."""
+    liabilities, mortgages, all_debts = _debt_series(snapshots)
+    history = [h for h in debt_balance_history(liability_rows, real_estate_rows) if len(h["points"]) >= 2]
+    has_debt = (
+        bool(liability_rows) or bool(history) or any(v > 0 for _d, v in mortgages[-1:])
+        or any((r.get("loan_balance") or 0) > 0 or r.get("linked_account_id") for r in real_estate_rows)
+    )
+    if not has_debt:
+        return ""
+    use_total = len(all_debts) >= 2 and len(mortgages) >= 2
+    note = (
+        "One point per day, captured automatically (nothing to set up). Falling lines are good -- they mean "
+        "you owe less. Pick individual debts above to plot them alongside; \"% change\" starts every line at "
+        "0. Each debt appears once it has two days of history; mortgages show your share of the loan."
+    )
+    lines: list[dict] = []
+    if use_total:
+        lines = [
+            {"key": "liab", "name": "Liabilities", "points": liabilities,
+             "title": "Credit cards, loans and other debts listed in the table above."},
+            {"key": "mort", "name": "Home mortgages", "points": mortgages, "dash": "6 4",
+             "title": "Your share of what is owed on your properties. Recorded from the day property values "
+                      "started being saved, so this line starts there."},
+        ]
+        note += " The headline, All debts, is liabilities plus home mortgages."
+    if len(liabilities) >= 2:
+        return _net_worth_explorer_html(
+            liabilities, all_debts if use_total else None, history, lines, note=note,
+            element_id="debt-explorer", storage_prefix="rp-debt", debt=True, heading="Debt paydown over time",
+            total_name="All debts", liquid_name="Liabilities", aria_label="Debt balances over time",
+            empty_message="Nothing selected -- pick the total line or one or more debts above to plot them.",
+        )
+    return _line_chart_html("Debt paydown over time", liabilities, note=note, empty_message=_DEBT_CHART_EMPTY_MESSAGE)
 
 
 _NET_WORTH_CHART_EMPTY_MESSAGE = (
@@ -164,6 +229,8 @@ def _render_asset_page() -> str:
             empty_message=_NET_WORTH_CHART_EMPTY_MESSAGE,
         )
 
+    debt_paydown_html = _debt_paydown_html(snapshots, liability_rows, real_estate_rows)
+
     body = f"""
 <h2 style="margin-top:0">Assets</h2>
 <p class="muted">Your own line items, grouped into their own table by category -- 401(k), brokerage, insurance, cash, anything else. Real estate is edited on its own tab. Use the "+ Add" button (bottom right of any page) to add a new asset or liability -- the Category you type there is what groups it into a table above, so reuse an existing one to add to that table, or type a new name to start a new one. Already have a row in the wrong category (e.g. an imported credit card that landed under "Loan")? Its Category cell is editable too -- change it and the row moves into the right table (and subtotal) on save, no need to delete and re-add it. Check "In the plan?" on a row to have its balance feed the Monte Carlo / historical stress test simulations' starting pools (Investable savings below reflects the same checkboxes) -- Tax treatment on a checked row decides which pool (tax-deferred / Roth / taxable) it belongs to.</p>
@@ -183,6 +250,7 @@ def _render_asset_page() -> str:
 <div class="add-shortcut-row">
   <button type="button" onclick="openAddModal('liability')">+ Add liability</button>
 </div>
+{debt_paydown_html}
 
 <p class="muted">Your live linked account balances (read-only, pulled directly from Plaid) are on their own <a href="/linked-accounts.html">Linked Accounts</a> tab; investment holdings are on <a href="/linked-positions.html">Linked Positions</a>.</p>
 """

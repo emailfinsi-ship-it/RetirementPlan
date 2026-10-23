@@ -61,3 +61,11 @@ are not touched.
     - Grammar fixes in both modes: a spaced `--` is shown as a proper dash; "Total assets over
       time"; "an 11.0% rate"; "percentage points less in bonds than your goal"; "modeled",
       "organized".
+12. **Debt paydown over time (Assets & Debts).** A "Debt paydown over time" chart now sits right
+    under the Liabilities table. It follows every liability and every home mortgage (your share of
+    the loan) one point a day, with a "paid down $X since DATE" headline (falling is green). The
+    default line is All debts (liabilities plus mortgages); chips plot Liabilities, Home mortgages
+    or any single debt, in $ or % change. Each debt's own history starts the day this ships
+    (new table `debt_balance_snapshots`, filled by the same daily capture as net worth); the
+    Liabilities total already had history. A workbook re-import keeps the history of imported
+    loans and properties (matched by name).

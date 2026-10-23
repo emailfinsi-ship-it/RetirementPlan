@@ -299,6 +299,18 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
         for row in db.list_line_items("assets") if row.get("source") == "imported"
     }
     new_asset_ids: dict[tuple[str, str], int] = {}
+    # Same idea for the debt-paydown history (debt_balance_snapshots): imported
+    # loans and imported real-estate rows, matched by name.
+    previous_loan_ids = {
+        row.get("name") or "": row["id"]
+        for row in db.list_line_items("assets") if row.get("source") == "imported" and row.get("kind") == "liability"
+    }
+    previous_property_ids = {
+        row.get("name") or "": row["id"]
+        for row in db.list_line_items("real_estate") if row.get("source") == "imported"
+    }
+    new_loan_ids: dict[str, int] = {}
+    new_property_ids: dict[str, int] = {}
 
     # The workbook has no Loan-ends column, so a year typed in on the Real
     # Estate tab would be lost with the wiped rows -- carry it over by name.
@@ -314,9 +326,13 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
     db.clear_section("income", source="imported")
 
     for row in real_estate_rows:
-        db.add_line_item("real_estate", {
+        new_property_id = db.add_line_item("real_estate", {
             **row, "source": "imported", "loan_end_year": previous_loan_end_years.get(row.get("name")),
         })
+        new_property_ids[row.get("name") or ""] = new_property_id
+    db.remap_debt_balance_snapshots("real_estate", {
+        previous_property_ids[name]: new_id for name, new_id in new_property_ids.items() if name in previous_property_ids
+    })
 
     asset_count = 0
     for category, rows in (("401k", k401_rows), ("Liquid", liquid_rows)):
@@ -334,7 +350,7 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
         previous_asset_ids[key]: new_id for key, new_id in new_asset_ids.items() if key in previous_asset_ids
     })
     for row in loan_rows:
-        db.add_line_item("assets", {
+        new_loan_ids[row["name"] or ""] = db.add_line_item("assets", {
             "kind": "liability",
             "category": "Loan",
             "name": row["name"],
@@ -342,6 +358,9 @@ def import_from_xlsx(path: Path, *, password: str | None = None) -> dict:
             "source": "imported",
         })
         asset_count += 1
+    db.remap_debt_balance_snapshots("liability", {
+        previous_loan_ids[name]: new_id for name, new_id in new_loan_ids.items() if name in previous_loan_ids
+    })
 
     expense_count = 0
     if fixed_cost:

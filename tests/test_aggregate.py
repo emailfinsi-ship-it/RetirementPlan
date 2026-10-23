@@ -5,6 +5,8 @@ from source.reporting.aggregate import (
     asset_balance_history,
     build_summary,
     capture_asset_balance_snapshots,
+    capture_debt_balance_snapshots,
+    debt_balance_history,
     capture_daily_snapshots_if_new_day,
     capture_investment_account_balances,
     capture_net_worth_snapshot,
@@ -857,3 +859,88 @@ class TestAssetBalanceSnapshots(TempConfigTestCase):
         liab = db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": "Card", "balance": 5_000})
         db.record_asset_balance_snapshot(asset_id=liab, balance=5_000.0, name="Card", snapshot_date="2026-09-01")
         self.assertEqual(asset_balance_history(db.list_line_items("assets")), [])
+
+
+class TestDebtBalanceSnapshots(TempConfigTestCase):
+    """Per-debt daily history behind the Assets & Debts page's debt paydown
+    chart: Liabilities rows plus home mortgages (your share of the loan)."""
+
+    def _liability(self, name, balance, **extra):
+        return db.add_line_item("assets", {"kind": "liability", "category": "Loan", "name": name, "balance": balance, **extra})
+
+    def test_capture_records_each_liability_and_skips_assets(self):
+        card = self._liability("Card", 5_000)
+        db.add_line_item("assets", {"kind": "asset", "category": "401k", "name": "Fidelity", "balance": 100_000})
+        capture_debt_balance_snapshots()
+        rows = db.list_debt_balance_snapshots()
+        self.assertEqual([(r["source"], r["row_id"], r["balance"], r["name"]) for r in rows],
+                         [("liability", card, 5_000.0, "Card")])
+
+    def test_a_mortgage_is_recorded_as_your_share_of_the_loan(self):
+        home = db.add_line_item("real_estate", {
+            "name": "Home", "current_value": 800_000, "loan_balance": 300_000, "ownership_pct": 50,
+        })
+        capture_debt_balance_snapshots()
+        rows = db.list_debt_balance_snapshots("real_estate")
+        self.assertEqual([(r["row_id"], r["balance"], r["category"]) for r in rows], [(home, 150_000.0, "Mortgage")])
+
+    def test_a_property_with_no_loan_is_skipped_until_it_has_history(self):
+        home = db.add_line_item("real_estate", {"name": "Paid off", "current_value": 500_000, "loan_balance": 0})
+        capture_debt_balance_snapshots()
+        self.assertEqual(db.list_debt_balance_snapshots("real_estate"), [])
+        db.update_line_item("real_estate", home, {"loan_balance": 10_000})
+        capture_debt_balance_snapshots()
+        db.update_line_item("real_estate", home, {"loan_balance": 0})
+        db.record_debt_balance_snapshot(source="real_estate", row_id=home, balance=10_000.0, snapshot_date="2026-01-01")
+        capture_debt_balance_snapshots()  # paid off: the zero is recorded, not dropped
+        zero = [r for r in db.list_debt_balance_snapshots("real_estate") if r["balance"] == 0.0]
+        self.assertEqual(len(zero), 1)
+
+    def test_capturing_twice_the_same_day_overwrites(self):
+        card = self._liability("Card", 5_000)
+        capture_debt_balance_snapshots()
+        db.update_line_item("assets", card, {"balance": 4_000})
+        capture_debt_balance_snapshots()
+        rows = db.list_debt_balance_snapshots("liability")
+        self.assertEqual([r["balance"] for r in rows], [4_000.0])
+
+    def test_capture_net_worth_snapshot_also_captures_debts(self):
+        self._liability("Card", 5_000)
+        capture_net_worth_snapshot()
+        self.assertEqual(len(db.list_debt_balance_snapshots()), 1)
+
+    def test_unknown_source_is_rejected(self):
+        with self.assertRaises(ValueError):
+            db.record_debt_balance_snapshot(source="bogus", row_id=1, balance=1.0)
+
+    def test_history_lists_both_kinds_largest_first_with_distinct_ids(self):
+        card = self._liability("Card", 5_000)
+        home = db.add_line_item("real_estate", {"name": "Home", "current_value": 800_000, "loan_balance": 300_000})
+        for d, v in (("2026-09-02", 4_500.0), ("2026-09-01", 5_000.0)):
+            db.record_debt_balance_snapshot(source="liability", row_id=card, balance=v, name="Card", snapshot_date=d)
+        db.record_debt_balance_snapshot(source="real_estate", row_id=home, balance=300_000.0, snapshot_date="2026-09-01")
+        history = debt_balance_history(
+            [r for r in db.list_line_items("assets") if r["kind"] == "liability"], db.list_line_items("real_estate"),
+        )
+        self.assertEqual([h["name"] for h in history], ["Home mortgage", "Card"])
+        self.assertEqual(history[0]["id"], home + 1_000_000)
+        self.assertEqual(history[0]["category"], "Mortgage")
+        self.assertEqual(history[1]["id"], card)
+        self.assertEqual(history[1]["points"], [("2026-09-01", 5_000.0), ("2026-09-02", 4_500.0)])
+
+    def test_history_leaves_out_deleted_rows_and_rows_with_no_snapshots(self):
+        card = self._liability("Card", 5_000)
+        self._liability("No history", 100)
+        db.record_debt_balance_snapshot(source="liability", row_id=card, balance=5_000.0, snapshot_date="2026-09-01")
+        db.record_debt_balance_snapshot(source="liability", row_id=9999, balance=1.0, snapshot_date="2026-09-01")
+        history = debt_balance_history([r for r in db.list_line_items("assets")], [])
+        self.assertEqual([h["id"] for h in history], [card])
+
+    def test_remap_moves_history_to_the_new_ids(self):
+        db.record_debt_balance_snapshot(source="liability", row_id=1, balance=5.0, snapshot_date="2026-09-01")
+        db.record_debt_balance_snapshot(source="liability", row_id=1, balance=4.0, snapshot_date="2026-09-02")
+        db.record_debt_balance_snapshot(source="liability", row_id=7, balance=3.0, snapshot_date="2026-09-02")
+        db.remap_debt_balance_snapshots("liability", {1: 7})
+        rows = db.list_debt_balance_snapshots("liability")
+        self.assertEqual(sorted((r["row_id"], r["snapshot_date"], r["balance"]) for r in rows),
+                         [(7, "2026-09-01", 5.0), (7, "2026-09-02", 3.0)])

@@ -230,6 +230,63 @@ def capture_net_worth_snapshot(summary: dict | None = None) -> None:
         real_estate_value_total=s.get("real_estate_value_total"),
     )
     capture_asset_balance_snapshots(s)
+    capture_debt_balance_snapshots(s)
+
+
+def capture_debt_balance_snapshots(summary: dict | None = None) -> None:
+    """Records today's balance for every Liabilities row and every home
+    mortgage into source.common.db.debt_balance_snapshots, so the Assets &
+    Debts page can chart debt paydown over time. A mortgage is recorded as
+    YOUR share of the loan (loan x ownership %), the same share the equity
+    figures use; a property with no loan is skipped unless it already has
+    history (so paying a loan off to zero is recorded rather than dropped).
+    Idempotent per debt per day; called from capture_net_worth_snapshot."""
+    s = summary if summary is not None else build_summary()
+    live_by_account_id = {a["account_id"]: a for a in linked_data.linkable_accounts()}
+    for a in s["assets"]:
+        if a.get("kind") != "liability":
+            continue
+        db.record_debt_balance_snapshot(
+            source="liability", row_id=a["id"], balance=effective_balance(a, live_by_account_id),
+            name=a.get("name") or "", category=a.get("category") or "",
+        )
+    has_history = {row["row_id"] for row in db.list_debt_balance_snapshots("real_estate")}
+    loans = s.get("real_estate_loan_balances") or {}
+    for r in s.get("real_estate") or []:
+        share = (r.get("ownership_pct") or 100.0) / 100.0
+        owed = (loans.get(r["id"]) or 0.0) * share
+        if owed <= 0 and r["id"] not in has_history:
+            continue
+        db.record_debt_balance_snapshot(
+            source="real_estate", row_id=r["id"], balance=owed,
+            name=r.get("name") or "", category="Mortgage",
+        )
+
+
+def debt_balance_history(liabilities: list[dict], real_estate: list[dict]) -> list[dict]:
+    """Each current Liabilities row's and home mortgage's balance-over-time
+    for the Assets & Debts page's debt chart picker: [{"id", "name",
+    "category", "points": [(date, balance), ...]}], largest current balance
+    first. Chip ids: a liability's own id, a mortgage's id + 1,000,000 (the
+    two tables number independently). Only rows that still exist are listed."""
+    by_key: dict[tuple[str, int], dict[str, float]] = {}
+    for row in db.list_debt_balance_snapshots():
+        by_key.setdefault((row["source"], row["row_id"]), {})[row["snapshot_date"]] = row["balance"]
+    result = []
+    for source, rows, offset in (("liability", liabilities, 0), ("real_estate", real_estate, 1_000_000)):
+        for r in rows:
+            merged = by_key.get((source, r["id"]))
+            if not merged:
+                continue
+            result.append({
+                "id": r["id"] + offset,
+                "name": (f"{r.get('name')} mortgage" if r.get("name") else "Mortgage") if source == "real_estate"
+                else (r.get("name") or ""),
+                "category": "Mortgage" if source == "real_estate" else (r.get("category") or ""),
+                "points": sorted(merged.items()),
+            })
+    result.sort(key=lambda r: r["points"][-1][1], reverse=True)
+    return result
 
 
 def capture_asset_balance_snapshots(summary: dict | None = None) -> None:
