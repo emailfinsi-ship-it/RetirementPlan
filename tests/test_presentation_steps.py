@@ -79,6 +79,15 @@ class TestHideBalances(DashboardTestCase):
         self.assertIn("rp-hide", body)
 
 
+class TestMoneyBoxesKeepWhatYouType(DashboardTestCase):
+    def test_comma_formatting_skips_number_boxes(self):
+        # A type="number" box (the Add forms) cannot hold "12,345": writing the
+        # comma version into it made the browser wipe the amount on Tab.
+        body = self._get("/asset.html").read().decode("utf-8")
+        self.assertIn("if (el.type !== 'text') return;", body)
+        self.assertLess(body.index("function formatMoneyInputs"), body.index("if (el.type !== 'text') return;"))
+
+
 class TestPlanReport(DashboardTestCase):
     def test_empty_plan_report_says_nothing_to_report(self):
         body = self._get("/report.html").read().decode("utf-8")
