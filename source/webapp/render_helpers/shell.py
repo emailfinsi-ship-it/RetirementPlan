@@ -39,6 +39,7 @@ NAV_GROUPS = (
     (
         ("monte-carlo.html", "Will my money last?"), ("rebalance.html", "Risk & Suggestions"),
         ("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning"),
+        ("trading.html", "Trading"),
     ),
 )
 

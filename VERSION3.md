@@ -69,3 +69,12 @@ are not touched.
     (new table `debt_balance_snapshots`, filled by the same daily capture as net worth); the
     Liabilities total already had history. A workbook re-import keeps the history of imported
     loans and properties (matched by name).
+13. **Trading tab (Alpaca practice account).** A new *Trading* tab (Explore menu, owner login only) connects to your
+    Alpaca **paper** account: practice account value, cash, buying power, positions with gain/loss, and recent orders
+    (open ones can be cancelled). A practice order ticket works in two steps: *Preview* prices and size-checks the
+    order, then *Place practice order* sends exactly that order once. Safety is built in code, not just the page:
+    the only host used for trading is Alpaca's paper host (live keys and live trading are not supported), one
+    order is limited to $25,000, a market order needs a recent price to be sized, and the confirm step needs a
+    single-use token that expires in 5 minutes. The key pair is stored in the Keychain vault, checked with Alpaca
+    before it is saved, and removable with *Disconnect*. Practice balances are never counted in net worth or the
+    plan. Code: `source/collector/alpaca.py`, `source/webapp/pages/trading.py`.
