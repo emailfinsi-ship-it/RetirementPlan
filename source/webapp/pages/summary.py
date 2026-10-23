@@ -84,23 +84,15 @@ def _render_summary_page() -> str:
     )
     # Today's job is "am I OK, and what should I do?": the answer first, then what to do about it, then the
     # picture behind it.
+    standing_html = ""
     if v["empty_plan"]:
         top_html = blocks.welcome_card_html()
-        picture_html = ""
     else:
         top_html = (
             blocks.hero_html(s, display_result, retirement_text, mode, v["schedule"])
-            + blocks.standing_card_html(s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
         )
-        picture_html = (
-            blocks.whatif_quick_html(
-                assumptions, retirement_year is not None,
-                bool(assumptions.get("birth_year") and assumptions.get("ss_benefit_self")),
-            )
-            + blocks.projection_card_html(s, display_result, mode, retirement_year)
-            + blocks.income_sources_card_html(v["schedule"], assumptions, mode, s["this_year"])
-            + blocks.own_owe_html(s)
-        )
+        standing_html = blocks.standing_card_html(
+            s, db.list_net_worth_snapshots(), progress.plan_check_history(), display_result["success_rate"])
     positions = [] if v["empty_plan"] else linked_data.read_linked_portfolio_positions()
     data_issues = [] if v["empty_plan"] else data_check.run_checks(s, positions, backup.verify_latest())
     data_check_html = "" if v["empty_plan"] else blocks.data_check_card_html(data_issues)
@@ -120,14 +112,37 @@ def _render_summary_page() -> str:
         empty_message="The trend appears here after a couple of days of history -- it's captured automatically each day the program runs.",
     )
 
+    # Glance layer first (the answer, what to do, where you stand, a quick what-if),
+    # then the detail cards, each tucked under a one-line bar that opens on tap.
+    # A section with something to fix (data check issues) starts open.
+    fold = blocks.fold_html
+    details_html = history_html
+    if not v["empty_plan"]:
+        details_html = (
+            fold("Where the money comes from", "income sources, year by year", blocks.income_sources_card_html(
+                v["schedule"], assumptions, mode, s["this_year"]), fold_id="fold-income")
+            + fold("Plan projection", "how your savings could grow and be spent", blocks.projection_card_html(
+                s, display_result, mode, retirement_year), fold_id="fold-projection")
+            + fold("What you own and owe", "your balance sheet", blocks.own_owe_html(s), fold_id="fold-balance")
+            + fold("Trends and mix", "total assets over time, allocation, spending",
+                   history_html + f'<div class="adv-only">{_summary_insight_html(s)}</div>', fold_id="fold-trends")
+            + fold("Data check", f"{len(data_issues)} to look at" if data_issues else "all clear", data_check_html,
+                   open_=bool(data_issues), fold_id="fold-data")
+        )
+    glance_html = ""
+    if not v["empty_plan"]:
+        glance_html = next_steps + standing_html + (
+            blocks.whatif_quick_html(
+                assumptions, retirement_year is not None,
+                bool(assumptions.get("birth_year") and assumptions.get("ss_benefit_self")),
+            )
+        )
+
     body = f"""
 {alerts_html}
 {top_html}
-<div class="adv-only">{_summary_insight_html(s)}</div>
-{picture_html}
-{history_html}
-{data_check_html}
-{next_steps}
+{glance_html}
+{details_html}
 {blocks.footer_html(s, linked_summary, mode)}
 """
     return _shell(title="Summary", active="summary.html", body=body)

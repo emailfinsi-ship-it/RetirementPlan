@@ -460,6 +460,16 @@ PAGE_CSS = """
   .link-col select { width: 100%; white-space: normal; }
   /* Net worth explorer (charts._net_worth_explorer_html): asset toggle
      chips + a $/% segmented switch above the chart. */
+  /* Summary detail layer (summary_blocks.fold_html): a one-line bar that opens the card underneath. */
+  .fold { margin: 10px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .fold > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; padding: 12px 16px;
+    font-weight: 600; color: var(--ink); border-radius: var(--radius); }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary::before { content: "\\25B8"; color: var(--brand); font-size: 12px; transition: transform .15s var(--ease); }
+  .fold[open] > summary::before { transform: rotate(90deg); }
+  .fold-hint { font-weight: 400; font-size: 12px; color: var(--ink-muted); }
+  .fold[open] > summary { border-bottom: 1px solid var(--border); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .fold > .card, .fold > div { margin: 0 !important; border: 0 !important; box-shadow: none !important; }
   .nw-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 4px; }
   .nw-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 10px; border-radius: 980px;
     border: 1px solid var(--border); background: var(--surface); color: var(--ink-muted); cursor: pointer; font-weight: 500; }
