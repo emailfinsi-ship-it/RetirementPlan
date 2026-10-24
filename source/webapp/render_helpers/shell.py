@@ -884,6 +884,7 @@ function __expenditureFilterField(dim) {{
   return dim.replace(/-([a-z])/g, function(_, c) {{ return c.toUpperCase(); }});
 }}
 function applyExpenditureFilters() {{
+  var txFold = document.getElementById('fold-transactions'); if (txFold) txFold.open = true;
   // Actual Spending tab's own click-to-filter: clicking a "by
   // category" or "by month" bar segment (expense OR income) filters the
   // transaction list below to the row(s) that actually make up that

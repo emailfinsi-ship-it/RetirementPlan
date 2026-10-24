@@ -107,3 +107,23 @@ are not touched.
     formatting for dollar boxes was also being applied to number-type boxes (which cannot hold "12,345"), so the
     browser wiped the value when you tabbed away. It now formats text boxes only. Affects the Add dialogs and
     the live-trading "Most per order / Most per day" boxes.
+
+17. **Technical detail in the "i" pop-ups, and longer tables folded.** Every main tile and card now has a
+    collapsible *Technical detail* section in its "i" pop-up: how the figure is calculated (formulas, steps, the
+    tax tables and RMD divisors used), the assumptions and limits, where the numbers come from, and the terms.
+    It stays precise whichever wording mode is on, and opens by default in Technical mode. The text lives in
+    `source/webapp/explain_tech.py`. The longest tables now sit under one-line bars that open on tap: Actual Spending's
+    *All transactions* (it opens by itself when you click a chart bar to filter it), Drawdown's *Year-by-year
+    withdrawal sequence*, Legacy's *Year-by-year projection*, and Risk's *Your mix by institution*.
+
+18. **Trading: quote, rating and advanced chart (practice and live pages).** A new *Quote and chart* card sits above the
+    order form on both Trading pages (and works while live trading is off, since it only reads prices). Type a symbol,
+    or click a position's symbol, to see the price and today's change, open / high / low / previous close, volume,
+    bid and ask, a **day-range** bar and a **52-week-range** bar, short / medium / long **trends**, and a **technical
+    Buy / Sell rating** (Strong Buy to Strong Sell) with each signal explained: price versus the 20, 50 and 200-day averages,
+    the 20-day versus the 50-day, RSI, MACD and volume. The chart shows candles with the moving averages (VWAP on the
+    1-day view), a **volume** panel with its 20-day average and an **RSI(14)** panel with its 30 / 70 bands, for 1D, 1M,
+    3M, 6M and 1Y; move over it to read any bar. "Use SYMBOL in the order form" copies the symbol into the ticket.
+    Prices come from Alpaca's free IEX feed (so volume is IEX's share, and the pop-up says so). The rating is a count of
+    chart signals, not advice, and nothing here places an order. Code: `source/reporting/technicals.py`,
+    `source/webapp/pages/quote_chart.py`, `source/webapp/pages/quote_panel.py`, route `/api/alpaca/quote`.

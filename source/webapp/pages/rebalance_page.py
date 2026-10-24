@@ -154,10 +154,10 @@ def _institution_card(positions: list[dict], overrides: dict) -> str:
             f'<strong>{html.escape(name)}</strong><span class="muted">{_money(plan["total"])}</span></div>'
             f'{_bar(plan["rows"])}<div class="small muted">{text}</div></div>'
         )
-    return f"""<div class="card">
+    return f"""<details class="fold" id="fold-mix-inst"><summary><span class="fold-title">Your mix by institution</span><span class="fold-hint">stocks, bonds and cash at each firm</span></summary><div class="card">
 <h3 class="sub" style="margin-top:0">Your mix by institution</h3>
 {rows}
-</div>"""
+</div></details>"""
 
 
 

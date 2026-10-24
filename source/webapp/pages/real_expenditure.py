@@ -329,6 +329,7 @@ def _render_real_expenditure_page() -> str:
 <tbody>{annual_rows_html}</tbody>
 </table>
 
+<details class="fold" id="fold-transactions"><summary><span class="fold-title">All transactions</span><span class="fold-hint">every purchase and deposit; click a chart bar to filter it</span></summary>
 <h2>All transactions</h2>
 <p class="muted">Click a bar in any chart above (expense or income) to filter this list down to that category or month -- click it again (or "Clear all") to go back to everything.</p>
 <div style="display:flex; align-items:center; gap:6px; margin:6px 0;">
@@ -358,6 +359,7 @@ def _render_real_expenditure_page() -> str:
 <tbody>{transactions_rows_html}</tbody>
 </table>
 <p class="muted">A category marked with * was set by hand and won't be overwritten by a future sync. A deposit/paycheck counted as real income (see "Total real income" above) displays here as a plain positive amount for readability; every other amount follows Plaid's own convention -- positive is money out, negative is money in/a refund -- so a category or month's expenditure total already nets a refund against the spending it reverses.</p>
+</details>
 <p class="muted">See <a href="/budget-vs-actual.html">Budget vs Actual</a> to compare this against what the Income &amp; Expenses tab's own assumptions planned for.</p>
 """
     return _shell(title="Actual Spending", active="real-expenditure.html", body=body)

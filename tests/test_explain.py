@@ -8,7 +8,7 @@ import re
 import unittest
 
 from source.common import db, demo_data
-from source.webapp import explain
+from source.webapp import explain, explain_tech
 from tests.test_dashboard import DashboardTestCase
 
 PAGES = ["summary.html", "asset.html", "real-estate.html", "linked-accounts.html", "linked-positions.html",
@@ -60,6 +60,36 @@ class TestMatching(unittest.TestCase):
             self.assertIn(key, explain.all_keys())
 
 
+class TestTechnicalDetail(unittest.TestCase):
+    def test_every_technical_entry_belongs_to_a_real_pop_up(self):
+        for key in explain_tech.TECH:
+            self.assertIn(key, explain.all_keys(), key)
+
+    def test_each_entry_has_known_headings_and_real_text(self):
+        headings = {explain_tech.HOW, explain_tech.LIMITS, explain_tech.SOURCE, explain_tech.TERMS}
+        for key, parts in explain_tech.TECH.items():
+            self.assertTrue(parts, key)
+            for heading, text in parts:
+                self.assertIn(heading, headings, key)
+                self.assertGreater(len(text), 30, key)
+
+    def test_the_main_tiles_all_carry_technical_detail(self):
+        for key in ("plan_status", "net_worth", "fi", "safe_spend", "chance", "money_last", "dd_rmd", "dd_sequence", "lg_compare",
+                    "mc_levers", "mc_stress", "risk_level"):
+            self.assertIn(key, explain_tech.TECH, key)
+
+    def test_figures_quoted_in_the_text_match_the_code(self):
+        from source.reporting import rmd
+        from source.reporting.monte_carlo import tax
+        self.assertEqual(rmd.UNIFORM_LIFETIME_TABLE[73], 26.5)
+        self.assertEqual(rmd.UNIFORM_LIFETIME_TABLE[75], 24.6)
+        self.assertEqual(tax.FEDERAL_STANDARD_DEDUCTION_MFJ_2026, 32_200.0)
+        dd = dict(explain_tech.TECH["dd_rmd"])
+        self.assertIn("26.5 at 73, 24.6 at 75, 16.0 at 85", dd[explain_tech.HOW])
+        self.assertEqual(rmd.UNIFORM_LIFETIME_TABLE[85], 16.0)
+        self.assertIn("$32,200", dict(explain_tech.TECH["dd_sequence"])[explain_tech.LIMITS])
+
+
 class TestPages(DashboardTestCase):
     @classmethod
     def setUpClass(cls):
@@ -109,6 +139,18 @@ class TestPages(DashboardTestCase):
     def test_page_html_is_not_modified_by_the_buttons(self):
         page = self._page("summary.html")
         self.assertIn('<div class="label">Net worth</div><div class="value">', page)
+
+    def test_technical_detail_ships_and_is_never_reworded(self):
+        for mode in ("technical", "plain"):
+            db.set_wording_mode(mode)
+            page = self._page("monte-carlo.html")
+            data = self._data(page)
+            tech = dict(data["entries"]["chance"]["tech"])
+            self.assertIn("How it is calculated", tech)
+            self.assertIn("hit zero", tech["How it is calculated"])
+            self.assertEqual(data["tech_open"], mode == "technical")
+        db.set_wording_mode("plain")
+        self.assertIn("Technical detail", page)
 
     def test_popup_script_and_style_ship_with_the_page(self):
         page = self._page("summary.html")

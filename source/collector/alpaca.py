@@ -164,6 +164,57 @@ def last_price(symbol: str, keys: tuple[str, str], **kw) -> float | None:
     return price if price and price > 0 else None
 
 
+def _symbol(symbol) -> str:
+    sym = str(symbol or "").strip().upper()
+    if not _SYMBOL.match(sym):
+        raise AlpacaError("Enter a stock or ETF ticker, for example AAPL or VTI.")
+    return sym
+
+
+def _bar(raw: dict) -> dict | None:
+    o, h, l, c = (_f(raw.get(k)) for k in ("o", "h", "l", "c"))
+    if None in (o, h, l, c) or c <= 0:
+        return None
+    return {"t": str(raw.get("t") or ""), "o": o, "h": h, "l": l, "c": c, "v": _f(raw.get("v")) or 0.0}
+
+
+def get_bars(symbol: str, keys: tuple[str, str], *, timeframe: str = "1Day", start: str, limit: int = 1000, **kw) -> list[dict]:
+    """Price bars, oldest first, from Alpaca's free IEX feed (split-adjusted).
+    Each bar is {"t": ISO time, "o", "h", "l", "c", "v"}. Reading prices needs
+    keys but never changes anything, so it works for either account."""
+    sym = _symbol(symbol)
+    query = urllib.parse.urlencode({
+        "timeframe": timeframe, "start": start, "limit": int(limit), "adjustment": "split", "feed": "iex", "sort": "asc",
+    })
+    raw = _request("GET", f"{DATA_URL}/v2/stocks/{urllib.parse.quote(sym)}/bars?{query}", keys, **kw)
+    items = (raw or {}).get("bars") if isinstance(raw, dict) else None
+    bars = [b for b in (_bar(x) for x in (items or []) if isinstance(x, dict)) if b]
+    return bars
+
+
+def get_snapshot(symbol: str, keys: tuple[str, str], **kw) -> dict:
+    """Today's quote for one symbol: last trade, bid/ask, today's bar and the
+    previous day's bar (all optional -- a closed market or a thinly traded
+    symbol can leave some of them out)."""
+    sym = _symbol(symbol)
+    raw = _request("GET", f"{DATA_URL}/v2/stocks/{urllib.parse.quote(sym)}/snapshot?feed=iex", keys, **kw)
+    if isinstance(raw, dict) and sym in raw and isinstance(raw[sym], dict):
+        raw = raw[sym]
+    if not isinstance(raw, dict):
+        raise AlpacaError("Alpaca sent a quote this program couldn't read.")
+    trade, quote = raw.get("latestTrade") or {}, raw.get("latestQuote") or {}
+    daily, prev = raw.get("dailyBar") or {}, raw.get("prevDailyBar") or {}
+    return {
+        "symbol": sym,
+        "price": _f(trade.get("p")),
+        "trade_time": str(trade.get("t") or ""),
+        "bid": _f(quote.get("bp")), "ask": _f(quote.get("ap")),
+        "bid_size": _f(quote.get("bs")), "ask_size": _f(quote.get("as")),
+        "day": _bar(daily) if isinstance(daily, dict) else None,
+        "prev_day": _bar(prev) if isinstance(prev, dict) else None,
+    }
+
+
 def clean_order(order: dict) -> dict:
     """Validates and normalises the order a person typed; raises AlpacaError
     with a plain-language reason."""
