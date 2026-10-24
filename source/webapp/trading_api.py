@@ -75,12 +75,14 @@ def _handle(path: str, payload: dict) -> dict:
     # Stock Analysis tab: read-only market data. Prices are the same for either account, so
     # these use whichever saved keys are there (practice first) and never need arming.
     if path == "/api/alpaca/quote":
-        return quote_chart.build_quote(
-            payload.get("symbol"), quote_chart.market_data_keys(payload.get("mode")), str(payload.get("range") or "3M"),
-        )
+        keys, data_mode = quote_chart.market_data_source(payload.get("mode"))
+        return quote_chart.build_quote(payload.get("symbol"), keys, str(payload.get("range") or "3M"), mode=data_mode)
     if path == "/api/watchlist/data":
         items = db.watchlist.list_items()
-        return {"rows": watchlist.build_rows(items, quote_chart.market_data_keys()) if items else []}
+        if not items:
+            return {"rows": []}
+        keys, data_mode = quote_chart.market_data_source()
+        return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
     if path == "/api/watchlist/add":
         return {"added": db.watchlist.add(payload.get("symbol") if "symbol" in payload else payload.get("symbols"))}
     if path == "/api/watchlist/remove":

@@ -99,3 +99,6 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Stock Analysis: *Quote and chart* moved here from the Trading pages, with a watchlist table (price, change,
   day and 52-week range, RSI, trends, technical rating). The Trading tab now has a section row (Live Account,
   Stock Analysis, Practice Account) and opens on Live Account.
+
+- Stock Analysis: company names, a Latest news list on each quote, and a Trade button (watchlist rows and quotes) that
+  opens the Live Account order form with the symbol filled in.

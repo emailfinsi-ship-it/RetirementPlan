@@ -15,7 +15,9 @@ import html
 from datetime import datetime, timedelta, timezone
 
 from source.collector import alpaca
-from source.common import secrets_store
+from concurrent.futures import ThreadPoolExecutor
+
+from source.common import db, secrets_store
 from source.reporting import technicals as ta
 
 RANGES = {"1D": None, "1M": 22, "3M": 64, "6M": 127, "1Y": 253}
@@ -49,17 +51,42 @@ def _new_york(dt: datetime) -> datetime:
         return dt.astimezone(timezone(timedelta(hours=-5)))
 
 
-def market_data_keys(mode: str | None = None) -> tuple[str, str]:
-    """The Alpaca keys used to READ prices. Prices are the same for either account,
-    so unless a mode is named this prefers the practice (play-money) keys and falls
-    back to the live ones; it raises a plain-language error when neither is saved."""
+def market_data_source(mode: str | None = None) -> tuple[tuple[str, str], str]:
+    """(keys, mode) used to READ prices and names. Prices are the same for either account,
+    so unless a mode is named this prefers the practice (play-money) keys and falls back
+    to the live ones; it raises a plain-language error when neither is saved."""
     order = [mode] if mode in alpaca.MODES else ["paper", "live"]
     for m in order:
         try:
-            return secrets_store.get_alpaca_keys(mode=m)
+            return secrets_store.get_alpaca_keys(mode=m), m
         except secrets_store.SecretNotFoundError:
             continue
     raise ValueError("Stock Analysis reads prices from Alpaca. Save your practice (free) or live keys on the Trading tab first.")
+
+
+def market_data_keys(mode: str | None = None) -> tuple[str, str]:
+    return market_data_source(mode)[0]
+
+
+_NO_NAME: set[str] = set()   # tickers Alpaca had no name for, so a refresh doesn't ask again every minute
+
+
+def company_names(symbols: list[str], keys: tuple[str, str], mode: str, **kw) -> dict[str, str]:
+    """{symbol: company name} for what could be found. Names are remembered in the database,
+    so each ticker is looked up from Alpaca once."""
+    syms = list(dict.fromkeys(symbols))
+    known = db.watchlist.cached_names(syms)
+    missing = [s for s in syms if s not in known and s not in _NO_NAME]
+    if missing:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            found = list(pool.map(lambda s: alpaca.get_asset_name(s, keys, mode=mode, **kw), missing))
+        for sym, name in zip(missing, found):
+            if name:
+                db.watchlist.remember_name(sym, name)
+                known[sym] = name
+            else:
+                _NO_NAME.add(sym)
+    return known
 
 
 def _round(value, places: int = 4):
@@ -133,7 +160,7 @@ def _quote_block(sym: str, snap: dict | None, daily: list[dict]) -> dict:
     }
 
 
-def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, now: datetime | None = None, **kw) -> dict:
+def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, now: datetime | None = None, mode: str | None = None, **kw) -> dict:
     """Everything the quote panel shows for ``symbol`` (JSON-ready)."""
     sym = alpaca._symbol(symbol)
     if range_key not in RANGES:
@@ -156,10 +183,16 @@ def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, no
     else:
         rows, kind = _daily_rows(daily, ind, RANGES[range_key]), "daily"
     rating = ta.rating(daily)
+    news, news_error = [], False
+    if mode:    # headlines are only fetched for the real route (mode is how it asks for them)
+        try:
+            news = alpaca.get_news(sym, keys, **kw)
+        except alpaca.AlpacaError:
+            news_error = True     # news is a nicety: the quote still shows
     return {
-        "symbol": sym, "range": range_key, "quote": quote,
+        "symbol": sym, "name": company_names([sym], keys, mode, **kw).get(sym, "") if mode else "", "range": range_key, "quote": quote,
         "week52": ta.range_stats(daily[-253:], quote["price"]),
-        "rating": rating, "trends": ta.trends(daily),
+        "rating": rating, "trends": ta.trends(daily), "news": news, "news_error": news_error,
         "chart": chart_html(rows, kind, quote["prev_close"] if kind == "intraday" else None),
         "rows": [{k: _round(v) if k not in ("t", "tick") else v for k, v in r.items()} for r in rows],
         "bars": len(daily),

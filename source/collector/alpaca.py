@@ -205,6 +205,51 @@ def get_snapshot(symbol: str, keys: tuple[str, str], **kw) -> dict:
     return _snapshot_from(sym, raw)
 
 
+_NAME_TAIL = re.compile(r"[\s,-]+(Common Stock|Common Shares|Ordinary Shares|Capital Stock)$", re.I)
+
+
+def clean_company_name(name) -> str:
+    """Alpaca names read like "Apple Inc. Common Stock"; the share-type tail is noise here."""
+    text = " ".join(str(name or "").split())
+    return _NAME_TAIL.sub("", text).strip()
+
+
+def get_asset_name(symbol: str, keys: tuple[str, str], *, mode: str = "paper", **kw) -> str | None:
+    """The company or fund name for a ticker, or None when Alpaca has no such asset or
+    can't be reached (the name is a nicety, never an error). Uses the account host for
+    ``mode``; reading an asset changes nothing."""
+    sym = _symbol(symbol)
+    try:
+        raw = _request("GET", f"{_base(mode)}/v2/assets/{urllib.parse.quote(sym)}", keys, **kw)
+    except AlpacaError:
+        return None
+    name = clean_company_name((raw or {}).get("name")) if isinstance(raw, dict) else ""
+    return name or None
+
+
+def _news_item(raw: dict) -> dict | None:
+    headline = " ".join(str(raw.get("headline") or "").split())
+    url = str(raw.get("url") or "").strip()
+    if not headline or not url.lower().startswith(("https://", "http://")):
+        return None     # only ordinary web links are ever shown
+    summary = " ".join(str(raw.get("summary") or "").split())
+    return {
+        "headline": headline[:240], "summary": summary[:280] + ("..." if len(summary) > 280 else ""),
+        "source": str(raw.get("source") or "").strip()[:40], "url": url[:500],
+        "time": str(raw.get("created_at") or raw.get("updated_at") or ""),
+    }
+
+
+def get_news(symbol: str, keys: tuple[str, str], *, limit: int = 8, **kw) -> list[dict]:
+    """The latest headlines mentioning a ticker (Alpaca's news feed), newest first, as
+    {"headline", "summary", "source", "url", "time"}. Read-only."""
+    sym = _symbol(symbol)
+    query = urllib.parse.urlencode({"symbols": sym, "limit": int(limit), "sort": "desc", "include_content": "false"})
+    raw = _request("GET", f"{DATA_URL}/v1beta1/news?{query}", keys, **kw)
+    items = (raw or {}).get("news") if isinstance(raw, dict) else None
+    return [n for n in (_news_item(x) for x in (items or []) if isinstance(x, dict)) if n]
+
+
 def get_bars_multi(symbols: list[str], keys: tuple[str, str], *, start: str, max_pages: int = 8, **kw) -> dict[str, list[dict]]:
     """Daily bars for several symbols in as few calls as possible (the watchlist).
     Returns {symbol: bars oldest first}; a symbol Alpaca has no bars for is simply

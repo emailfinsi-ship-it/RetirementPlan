@@ -141,3 +141,11 @@ are not touched.
     position's symbol opens in Stock Analysis. Code:
     `source/webapp/pages/stock_analysis.py`, `source/webapp/pages/watchlist.py`, `source/common/db/watchlist.py`,
     `alpaca.get_bars_multi` / `get_snapshots`, routes `/api/watchlist/*`.
+
+20. **Stock Analysis: company names, news, and a Trade button.** Every ticker now shows its company or fund name (under
+    the symbol in the watchlist, beside it on a quote). Names are looked up once from Alpaca and remembered. A quote
+    also lists **Latest news** about the stock (headline, source, how long ago, a short summary; links open the
+    publisher's page in a new tab), and shows a note instead when news can't be loaded. Each watchlist row, and each
+    quote, has a **Trade** button that opens the Live Account page with the symbol already in the order form (if live
+    trading is off, the page says to turn it on first and keeps the symbol). Nothing is sent until you preview and
+    confirm there, as before. Code: `alpaca.get_asset_name` / `get_news`, `quote_chart.company_names`, table `symbol_names`.
