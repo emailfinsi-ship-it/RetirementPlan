@@ -78,6 +78,7 @@ from source.webapp.pages.legacy_planning import _render_legacy_planning_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
 from source.webapp.pages.rebalance_page import _render_rebalance_page
 from source.webapp.pages.trading import _render_trading_page
+from source.webapp.pages.stock_analysis import _render_stock_analysis_page
 from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
@@ -131,7 +132,7 @@ _VIEWER_POSTS = {
     "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/wording-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
-_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html"}
+_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html", "/stock-analysis.html"}
 
 
 def _is_public_path(path: str) -> bool:
@@ -478,6 +479,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_trading_page("paper"))
             elif path == "/trading-live.html":
                 self._send_html(_render_trading_page("live"))
+            elif path == "/stock-analysis.html":
+                self._send_html(_render_stock_analysis_page())
             elif path == "/diagnostics.txt":
                 if self._role() == "viewer":
                     self._send_redirect("/summary.html")

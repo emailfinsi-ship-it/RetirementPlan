@@ -235,6 +235,10 @@ _t("linked_accounts",
 _t("page:monte-carlo.html",
    how="Everything here derives from one model: yearly returns, spending and income by row, taxes from 2026 federal and California brackets, three tax pools drawn in order, required distributions, and an optional property-equity pool.",
    limits="The model is deterministic for given inputs (seeded), so the same plan always shows the same figures.")
+_t("page:stock-analysis.html",
+   how="The watchlist makes two Alpaca calls for the whole list: today's snapshot for every ticker, and about 14 months of daily bars. RSI, trends, the 52-week range and the rating are then worked out from those bars here, the same way as in Quote and chart.",
+   limits="Prices are from Alpaca's free IEX feed, so volume is IEX's share of the market and quotes can differ slightly from other sources. Outside market hours you see the last close.",
+   source="Alpaca market data, read with the keys saved on the Trading tab (practice keys first). Only the ticker list and your notes are stored in this app.")
 _t("page:drawdown-planning.html",
    how="A single projection at your expected return showing which pool each year's spending comes from and the estimated tax.",
    limits="See 'Year-by-year withdrawal sequence' for what is and is not modeled.")
