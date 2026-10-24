@@ -241,7 +241,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
 
     def test_nav_has_three_tabs_plus_setup_and_grouped_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Trading", "Setup"])
+        self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Trading", "Stock Analysis", "Setup"])
         groups = {
             "/linked-accounts.html": ["/linked-positions.html", "/asset.html", "/real-estate.html", "/expense.html",
                                       "/real-expenditure.html", "/budget-vs-actual.html"],
@@ -6073,6 +6073,67 @@ class TestThemeToggle(DashboardTestCase):
         self.assertNotIn('fill="#0b0b0b"', html_out)
 
 
+class TestStockAnalysisTab(DashboardTestCase):
+    """The Stock Analysis tab (pages/stock_analysis.py): the watchlist table and the
+    Quote and chart card, read-only, using the keys saved on the Trading tab."""
+
+    def tearDown(self):
+        from source.common import secrets_store
+        secrets_store.delete_alpaca_keys()
+        secrets_store.delete_alpaca_keys(mode="live")
+
+    def test_without_keys_it_asks_to_connect_on_the_trading_tab(self):
+        resp = self._get("/stock-analysis.html")
+        self.assertEqual(resp.status, 200)
+        body = resp.read().decode("utf-8")
+        self.assertIn("Stock Analysis", body)
+        self.assertIn("Connect on the Trading tab", body)
+        self.assertNotIn("lookupQuote", body)
+
+    def test_with_keys_it_shows_the_watchlist_table_then_quote_and_chart(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn('id="watchlist"', body)
+        self.assertIn("/api/watchlist/data", body)
+        self.assertIn("Quote and chart", body)
+        self.assertLess(body.index('id="watchlist"'), body.index('id="quote"'))
+        self.assertIn("never places an order", body)
+        self.assertNotIn("S3", body)
+
+    def test_live_keys_alone_are_enough_and_the_tab_is_lit(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("AKX", "L1", mode="live")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn('id="watchlist"', body)
+        self.assertIn('<a href="/stock-analysis.html" class="active">', body)
+
+    def test_the_watchlist_routes_add_list_and_remove(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+        from source.common import secrets_store
+        from tests.test_alpaca import FakeAlpaca
+        from tests.test_watchlist import climb, multi_bars, snap
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        self.assertEqual(self._post("/api/watchlist/add", {"symbol": "up"}), (200, {"ok": True, "added": ["UP"]}))
+        status, payload = self._post("/api/watchlist/add", {"symbol": "$$"})
+        self.assertEqual(status, 400)
+        self.assertIn("not a ticker", payload["error"])
+        fake = FakeAlpaca({
+            ("GET", "data.alpaca.markets/v2/stocks/bars"): multi_bars(UP=climb()),
+            ("GET", "data.alpaca.markets/v2/stocks/snapshots"): {"UP": snap(330.0, 328.0)},
+        })
+        with patch("urllib.request.urlopen", fake):
+            status, payload = self._post("/api/watchlist/data", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rows"][0]["symbol"], "UP")
+        self.assertEqual(payload["rows"][0]["price"], 330.0)
+        self.assertTrue(all(c["method"] == "GET" for c in fake.calls))          # reading prices never orders
+        self.assertEqual(self._post("/api/watchlist/remove", {"symbol": "UP"})[0], 200)
+        with patch("urllib.request.urlopen", fake):
+            self.assertEqual(self._post("/api/watchlist/data", {})[1]["rows"], [])
+
+
 class TestTradingTab(DashboardTestCase):
     """The Trading tab (pages/trading.py + the /api/alpaca* routes): an Alpaca
     PAPER account only. Every Alpaca call goes through a fake urlopen."""
@@ -6113,9 +6174,11 @@ class TestTradingTab(DashboardTestCase):
         labels = [label for _h, label in NAV_ITEMS]
         self.assertEqual(labels.index("Trading"), labels.index("Explore") + 1)
         body = self._get("/summary.html").read().decode("utf-8")
-        self.assertIn('<a href="/trading.html"', body)
-        page = self._get("/trading.html").read().decode("utf-8")
-        self.assertIn('<a href="/trading.html" class="active">', page)
+        self.assertIn('<a href="/trading-live.html"', body)          # the tab opens on the live account
+        for url in ("/trading.html", "/trading-live.html"):          # and stays lit on either page
+            page = self._get(url).read().decode("utf-8")
+            self.assertIn('<a href="/trading-live.html" class="active">', page)
+        self.assertLess(page.index("Live account (REAL money)"), page.index("Practice account (play money)"))
 
     def test_the_trading_tab_has_its_own_icon_not_the_blank_default(self):
         from source.webapp.render_helpers.shell import _NAV_ICONS, _nav_icon_html
@@ -6156,16 +6219,15 @@ class TestTradingTab(DashboardTestCase):
         self.assertIn("Place a practice order", body)
         self.assertNotIn("S3", body)             # the secret is never shown
 
-    def test_the_page_has_a_quote_and_chart_card_above_the_order_form(self):
+    def test_the_trading_pages_no_longer_hold_the_quote_card_but_point_to_stock_analysis(self):
         from unittest.mock import patch
         self._connect(self._fake())
         with patch("urllib.request.urlopen", self._fake()):
             body = self._get("/trading.html").read().decode("utf-8")
-        self.assertIn("Quote and chart", body)
-        self.assertIn("lookupQuote", body)
-        self.assertIn('data-sym="VTI"', body)                      # a position's symbol opens its quote
-        self.assertLess(body.index("Quote and chart"), body.index("Place a practice order"))
-        self.assertIn("never places an order", body)
+        self.assertNotIn("lookupQuote", body)
+        self.assertIn('href="/stock-analysis.html?symbol=VTI"', body)     # a position's symbol opens in Stock Analysis
+        self.assertIn('href="/stock-analysis.html"', body)
+        self.assertIn("new URLSearchParams(location.search).get('symbol')", body)   # an order link can pre-fill the ticket
 
     def test_the_quote_route_returns_rating_trends_and_a_chart(self):
         from datetime import datetime, timedelta, timezone

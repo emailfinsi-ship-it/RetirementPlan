@@ -12,7 +12,6 @@ from datetime import datetime
 
 from source.collector import alpaca
 from source.common import db, secrets_store
-from source.webapp.pages.quote_panel import quote_panel_html
 from source.webapp.render_helpers import _money, _shell
 
 _OPEN_STATUSES = {"new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding", "pending_replace"}
@@ -35,8 +34,8 @@ def _mode_switch_html(mode: str) -> str:
         return f'<a href="{href}" class="pill-link"><button type="button" class="{cls}"{style}>{label}</button></a>'
     return (
         '<p style="display:flex; gap:8px; flex-wrap:wrap;">'
-        + pill("/trading.html", "Practice account (play money)", mode == "paper")
         + pill("/trading-live.html", "Live account (REAL money)", mode == "live", danger=True)
+        + pill("/trading.html", "Practice account (play money)", mode == "paper")
         + "</p>"
     )
 
@@ -114,8 +113,8 @@ def _positions_html(positions: list[dict]) -> str:
     if not positions:
         return '<p class="muted">No positions yet. Place a practice order below to see it here.</p>'
     rows = "".join(
-        f"<tr><td><a href=\"#quote\" title=\"Quote and chart\" data-sym=\"{html.escape(p['symbol'], quote=True)}\" "
-        f"onclick=\"lookupQuote(this.dataset.sym); return false;\"><strong>{html.escape(p['symbol'])}</strong></a></td>"
+        f"<tr><td><a href=\"/stock-analysis.html?symbol={html.escape(p['symbol'], quote=True)}\" title=\"Open in Stock Analysis\">"
+        f"<strong>{html.escape(p['symbol'])}</strong></a></td>"
         f"<td class=\"num\">{html.escape(_num(p['qty'], 4).rstrip('0').rstrip('.'))}</td>"
         f"<td class=\"num\">{_money(p['avg_entry_price'], cents=True)}</td>"
         f"<td class=\"num\">{_money(p['current_price'], cents=True)}</td>"
@@ -224,6 +223,10 @@ _TICKET_JS = """
 <script>
 var TRADE_MODE = '__MODE__';
 var pendingToken = null;
+(function () {
+  var sym = new URLSearchParams(location.search).get('symbol'), f = document.getElementById('ticket');
+  if (sym && f) { f.symbol.value = sym.toUpperCase(); f.scrollIntoView({behavior: 'smooth', block: 'center'}); f.qty.focus(); }
+})();
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function previewOrder(form) {
   var box = document.getElementById('ticket-preview');
@@ -321,7 +324,10 @@ def _render_trading_page(mode: str = "paper") -> str:
     if acct is not None:
         body += _account_card_html(acct, mode)
         body += f"<h3>Positions</h3>{_positions_html(positions)}"
-        body += quote_panel_html(mode)
+        body += (
+            '<p class="muted">Want to research a stock first? <a href="/stock-analysis.html">Stock Analysis</a> has quotes, '
+            'charts, a buy / sell rating and your watchlist.</p>'
+        )
         body += _ticket_html(mode, armed=db.live_trading.is_armed() if live else True)
         body += f"<h3>Recent orders at Alpaca</h3>{_orders_html(orders, mode)}"
     else:

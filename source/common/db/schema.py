@@ -493,6 +493,14 @@ CREATE TABLE IF NOT EXISTS live_order_log (
     order_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT ''
 );
+
+-- Stock Analysis tab: the tickers the owner is keeping an eye on. Prices are
+-- never stored; they are read from Alpaca each time the table is shown.
+CREATE TABLE IF NOT EXISTS watchlist (
+    symbol TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT ''
+);
 """
 
 

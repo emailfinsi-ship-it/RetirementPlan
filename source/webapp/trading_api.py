@@ -15,11 +15,12 @@ from __future__ import annotations
 
 from source.collector import alpaca
 from source.common import db, secrets_store
-from source.webapp.pages import quote_chart
+from source.webapp.pages import quote_chart, watchlist
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote",
+    "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
 )
 
 
@@ -71,11 +72,25 @@ def _handle(path: str, payload: dict) -> dict:
     if path == "/api/alpaca/live/limits":
         lt.set_limits(payload.get("per_order"), payload.get("daily"))
         return {"per_order": lt.per_order_limit(), "daily": lt.daily_limit()}
+    # Stock Analysis tab: read-only market data. Prices are the same for either account, so
+    # these use whichever saved keys are there (practice first) and never need arming.
+    if path == "/api/alpaca/quote":
+        return quote_chart.build_quote(
+            payload.get("symbol"), quote_chart.market_data_keys(payload.get("mode")), str(payload.get("range") or "3M"),
+        )
+    if path == "/api/watchlist/data":
+        items = db.watchlist.list_items()
+        return {"rows": watchlist.build_rows(items, quote_chart.market_data_keys()) if items else []}
+    if path == "/api/watchlist/add":
+        return {"added": db.watchlist.add(payload.get("symbol") if "symbol" in payload else payload.get("symbols"))}
+    if path == "/api/watchlist/remove":
+        db.watchlist.remove(payload.get("symbol"))
+        return {}
+    if path == "/api/watchlist/note":
+        db.watchlist.set_note(payload.get("symbol"), payload.get("note"))
+        return {}
     mode = _mode(payload)
     keys = secrets_store.get_alpaca_keys(mode=mode)
-    if path == "/api/alpaca/quote":
-        # Read-only market data: needs saved keys for the page's account, never arming.
-        return quote_chart.build_quote(payload.get("symbol"), keys, str(payload.get("range") or "3M"))
     if path == "/api/alpaca/cancel":
         alpaca.cancel_order(payload.get("id"), keys, mode=mode)
         return {}
