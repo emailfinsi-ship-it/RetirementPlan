@@ -65,6 +65,7 @@ _add("page:stock-analysis.html", "About Stock Analysis",
      "Research any stock or ETF: a watchlist table of the tickers you follow, and a detailed quote with a price, volume and RSI chart and a technical buy / sell rating.",
      "Prices come from your Alpaca account's free market data. The rating counts simple chart signals; the watchlist refreshes by itself every minute.",
      "This page is read-only and never places an order. The rating is not investment advice.")
+_E["page:trading-live.html"] = _E["page:trading.html"]   # the live account page is the same tab
 _add("page:expense.html", "About Income & Expenses",
      "What comes in and what goes out each year, now and in retirement. These numbers drive how much you need to withdraw from savings.",
      "Each row is a yearly amount, optionally limited to certain years. Rows that inflate grow with the inflation rate.",

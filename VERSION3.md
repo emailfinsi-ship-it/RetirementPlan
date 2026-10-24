@@ -128,15 +128,16 @@ are not touched.
     chart signals, not advice, and nothing here places an order. Code: `source/reporting/technicals.py`,
     `source/webapp/pages/quote_chart.py`, `source/webapp/pages/quote_panel.py`, route `/api/alpaca/quote`.
 
-19. **Stock Analysis tab, watchlist, and Live account first.** *Quote and chart* moved off the Trading pages into its own
-    **Stock Analysis** tab (next to Trading), under a new **Watchlist** table. The watchlist keeps your tickers (up to 50,
+19. **Stock Analysis tab, watchlist, and Live account first.** *Quote and chart* moved off the Trading pages into a
+    **Stock Analysis** page, with a new **Watchlist** table above it. The watchlist keeps your tickers (up to 50,
     with an optional note each) and shows price, day change, a day-range bar, a 52-week-range bar, volume, RSI (green at
     30 or less, red at 70 or more), short / medium / long trend arrows and the technical Buy / Sell rating; click a
     heading to sort, click a symbol to open its chart below, add several tickers at once ("AAPL, MSFT"), and prices
     refresh by themselves every minute. The whole list costs two Alpaca calls (one for quotes, one paged call for daily
     bars). The tab reads prices with the practice keys, or the live keys when only those are saved; it never places an
     order, and owner only like Trading. From a quote, buttons add it to the watchlist or open the practice or live
-    order form with the symbol filled in. On the Trading tab the **Live account** page now comes first (the tab opens
-    on it and its button is listed first), and a position's symbol opens in Stock Analysis. Code:
+    order form with the symbol filled in. The **Trading** tab now has a section row like My Plan
+    and Explore: **Live Account**, **Stock Analysis**, **Practice Account** (the tab opens on Live Account), and a
+    position's symbol opens in Stock Analysis. Code:
     `source/webapp/pages/stock_analysis.py`, `source/webapp/pages/watchlist.py`, `source/common/db/watchlist.py`,
     `alpaca.get_bars_multi` / `get_snapshots`, routes `/api/watchlist/*`.

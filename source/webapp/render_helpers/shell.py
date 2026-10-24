@@ -15,7 +15,7 @@ from source.webapp.render_helpers.styles import PAGE_CSS, THEME_INIT_SCRIPT, THE
 from source.webapp import explain, wording
 
 
-# Three top-level tabs plus Setup. Today is the one-page answer; My Plan holds
+# Three top-level tabs plus Trading and Setup. Today is the one-page answer; My Plan holds
 # everything you enter (what you own, what comes in and goes out, what you
 # actually spent); Explore holds the "what if" and planning tools. My Plan and
 # Explore each hold several related pages (the NAV_GROUPS below): every page
@@ -27,7 +27,6 @@ NAV_ITEMS = (
     ("linked-accounts.html", "My Plan"),
     ("monte-carlo.html", "Explore"),
     ("trading-live.html", "Trading"),
-    ("stock-analysis.html", "Stock Analysis"),
     ("setup.html", "Setup"),
 )
 
@@ -41,6 +40,10 @@ NAV_GROUPS = (
     (
         ("monte-carlo.html", "Will my money last?"), ("rebalance.html", "Risk & Suggestions"),
         ("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning"),
+    ),
+    (
+        ("trading-live.html", "Live Account"), ("stock-analysis.html", "Stock Analysis"),
+        ("trading.html", "Practice Account"),
     ),
 )
 
@@ -1352,8 +1355,6 @@ def _nav_icon_html(href: str) -> str:
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
-    if highlighted == "trading.html":
-        highlighted = "trading-live.html"   # both Trading pages sit under the one tab, which opens on the live account
     return "".join(
         '<a href="/{href}"{cls}>{icon}<span class="nl">{label}</span></a>'.format(
             href=href,
