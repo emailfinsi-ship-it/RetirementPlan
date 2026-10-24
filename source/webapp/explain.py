@@ -18,7 +18,7 @@ import json
 import re
 
 from source.reporting import presentation as pres
-from source.webapp import wording
+from source.webapp import explain_tech, wording
 
 _E: dict[str, dict] = {}
 
@@ -377,6 +377,10 @@ _add("lg_year", "Year-by-year (legacy)",
      "The recommended strategy's yearly projection, with columns for how much moved to Roth and the tax paid.")
 
 # Setup
+_add("tr_quote", "Quote and chart",
+     "A look-up for any stock or ETF: today's price and range, the trend, a buy / sell rating worked out from the chart, and a chart of price, volume and RSI.",
+     "The rating is a count of chart signals (averages, RSI, MACD, volume), each pointing up, down or neutral. The chart has three panels sharing one time axis; move over it for the numbers on any bar.",
+     "Use it to research before you trade. 'Use in the order form' copies the symbol into the order form. Looking something up never places an order.")
 _add("su_household", "Household",
      "Who the plan is for: your name and, if there is one, your partner's.",
      "Names appear everywhere and drive the owner columns and Social Security planning.",
@@ -515,6 +519,7 @@ RULES: list[tuple[str, str, set | None]] = [
     (r"^try your own strategy", "lg_own", None),
     (r"^year-by-year: ", "lg_year", None),
     # Setup
+    (r"^quote and chart$", "tr_quote", None),
     (r"^household$", "su_household", None),
     (r"^sample data$", "su_sample", None),
     (r"^plaid api keys$", "su_plaid_keys", None),
@@ -640,11 +645,14 @@ _CSS = """
   .ex-page-btn { width:auto; height:auto; border-radius:999px; padding:4px 11px; margin:0; font:600 12px/1.2 -apple-system, "Inter", sans-serif; }
   #ex-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100000; display:flex; align-items:center; justify-content:center; padding:18px; }
   #ex-modal { background:var(--surface, #fff); color:var(--ink, #1d1d1f); border:1px solid var(--border, #d2d2d7); border-radius:16px;
-    max-width:460px; width:100%; max-height:84vh; overflow:auto; padding:20px 22px; box-shadow:0 20px 50px rgba(0,0,0,.35); }
+    max-width:520px; width:100%; max-height:84vh; overflow:auto; padding:20px 22px; box-shadow:0 20px 50px rgba(0,0,0,.35); }
   #ex-modal h3 { margin:0 0 10px; font-size:17px; }
   #ex-modal h4 { margin:12px 0 2px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted, #6e6e73); }
   #ex-modal p { margin:0; font-size:14px; line-height:1.45; }
   #ex-modal .ex-close { margin-top:16px; width:100%; }
+  #ex-modal details.ex-tech { margin-top:14px; border-top:1px solid var(--border, #d2d2d7); padding-top:8px; }
+  #ex-modal details.ex-tech summary { cursor:pointer; font-weight:600; font-size:13px; color:var(--brand, #0071e3); }
+  #ex-modal details.ex-tech p { font-size:13px; }
 </style>
 """
 
@@ -677,6 +685,11 @@ _JS = """
       (key.indexOf('tx:') === 0 ? '' : '<h4>What it is</h4>') + '<p>' + esc(d.what) + '</p>';
     if (d.read) html += '<h4>How to read it</h4><p>' + esc(d.read) + '</p>';
     if (d.do) html += '<h4>What you can do</h4><p>' + esc(d['do']) + '</p>';
+    if (d.tech && d.tech.length) {
+      html += '<details class="ex-tech"' + (all.tech_open ? ' open' : '') + '><summary>Technical detail</summary>';
+      d.tech.forEach(function(pair) { html += '<h4>' + esc(pair[0]) + '</h4><p>' + esc(pair[1]) + '</p>'; });
+      html += '</details>';
+    }
     html += '<button type="button" class="primary ex-close">Got it</button></div>';
     o.innerHTML = html;
     o.addEventListener('click', function(e) { if (e.target === o) close(); });
@@ -705,7 +718,14 @@ def assets_html(page: str, targets: list[list[str]], extra: dict | None = None) 
     entries = {k: _E[k] for k in sorted(keys)}
     entries.update(extra)
     entries = wording.plain_entries(entries)
-    payload = json.dumps({"entries": entries, "targets": targets}).replace("</", "<\\/")
+    # The technical section is added after the plain-words rewrite on purpose:
+    # it stays precise in both wording modes.
+    for key in entries:
+        if key in explain_tech.TECH:
+            entries[key] = {**entries[key], "tech": [list(pair) for pair in explain_tech.TECH[key]]}
+    payload = json.dumps({
+        "entries": entries, "targets": targets, "tech_open": not wording.is_plain(),
+    }).replace("</", "<\\/")
     return f'{_CSS}<script type="application/json" id="ex-data">{payload}</script>{_JS}'
 
 

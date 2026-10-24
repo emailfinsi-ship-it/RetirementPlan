@@ -33,6 +33,7 @@ from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.rmd import rmd_age_for_birth_year
 from source.reporting.monte_carlo import deterministic_drawdown_schedule
+from source.webapp.pages.summary_blocks import fold_html
 from source.webapp.render_helpers import (
     _donut_chart_html,
     _editable_number_cell,
@@ -560,6 +561,18 @@ def _render_drawdown_planning_page() -> str:
         if early_tax_deferred_age is not None else ""
     )
 
+    sequence_html = fold_html(
+        "Year-by-year withdrawal sequence", f"{horizon} years, one row per year",
+        f"""<h2>Year-by-year withdrawal sequence</h2>
+<details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random-markets band -- see the Will my money last? tab for
+that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
+set on the Will my money last? tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
+last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
+pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
+{rental_tax_note}{_year_by_year_table_html(schedule)}""",
+        fold_id="fold-dd-sequence",
+    )
+
     body = f"""
 <h2 style="margin-top:0">Drawdown Planning</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Every retirement/liquid resource this program knows about, classified by tax treatment -- Taxable
@@ -568,13 +581,7 @@ subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never force
 opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
 {_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
-<h2>Year-by-year withdrawal sequence</h2>
-<details class="how-it-works"><summary>How this works</summary><p class="muted">A single deterministic projection (not a random-markets band -- see the Will my money last? tab for
-that) over the next {horizon} years at your plan's own Expected return assumption ({schedule['expected_return'] * 100:.1f}%,
-set on the Will my money last? tab). Each year withdraws Taxable first, then Tax-deferred, then Roth, then Real estate
-last -- the conventional tax-efficient order -- with Required Minimum Distributions forced from the Tax-deferred
-pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_note}</p></details>
-{rental_tax_note}{_year_by_year_table_html(schedule)}
+{sequence_html}
 <h2 id="where-the-money-is">Where your money sits, by tax bucket</h2>
 <div class="tiles">{tiles}</div>
 <details class="how-it-works"><summary>Show chart: resources by tax bucket</summary>{donut}</details>

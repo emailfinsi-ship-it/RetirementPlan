@@ -89,3 +89,10 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
   under one-line bars that open on tap.
 - *Report Download* is now an adviser-style client report (plan at a glance with top recommendations, goals,
   good / expected / bad market scenarios, income and tax picture, assumptions and disclosures), FinSi branding only.
+
+- The "i" pop-ups gain a collapsible *Technical detail* section (calculation, assumptions and limits, sources,
+  terms), and the longest tables (All transactions, Drawdown year-by-year, Legacy year-by-year, mix by institution)
+  fold under tap-open bars.
+
+- Trading: a *Quote and chart* card (price, day and 52-week range, trends, technical Buy / Sell rating, and a price /
+  volume / RSI chart with moving averages) above the order form on the practice and live pages.

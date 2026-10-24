@@ -6144,6 +6144,51 @@ class TestTradingTab(DashboardTestCase):
         self.assertIn("Place a practice order", body)
         self.assertNotIn("S3", body)             # the secret is never shown
 
+    def test_the_page_has_a_quote_and_chart_card_above_the_order_form(self):
+        from unittest.mock import patch
+        self._connect(self._fake())
+        with patch("urllib.request.urlopen", self._fake()):
+            body = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn("Quote and chart", body)
+        self.assertIn("lookupQuote", body)
+        self.assertIn('data-sym="VTI"', body)                      # a position's symbol opens its quote
+        self.assertLess(body.index("Quote and chart"), body.index("Place a practice order"))
+        self.assertIn("never places an order", body)
+
+    def test_the_quote_route_returns_rating_trends_and_a_chart(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+        from tests.test_quote import bars_payload, make_bars
+        bars = make_bars([100 + i * 0.2 for i in range(300)], start=datetime.now(timezone.utc) - timedelta(days=300))
+        extra = {
+            ("GET", "data.alpaca.markets/v2/stocks/VTI/bars"): bars_payload(bars),
+            ("GET", "data.alpaca.markets/v2/stocks/VTI/snapshot"): {
+                "latestTrade": {"p": 160.0, "t": "2026-10-01T15:00:00Z"}, "latestQuote": {"bp": 159.9, "ap": 160.1, "bs": 1, "as": 1},
+                "dailyBar": {"o": 159, "h": 161, "l": 158, "c": 160.0, "v": 1000}, "prevDailyBar": {"o": 1, "h": 2, "l": 1, "c": 158.5, "v": 9}},
+        }
+        fake = self._fake(extra)
+        self._connect(fake)
+        with patch("urllib.request.urlopen", fake):
+            status, payload = self._post("/api/alpaca/quote", {"mode": "paper", "symbol": "vti", "range": "6M"})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["symbol"], "VTI")
+        self.assertEqual(payload["quote"]["price"], 160.0)
+        self.assertEqual(payload["range"], "6M")
+        self.assertIn("label", payload["rating"])
+        self.assertEqual(len(payload["trends"]), 3)
+        self.assertIn("<svg", payload["chart"])
+        self.assertTrue(all(c["url"].startswith("https://data.alpaca.markets/") for c in fake.calls if "/bars" in c["url"] or "/snapshot" in c["url"]))
+        self.assertFalse([c for c in fake.calls if c["method"] == "POST" and "orders" in c["url"]])   # looking up never orders
+
+    def test_the_quote_route_refuses_a_nonsense_ticker(self):
+        from unittest.mock import patch
+        fake = self._fake()
+        self._connect(fake)
+        with patch("urllib.request.urlopen", fake):
+            status, payload = self._post("/api/alpaca/quote", {"mode": "paper", "symbol": "$$$"})
+        self.assertEqual(status, 400)
+        self.assertIn("ticker", payload["error"])
+
     def test_a_down_connection_shows_a_message_not_an_error_page(self):
         import urllib.error
         from unittest.mock import patch
