@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from source.collector import alpaca
 from source.reporting import technicals as ta
-from source.webapp.pages.quote_chart import HISTORY_DAYS, _iso, _quote_block
+from source.webapp.pages.quote_chart import HISTORY_DAYS, _iso, _quote_block, company_names
 
 _EXAMPLES = ("SPY", "VTI", "QQQ", "AAPL", "MSFT")
 
@@ -42,7 +42,7 @@ def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
     }
 
 
-def build_rows(items: list[dict], keys: tuple[str, str], *, now: datetime | None = None, **kw) -> list[dict]:
+def build_rows(items: list[dict], keys: tuple[str, str], *, mode: str | None = None, now: datetime | None = None, **kw) -> list[dict]:
     """One JSON-ready row per watchlist item, in the list's own order."""
     if not items:
         return []
@@ -53,7 +53,11 @@ def build_rows(items: list[dict], keys: tuple[str, str], *, now: datetime | None
         snaps = alpaca.get_snapshots(symbols, keys, **kw)
     except alpaca.AlpacaError:
         snaps = {}   # the daily bars still give a last price
-    return [_row(i, snaps.get(i["symbol"]), bars.get(i["symbol"]) or []) for i in items]
+    names = company_names(symbols, keys, mode, **kw) if mode else {}
+    rows = [_row(i, snaps.get(i["symbol"]), bars.get(i["symbol"]) or []) for i in items]
+    for row in rows:
+        row["name"] = names.get(row["symbol"], "")
+    return rows
 
 
 _CSS = """
@@ -64,6 +68,7 @@ _CSS = """
 #wl-table th.sortable:hover { color:var(--brand); }
 #wl-table td { vertical-align:middle; }
 .wl-sym { font-weight:700; }
+.wl-name { font-size:11px; color:var(--ink-muted); max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wl-mini { width:96px; }
 .wl-mini .qp-track { margin:3px 0 1px; }
 .wl-mini .qp-trackl { font-size:10px; }
@@ -72,6 +77,7 @@ _CSS = """
 .wl-rsi-lo { color:var(--success); font-weight:600; } .wl-rsi-hi { color:var(--danger); font-weight:600; }
 .wl-empty { padding:10px 0; }
 .wl-chips button { margin:2px 4px 2px 0; }
+.wl-trade { padding:3px 12px; font-size:12px; }
 .wl-x { border:0; background:transparent; color:var(--ink-muted); font-size:16px; cursor:pointer; padding:2px 6px; }
 .wl-x:hover { color:var(--danger); }
 """
@@ -122,13 +128,15 @@ _JS = """
     var body = sorted().map(function (r) {
       var s = esc(r.symbol), note = '<td><input class="wl-note" maxlength="120" placeholder="Add a note" value="' + esc(r.note || '') +
         '" onchange="watchNote(\\'' + s + '\\', this.value)"></td>';
-      var act = '<td style="white-space:nowrap;"><button type="button" class="wl-x" title="Remove ' + s + '" onclick="watchRemove(\\'' + s + '\\')">\\u00D7</button></td>';
+      var act = '<td style="white-space:nowrap;"><a href="/trading-live.html?symbol=' + encodeURIComponent(r.symbol) + '" class="pill-link" title="Open the live order form for ' + s + '">' +
+        '<button type="button" class="primary wl-trade">Trade</button></a> <button type="button" class="wl-x" title="Remove ' + s + '" onclick="watchRemove(\\'' + s + '\\')">\\u00D7</button></td>';
       if (r.error) {
-        return '<tr><td class="wl-sym">' + s + '</td><td colspan="9" class="muted">' + esc(r.error) + '</td>' + note + act + '</tr>';
+        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="9" class="muted">' + esc(r.error) + '</td>' + note + act + '</tr>';
       }
       var up = (r.change || 0) >= 0, cls = r.change == null ? '' : up ? 'qp-up' : 'qp-down';
       var rsiCls = r.rsi == null ? '' : r.rsi <= 30 ? 'wl-rsi-lo' : r.rsi >= 70 ? 'wl-rsi-hi' : '';
-      return '<tr><td><a href="#quote" class="wl-sym" title="Open the chart and rating" onclick="lookupQuote(\\'' + s + '\\'); return false;">' + s + '</a></td>' +
+      return '<tr><td><a href="#quote" class="wl-sym" title="Open the chart and rating" onclick="lookupQuote(\\'' + s + '\\'); return false;">' + s + '</a>' +
+        (r.name ? '<div class="wl-name" title="' + esc(r.name) + '">' + esc(r.name) + '</div>' : '') + '</td>' +
         '<td class="num">' + usd(r.price) + '</td><td class="num ' + cls + '">' + signed(r.change) + '</td><td class="num ' + cls + '">' + signed(r.change_pct, '%') + '</td>' +
         '<td class="num">' + mini(r.day_low, r.day_high, r.day_position) + '</td><td class="num">' + mini(r.week_low, r.week_high, r.week_position) + '</td>' +
         '<td class="num">' + vol(r.volume) + '</td><td class="num ' + rsiCls + '">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td>' +

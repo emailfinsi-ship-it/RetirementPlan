@@ -264,7 +264,9 @@ def _ticket_html(mode: str, *, armed: bool) -> str:
         if not armed:
             return (
                 '<div class="card"><h3 style="margin-top:0;">Place a real-money order</h3>'
-                '<p class="muted">Turn live trading on above to place an order.</p></div>' + js
+                '<p class="muted">Turn live trading on above to place an order.</p><p id="ticket-hint" class="status-line status-warn" style="display:none;"></p></div>' + js
+                + "<script>(function () { var sym = new URLSearchParams(location.search).get('symbol'), h = document.getElementById('ticket-hint');"
+                " if (sym && h) { h.style.display = ''; h.textContent = 'You came here to trade ' + sym.toUpperCase().replace(/[^A-Z.]/g, '') + '. Turn live trading on above and this page will open the order form with it filled in.'; } })();</script>"
             )
         return (
             '<div class="card" style="border:2px solid #c94a4a;"><h3 style="margin-top:0; color:#c94a4a;">Place a real-money order</h3>'

@@ -66,3 +66,25 @@ def set_note(symbol, note) -> None:
     sym = clean_symbol(symbol)
     with connect() as conn:
         conn.execute("UPDATE watchlist SET note = ? WHERE symbol = ?", (str(note or "").strip()[:MAX_NOTE], sym))
+
+
+def cached_names(symbols) -> dict[str, str]:
+    """{symbol: company name} for the symbols whose name was looked up before."""
+    syms = [clean_symbol(x) for x in symbols]
+    if not syms:
+        return {}
+    marks = ",".join("?" * len(syms))
+    with connect() as conn:
+        rows = conn.execute(f"SELECT symbol, name FROM symbol_names WHERE symbol IN ({marks})", syms).fetchall()
+    return {r["symbol"]: r["name"] for r in rows}
+
+
+def remember_name(symbol, name) -> None:
+    name = str(name or "").strip()[:120]
+    if not name:
+        return
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO symbol_names (symbol, name) VALUES (?, ?) ON CONFLICT(symbol) DO UPDATE SET name = excluded.name",
+            (clean_symbol(symbol), name),
+        )

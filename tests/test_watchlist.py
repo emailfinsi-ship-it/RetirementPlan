@@ -10,7 +10,7 @@ from source.collector import alpaca
 from source.common import db
 from source.webapp import trading_api
 from source.webapp.pages import quote_chart, watchlist as wl
-from tests.test_alpaca import FakeAlpaca, KEYS
+from tests.test_alpaca import FakeAlpaca, FakeResponse, KEYS
 from tests.test_quote import make_bars
 from tests.testing_utils import TempConfigTestCase
 
@@ -108,6 +108,72 @@ class TestMultiSymbolData(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
 
+class TestCompanyNames(TempConfigTestCase):
+    def setUp(self):
+        super().setUp()
+        quote_chart._NO_NAME.clear()
+
+    def test_share_type_tails_are_dropped(self):
+        for raw, want in (("Apple Inc. Common Stock", "Apple Inc."), ("Alphabet Inc. Class A Common Stock", "Alphabet Inc. Class A"),
+                          ("SPDR S&P 500 ETF Trust", "SPDR S&P 500 ETF Trust"), ("Foo Corp - Ordinary Shares", "Foo Corp"), (None, "")):
+            self.assertEqual(alpaca.clean_company_name(raw), want)
+
+    def test_the_name_comes_from_the_host_of_the_account_asked(self):
+        fake = FakeAlpaca({("GET", "paper-api.alpaca.markets/v2/assets/AAPL"): {"name": "Apple Inc. Common Stock"},
+                           ("GET", "api.alpaca.markets/v2/assets/AAPL"): {"name": "Apple Live"}})
+        self.assertEqual(alpaca.get_asset_name("aapl", KEYS, mode="paper", urlopen=fake), "Apple Inc.")
+        self.assertEqual(alpaca.get_asset_name("AAPL", KEYS, mode="live", urlopen=fake), "Apple Live")
+        self.assertIsNone(alpaca.get_asset_name("ZZZ", KEYS, urlopen=fake))        # no such asset: no name, no error
+
+    def test_each_name_is_looked_up_once_then_remembered(self):
+        fake = FakeAlpaca({("GET", "paper-api.alpaca.markets/v2/assets/AAPL"): {"name": "Apple Inc. Common Stock"}})
+        self.assertEqual(quote_chart.company_names(["AAPL", "ZZZ"], KEYS, "paper", urlopen=fake), {"AAPL": "Apple Inc."})
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(quote_chart.company_names(["AAPL", "ZZZ"], KEYS, "paper", urlopen=fake), {"AAPL": "Apple Inc."})
+        self.assertEqual(len(fake.calls), 2)                                        # neither is asked for again
+        self.assertEqual(db.watchlist.cached_names(["AAPL"]), {"AAPL": "Apple Inc."})
+
+
+class TestNews(unittest.TestCase):
+    def test_headlines_are_cleaned_and_only_web_links_kept(self):
+        fake = FakeAlpaca({("GET", "data.alpaca.markets/v1beta1/news"): {"news": [
+            {"headline": "  Apple   beats estimates ", "summary": "x" * 400, "source": "benzinga", "url": "https://example.com/a",
+             "created_at": "2026-10-02T14:00:00Z"},
+            {"headline": "Bad link", "url": "javascript:alert(1)"},
+            {"headline": "", "url": "https://example.com/b"},
+        ]}})
+        got = alpaca.get_news("aapl", KEYS, urlopen=fake)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["headline"], "Apple beats estimates")
+        self.assertTrue(got[0]["summary"].endswith("...") and len(got[0]["summary"]) == 283)
+        self.assertIn("symbols=AAPL", fake.calls[0]["url"])
+        self.assertEqual(fake.calls[0]["method"], "GET")
+
+
+class TestQuoteExtras(TempConfigTestCase):
+    def build(self, news):
+        from tests.test_quote import FakeFeed
+        feed = FakeFeed(make_bars([100 + i * 0.3 for i in range(300)]))
+        with patch.object(alpaca, "get_bars", feed.get_bars), patch.object(alpaca, "get_snapshot", feed.get_snapshot), \
+                patch.object(alpaca, "get_asset_name", lambda *a, **k: "Vanguard Total Stock Market ETF"), \
+                patch.object(alpaca, "get_news", news):
+            return quote_chart.build_quote("VTI", KEYS, "3M", now=NOW, mode="paper")
+
+    def test_a_quote_carries_the_company_name_and_news(self):
+        out = self.build(lambda *a, **k: [{"headline": "H", "summary": "", "source": "S", "url": "https://x.test", "time": ""}])
+        self.assertEqual(out["name"], "Vanguard Total Stock Market ETF")
+        self.assertEqual(out["news"][0]["headline"], "H")
+        self.assertFalse(out["news_error"])
+
+    def test_news_trouble_never_breaks_the_quote(self):
+        def boom(*a, **k):
+            raise alpaca.AlpacaError("down")
+        out = self.build(boom)
+        self.assertEqual(out["news"], [])
+        self.assertTrue(out["news_error"])
+        self.assertIn("<svg", out["chart"])
+
+
 class TestRows(unittest.TestCase):
     def feed(self):
         return FakeAlpaca({
@@ -120,6 +186,7 @@ class TestRows(unittest.TestCase):
         fake = self.feed()
         rows = wl.build_rows(items, KEYS, now=NOW, urlopen=fake)
         self.assertEqual([r["symbol"] for r in rows], ["DOWN", "UP", "NONE"])
+        self.assertEqual([r["name"] for r in rows], ["", "", ""])        # no mode given: names are not looked up
         down, up, none = rows
         self.assertEqual(down["note"], "n1")
         self.assertEqual(up["price"], 330.0)
