@@ -230,8 +230,8 @@ class TestQuoteRoute(unittest.TestCase):
     def test_the_route_is_read_only_and_needs_no_arming_even_for_live(self):
         calls = []
 
-        def fake_build(symbol, keys, range_key):
-            calls.append((symbol, keys, range_key))
+        def fake_build(symbol, keys, range_key, mode=None):
+            calls.append((symbol, keys, range_key, mode))
             return {"symbol": symbol}
 
         with patch("source.common.secrets_store.get_alpaca_keys", return_value=("K", "S")) as keys, \
@@ -239,7 +239,7 @@ class TestQuoteRoute(unittest.TestCase):
                 patch("source.common.db.live_trading.is_armed", return_value=False):
             out = trading_api.handle("/api/alpaca/quote", {"mode": "live", "symbol": "AAPL", "range": "1Y"})
         self.assertEqual(out, {"symbol": "AAPL"})
-        self.assertEqual(calls, [("AAPL", ("K", "S"), "1Y")])
+        self.assertEqual(calls, [("AAPL", ("K", "S"), "1Y", "live")])
         keys.assert_called_once_with(mode="live")
 
     def test_a_data_error_reaches_the_person_as_a_message(self):

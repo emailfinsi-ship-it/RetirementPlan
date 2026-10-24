@@ -10,6 +10,13 @@ from source.webapp.pages.quote_chart import CHART_CSS
 _PANEL_CSS = """
 .qp-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 16px; margin:8px 0 2px; }
 .qp-sym { font-size:22px; font-weight:700; }
+.qp-name { font-size:16px; color:var(--ink-muted); }
+.qp-news { list-style:none; margin:6px 0 10px; padding:0; }
+.qp-news li { padding:8px 0; border-top:1px solid var(--border); }
+.qp-news li:first-child { border-top:0; }
+.qp-news a { font-weight:600; }
+.qp-news .qp-newsmeta { font-size:12px; color:var(--ink-muted); }
+.qp-news p { margin:3px 0 0; font-size:13px; }
 .qp-price { font-size:26px; font-weight:700; }
 .qp-up { color:var(--success); font-weight:600; } .qp-down { color:var(--danger); font-weight:600; }
 .qp-stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px 14px; margin:10px 0; font-size:13px; }
@@ -50,13 +57,35 @@ _PANEL_JS = """
       return '<button type="button" class="' + (r === cur.range ? 'primary' : '') + '" onclick="lookupQuote(\\'' + cur.symbol + '\\', \\'' + r + '\\')">' + r + '</button>';
     }).join('');
   }
+  function ago(iso) {
+    var t = Date.parse(iso); if (isNaN(t)) { return ''; }
+    var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (m < 60) { return m + ' min ago'; } if (m < 1440) { return Math.round(m / 60) + ' h ago'; }
+    var d = Math.round(m / 1440); return d + (d === 1 ? ' day ago' : ' days ago');
+  }
+  function newsHtml(d) {
+    var h = '<h4 style="margin:14px 0 2px;">Latest news about ' + esc(d.symbol) + '</h4>';
+    if (!d.news || !d.news.length) {
+      return h + '<p class="muted small">' + (d.news_error ? 'News is not available right now.' : 'No recent news found.') + '</p>';
+    }
+    return h + '<ul class="qp-news">' + d.news.map(function (n) {
+      return '<li><a href="' + esc(n.url) + '" target="_blank" rel="noopener noreferrer">' + esc(n.headline) + '</a>' +
+        '<div class="qp-newsmeta">' + esc(n.source) + (n.time ? ' \u00B7 ' + esc(ago(n.time)) : '') + '</div>' +
+        (n.summary ? '<p>' + esc(n.summary) + '</p>' : '') + '</li>';
+    }).join('') + '</ul><p class="muted small">Headlines come from Alpaca\u2019s news feed and open the publisher\u2019s page. They are not recommendations.</p>';
+  }
+  function tradeButton(sym) {
+    return '<a href="/trading-live.html?symbol=' + encodeURIComponent(sym) + '" class="pill-link" title="Opens the live account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.">' +
+      '<button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
+  }
   function badgeClass(label) { return /Buy/.test(label) ? 'qp-b-buy' : /Sell/.test(label) ? 'qp-b-sell' : 'qp-b-hold'; }
   function render(d) {
     var q = d.quote, up = (q.change || 0) >= 0, r = d.rating;
     cur.symbol = d.symbol; cur.range = d.range; cur.rows = d.rows;
     var arrow = up ? '\\u25B2' : '\\u25BC';
-    var h = '<div class="qp-head"><span class="qp-sym">' + esc(d.symbol) + '</span><span class="qp-price">' + usd(q.price) + '</span>' +
-      '<span class="' + (up ? 'qp-up' : 'qp-down') + '">' + arrow + ' ' + signed(q.change) + ' (' + signed(q.change_pct, '%') + ') today</span></div>';
+    var h = '<div class="qp-head"><span class="qp-sym">' + esc(d.symbol) + '</span>' + (d.name ? '<span class="qp-name">' + esc(d.name) + '</span>' : '') + '<span class="qp-price">' + usd(q.price) + '</span>' +
+      '<span class="' + (up ? 'qp-up' : 'qp-down') + '">' + arrow + ' ' + signed(q.change) + ' (' + signed(q.change_pct, '%') + ') today</span>' +
+      '<span style="margin-left:auto;">' + tradeButton(d.symbol) + '</span></div>';
     h += '<div class="qp-stats">' +
       '<div><span>Open</span>' + usd(q.open) + '</div><div><span>Day high</span>' + usd(q.high) + '</div><div><span>Day low</span>' + usd(q.low) + '</div>' +
       '<div><span>Previous close</span>' + usd(q.prev_close) + '</div><div><span>Volume today</span>' + vol(q.volume) + '</div>' +
@@ -76,9 +105,9 @@ _PANEL_JS = """
     h += '<div class="qp-pills">' + pills() + '</div><div id="qp-read" class="qp-read">Move over the chart for the numbers on any bar. Hollow candle = closed up, filled = closed down.</div>' + d.chart;
     h += '<p class="muted small">Technical signals only: moving averages, RSI, MACD and volume, counted on daily prices. It is not advice and this app never places an order from it. ' +
       'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
-      '<p class="qp-actions"><button type="button" id="qp-watch" onclick="quoteWatch()">\\u2606 Add ' + esc(d.symbol) + ' to watchlist</button> ' +
-      '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a> ' +
-      '<a href="/trading-live.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Live order for ' + esc(d.symbol) + '</button></a></p>';
+      newsHtml(d) +
+      '<p class="qp-actions">' + tradeButton(d.symbol) + '<button type="button" id="qp-watch" onclick="quoteWatch()">\\u2606 Add ' + esc(d.symbol) + ' to watchlist</button> ' +
+      '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a></p>';
     document.getElementById('qp-out').innerHTML = h;
     var hit = document.getElementById('qc-hit'); if (hit) { hit.addEventListener('mousemove', hover); hit.addEventListener('mouseleave', leave); }
   }

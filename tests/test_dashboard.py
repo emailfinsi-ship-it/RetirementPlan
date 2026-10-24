@@ -6097,6 +6097,28 @@ class TestStockAnalysisTab(DashboardTestCase):
         self.assertIn('id="watchlist"', body)
         self.assertIn('<a href="/stock-analysis.html" class="active">Stock Analysis</a>', body)
 
+    def test_every_stock_has_a_trade_button_to_the_live_order_form(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn("/trading-live.html?symbol=' + encodeURIComponent(r.symbol)", body)     # each watchlist row
+        self.assertIn("Trade ' + esc(sym)", body)                                            # the quote's header and footer
+        self.assertIn("Latest news about", body)
+        self.assertIn('rel="noopener noreferrer"', body)                                      # headline links leave the app safely
+
+    def test_the_live_page_pre_fills_the_ticket_or_explains_why_it_cannot(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("AKX", "L1", mode="live")
+        from unittest.mock import patch
+        from tests.test_alpaca import FakeAlpaca
+        fake = FakeAlpaca({("GET", "api.alpaca.markets/v2/account"): {
+            "status": "ACTIVE", "account_number": "LV1", "equity": "1", "last_equity": "1", "cash": "1", "buying_power": "1"},
+            ("GET", "api.alpaca.markets/v2/positions"): [], ("GET", "api.alpaca.markets/v2/orders"): []})
+        with patch("urllib.request.urlopen", fake):
+            body = self._get("/trading-live.html?symbol=NVDA").read().decode("utf-8")
+        self.assertIn("You came here to trade", body)            # live trading is off, so no form: it says what to do
+        self.assertIn("new URLSearchParams(location.search).get('symbol')", body)
+
     def test_the_watchlist_routes_add_list_and_remove(self):
         from datetime import datetime, timedelta, timezone
         from unittest.mock import patch

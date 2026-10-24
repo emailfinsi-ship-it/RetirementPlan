@@ -501,6 +501,12 @@ CREATE TABLE IF NOT EXISTS watchlist (
     added_at TEXT NOT NULL,
     note TEXT NOT NULL DEFAULT ''
 );
+
+-- Company names looked up once from Alpaca so Stock Analysis can show them without asking every time.
+CREATE TABLE IF NOT EXISTS symbol_names (
+    symbol TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);
 """
 
 
