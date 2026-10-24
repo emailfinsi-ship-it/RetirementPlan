@@ -90,7 +90,7 @@ class TestViewerHttp(AuthTestCase):
         self.assertEqual(self._get("/trading.html", cookie=self.viewer).status, 302)
         self.assertEqual(self._get("/trading-live.html", cookie=self.viewer).status, 302)
         for path in ("/api/alpaca-keys", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel", "/api/alpaca-keys/delete",
-                     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits"):
+                     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote"):
             self.assertEqual(self._post(path, {}, cookie=self.viewer)[0].status, 403, path)
 
     def test_owner_still_writes_and_viewer_banner_only_for_viewer(self):

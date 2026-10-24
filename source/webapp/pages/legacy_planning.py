@@ -419,6 +419,7 @@ def _recommended_year_by_year_html(result: dict, retirement_year: int | None) ->
         for r in rows
     )
     return f"""
+<details class="fold" id="fold-lg-years"><summary><span class="fold-title">Year-by-year projection</span><span class="fold-hint">the recommended strategy, one row per year</span></summary>
 <h3 style="font-size:13px; margin:20px 0 4px 0;">Year-by-year: {html.escape(top["label"])}</h3>
 <p class="muted">The recommended strategy's own projection, same mechanics as the Drawdown Planning tab's year-by-year
 table, with two added columns: Conversion (how much moved Tax-deferred -&gt; Roth that year) and Tax (drawdown tax plus
@@ -432,6 +433,7 @@ that year's conversion tax combined).</p>
 <tbody>{rows_html}</tbody>
 </table>
 </div>
+</details>
 """
 
 

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from source.collector import alpaca
 from source.common import db, secrets_store
+from source.webapp.pages import quote_chart
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
-    "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits",
+    "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote",
 )
 
 
@@ -72,6 +73,9 @@ def _handle(path: str, payload: dict) -> dict:
         return {"per_order": lt.per_order_limit(), "daily": lt.daily_limit()}
     mode = _mode(payload)
     keys = secrets_store.get_alpaca_keys(mode=mode)
+    if path == "/api/alpaca/quote":
+        # Read-only market data: needs saved keys for the page's account, never arming.
+        return quote_chart.build_quote(payload.get("symbol"), keys, str(payload.get("range") or "3M"))
     if path == "/api/alpaca/cancel":
         alpaca.cancel_order(payload.get("id"), keys, mode=mode)
         return {}
