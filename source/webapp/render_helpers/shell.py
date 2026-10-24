@@ -28,7 +28,6 @@ NAV_ITEMS = (
     ("monte-carlo.html", "Will my money last?"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
     ("trading-live.html", "Trading"),
-    ("stock-analysis.html", "Stock Analysis"),
     ("setup.html", "Setup"),
 )
 
@@ -37,6 +36,7 @@ NAV_GROUPS = (
     (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Risk & Suggestions")),
     (("real-expenditure.html", "Actual Spending"), ("budget-vs-actual.html", "Budget vs Actual")),
     (("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning")),
+    (("trading-live.html", "Live Account"), ("stock-analysis.html", "Stock Analysis"), ("trading.html", "Practice Account")),
 )
 
 
@@ -1322,8 +1322,6 @@ def _nav_icon_html(href: str) -> str:
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
-    if highlighted == "trading.html":
-        highlighted = "trading-live.html"   # both Trading pages sit under the one tab, which opens on the live account
     return "".join(
         '<a href="/{href}"{cls}>{icon}<span class="nl">{label}</span></a>'.format(
             href=href,

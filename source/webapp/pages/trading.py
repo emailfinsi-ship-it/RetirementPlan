@@ -27,19 +27,6 @@ def _signed_money(value) -> str:
     return f"{'+' if value >= 0 else '-'}{_money(abs(value), cents=True)}"
 
 
-def _mode_switch_html(mode: str) -> str:
-    def pill(href: str, label: str, on: bool, danger: bool = False) -> str:
-        cls = "primary" if on and not danger else ""
-        style = ' style="background:#c94a4a; color:#fff; border-color:#c94a4a;"' if on and danger else ""
-        return f'<a href="{href}" class="pill-link"><button type="button" class="{cls}"{style}>{label}</button></a>'
-    return (
-        '<p style="display:flex; gap:8px; flex-wrap:wrap;">'
-        + pill("/trading-live.html", "Live account (REAL money)", mode == "live", danger=True)
-        + pill("/trading.html", "Practice account (play money)", mode == "paper")
-        + "</p>"
-    )
-
-
 def _connect_card_html(mode: str) -> str:
     if mode == "live":
         blurb = (
@@ -294,8 +281,9 @@ def _ticket_html(mode: str, *, armed: bool) -> str:
 
 def _render_trading_page(mode: str = "paper") -> str:
     live = mode == "live"
+    page = "trading-live.html" if live else "trading.html"   # the section row above the page lists both
     title = "Trading (live account)" if live else "Trading (practice account)"
-    intro = f'<h2 style="margin-top:0">{title}</h2>' + _mode_switch_html(mode)
+    intro = f'<h2 style="margin-top:0">{title}</h2>'
     if live:
         intro += (
             '<p class="status-line" style="color:#c94a4a; font-weight:700;">REAL MONEY. Orders sent from this page buy and sell real investments '
@@ -308,7 +296,7 @@ def _render_trading_page(mode: str = "paper") -> str:
             'No real money can be spent here, and these balances are not counted in your net worth or your retirement plan.</p>'
         )
     if not secrets_store.has_alpaca_keys(mode=mode):
-        return _shell(title="Trading", active="trading.html", body=intro + _connect_card_html(mode))
+        return _shell(title="Trading", active=page, body=intro + _connect_card_html(mode))
     problem = ""
     acct, positions, orders = None, [], []
     try:
@@ -336,4 +324,4 @@ def _render_trading_page(mode: str = "paper") -> str:
         )
     if live:
         body += f"<h3>Real-money orders sent from this app</h3>{_live_log_html()}"
-    return _shell(title="Trading", active="trading.html", body=body)
+    return _shell(title="Trading", active=page, body=body)
