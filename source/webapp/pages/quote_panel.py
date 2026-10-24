@@ -1,8 +1,7 @@
-"""The Trading tab's "Quote and chart" card (practice and live pages alike):
-type a symbol and see its price, day range, 52-week range, trend, a technical
-buy / sell rating and a price / volume / RSI chart. Data comes from the
-/api/alpaca/quote route (source.webapp.pages.quote_chart). Read-only: it never
-places or changes an order."""
+"""The Stock Analysis tab's "Quote and chart" card: type a symbol and see its
+price, day range, 52-week range, trend, a technical buy / sell rating and a
+price / volume / RSI chart. Data comes from the /api/alpaca/quote route
+(source.webapp.pages.quote_chart). Read-only: it never places or changes an order."""
 
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ _PANEL_CSS = """
 .qp-sig li:first-child { border-top:0; }
 .qp-sig b { flex:0 0 16px; text-align:center; }
 .qp-read { min-height:20px; font-size:12px; color:var(--ink-muted); margin:4px 0; font-variant-numeric:tabular-nums; }
+.qp-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .qp-cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:4px 28px; }
 """
 
@@ -76,7 +76,9 @@ _PANEL_JS = """
     h += '<div class="qp-pills">' + pills() + '</div><div id="qp-read" class="qp-read">Move over the chart for the numbers on any bar. Hollow candle = closed up, filled = closed down.</div>' + d.chart;
     h += '<p class="muted small">Technical signals only: moving averages, RSI, MACD and volume, counted on daily prices. It is not advice and this app never places an order from it. ' +
       'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
-      '<p><button type="button" onclick="useInTicket()">Use ' + esc(d.symbol) + ' in the order form</button></p>';
+      '<p class="qp-actions"><button type="button" id="qp-watch" onclick="quoteWatch()">\\u2606 Add ' + esc(d.symbol) + ' to watchlist</button> ' +
+      '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a> ' +
+      '<a href="/trading-live.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Live order for ' + esc(d.symbol) + '</button></a></p>';
     document.getElementById('qp-out').innerHTML = h;
     var hit = document.getElementById('qc-hit'); if (hit) { hit.addEventListener('mousemove', hover); hit.addEventListener('mouseleave', leave); }
   }
@@ -100,24 +102,30 @@ _PANEL_JS = """
       .catch(function (e) { out.innerHTML = '<p class="status-line status-warn">' + esc(e.message) + '</p>'; });
     if (box && !range) { box.scrollIntoView({behavior: 'smooth', block: 'start'}); }
   };
-  window.useInTicket = function () {
-    var f = document.getElementById('ticket'); if (!f) { alert('The order form is not available on this page right now.'); return; }
-    f.symbol.value = cur.symbol; f.scrollIntoView({behavior: 'smooth', block: 'center'}); f.qty.focus();
+  window.quoteWatch = function () {
+    var btn = document.getElementById('qp-watch');
+    if (!window.watchAdd) { return; }
+    btn.disabled = true;
+    window.watchAdd(cur.symbol).then(function () { btn.textContent = '\\u2605 ' + cur.symbol + ' is on your watchlist'; });
   };
-  var params = new URLSearchParams(location.search); if (params.get('symbol')) { window.lookupQuote(params.get('symbol')); }
+  var params = new URLSearchParams(location.search);
+  if (params.get('symbol')) {   // postJSON is defined further down the page, so wait until the page has loaded
+    var go = function () { window.lookupQuote(params.get('symbol')); };
+    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', go); } else { go(); }
+  }
 })();
 </script>
 """
 
 
-def quote_panel_html(mode: str) -> str:
-    live = mode == "live"
+def quote_panel_html(mode: str = "auto") -> str:
+    """``mode`` picks which saved Alpaca keys read the prices; \"auto\" prefers the practice keys."""
     return f"""
 <style>{CHART_CSS}{_PANEL_CSS}</style>
-<div class="card" id="quote"{' style="border:2px solid #c94a4a;"' if live else ''}>
+<div class="card" id="quote">
 <h3 style="margin-top:0;">Quote and chart</h3>
 <p class="muted">Look up any stock or ETF: price, day range, trend, a buy / sell rating from the chart, and a price, volume and RSI chart.
-Looking things up never places an order{" and works even while live trading is off" if live else ""}.</p>
+Looking things up never places an order and works even while live trading is off.</p>
 <form class="inline" onsubmit="event.preventDefault(); lookupQuote(this.symbol.value);">
   <label>Symbol<input id="qp-symbol" name="symbol" autocomplete="off" style="width:110px; text-transform:uppercase;" placeholder="AAPL" required></label>
   <button type="submit" class="primary">Look up</button>

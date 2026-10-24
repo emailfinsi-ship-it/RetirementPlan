@@ -27,7 +27,8 @@ NAV_ITEMS = (
     ("real-expenditure.html", "Spending"),
     ("monte-carlo.html", "Will my money last?"),
     ("drawdown-planning.html", "Drawdown & Legacy"),
-    ("trading.html", "Trading"),
+    ("trading-live.html", "Trading"),
+    ("stock-analysis.html", "Stock Analysis"),
     ("setup.html", "Setup"),
 )
 
@@ -1302,6 +1303,8 @@ _NAV_ICONS = {
     "trading.html": ("#ffd75e", "#d98a00",
         '<rect x="5" y="8" width="4" height="7" rx="1"/><path d="M7 5v3M7 15v4"/>'
         '<rect x="15" y="6" width="4" height="9" rx="1"/><path d="M17 3v3M17 15v3"/>'),
+    "stock-analysis.html": ("#7fe3b0", "#12935a",
+        '<path d="M3 17l5-6 4 3 6-8"/><path d="M15 6h3v3"/><path d="M3 20h18"/>'),
     "setup.html": ("#bcc1ca", "#646a76",
         '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9" cy="7" r="2" fill="#fff"/>'
         '<circle cx="15" cy="12" r="2" fill="#fff"/><circle cx="8" cy="17" r="2" fill="#fff"/>'),
@@ -1319,11 +1322,13 @@ def _nav_icon_html(href: str) -> str:
 def _nav_html(active: str) -> str:
     group = _group_for(active)
     highlighted = group[0][0] if group else active
+    if highlighted == "trading.html":
+        highlighted = "trading-live.html"   # both Trading pages sit under the one tab, which opens on the live account
     return "".join(
         '<a href="/{href}"{cls}>{icon}<span class="nl">{label}</span></a>'.format(
             href=href,
             cls=' class="active"' if href == highlighted else "",
-            icon=_nav_icon_html(href),
+            icon=_nav_icon_html({"trading-live.html": "trading.html"}.get(href, href)),
             label=html.escape(label),
         )
         for href, label in NAV_ITEMS

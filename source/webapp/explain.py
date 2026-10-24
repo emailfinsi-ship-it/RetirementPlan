@@ -61,6 +61,10 @@ _add("page:trading.html", "About Trading",
      "Your Alpaca brokerage account: balances, positions and orders. A practice (play money) account and a live (real money) account each have their own page.",
      "Every order is checked and priced first, then you confirm. Live trading is switched off until you turn it on, turns itself off after a few hours, and has limits you set.",
      "Live orders use real money. This app never places an order by itself and does not give investment advice.")
+_add("page:stock-analysis.html", "About Stock Analysis",
+     "Research any stock or ETF: a watchlist table of the tickers you follow, and a detailed quote with a price, volume and RSI chart and a technical buy / sell rating.",
+     "Prices come from your Alpaca account's free market data. The rating counts simple chart signals; the watchlist refreshes by itself every minute.",
+     "This page is read-only and never places an order. The rating is not investment advice.")
 _add("page:expense.html", "About Income & Expenses",
      "What comes in and what goes out each year, now and in retirement. These numbers drive how much you need to withdraw from savings.",
      "Each row is a yearly amount, optionally limited to certain years. Rows that inflate grow with the inflation rate.",

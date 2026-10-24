@@ -15,6 +15,7 @@ import html
 from datetime import datetime, timedelta, timezone
 
 from source.collector import alpaca
+from source.common import secrets_store
 from source.reporting import technicals as ta
 
 RANGES = {"1D": None, "1M": 22, "3M": 64, "6M": 127, "1Y": 253}
@@ -46,6 +47,19 @@ def _new_york(dt: datetime) -> datetime:
         return dt.astimezone(ZoneInfo("America/New_York"))
     except Exception:  # noqa: BLE001 -- no tz database: fall back to a fixed offset (close enough for grouping)
         return dt.astimezone(timezone(timedelta(hours=-5)))
+
+
+def market_data_keys(mode: str | None = None) -> tuple[str, str]:
+    """The Alpaca keys used to READ prices. Prices are the same for either account,
+    so unless a mode is named this prefers the practice (play-money) keys and falls
+    back to the live ones; it raises a plain-language error when neither is saved."""
+    order = [mode] if mode in alpaca.MODES else ["paper", "live"]
+    for m in order:
+        try:
+            return secrets_store.get_alpaca_keys(mode=m)
+        except secrets_store.SecretNotFoundError:
+            continue
+    raise ValueError("Stock Analysis reads prices from Alpaca. Save your practice (free) or live keys on the Trading tab first.")
 
 
 def _round(value, places: int = 4):

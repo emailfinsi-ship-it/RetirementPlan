@@ -202,6 +202,36 @@ def get_snapshot(symbol: str, keys: tuple[str, str], **kw) -> dict:
         raw = raw[sym]
     if not isinstance(raw, dict):
         raise AlpacaError("Alpaca sent a quote this program couldn't read.")
+    return _snapshot_from(sym, raw)
+
+
+def get_bars_multi(symbols: list[str], keys: tuple[str, str], *, start: str, max_pages: int = 8, **kw) -> dict[str, list[dict]]:
+    """Daily bars for several symbols in as few calls as possible (the watchlist).
+    Returns {symbol: bars oldest first}; a symbol Alpaca has no bars for is simply
+    missing or empty. Read-only, free IEX feed, split-adjusted."""
+    syms = [_symbol(s) for s in symbols]
+    out: dict[str, list[dict]] = {s: [] for s in syms}
+    if not syms:
+        return out
+    token = None
+    for _ in range(max_pages):
+        params = {"symbols": ",".join(syms), "timeframe": "1Day", "start": start, "limit": 10000,
+                  "adjustment": "split", "feed": "iex", "sort": "asc"}
+        if token:
+            params["page_token"] = token
+        raw = _request("GET", f"{DATA_URL}/v2/stocks/bars?{urllib.parse.urlencode(params)}", keys, **kw)
+        by_sym = (raw or {}).get("bars") if isinstance(raw, dict) else None
+        if isinstance(by_sym, dict):
+            for sym, items in by_sym.items():
+                if sym in out and isinstance(items, list):
+                    out[sym].extend(b for b in (_bar(x) for x in items if isinstance(x, dict)) if b)
+        token = raw.get("next_page_token") if isinstance(raw, dict) else None
+        if not token:
+            break
+    return out
+
+
+def _snapshot_from(sym: str, raw: dict) -> dict:
     trade, quote = raw.get("latestTrade") or {}, raw.get("latestQuote") or {}
     daily, prev = raw.get("dailyBar") or {}, raw.get("prevDailyBar") or {}
     return {
@@ -213,6 +243,21 @@ def get_snapshot(symbol: str, keys: tuple[str, str], **kw) -> dict:
         "day": _bar(daily) if isinstance(daily, dict) else None,
         "prev_day": _bar(prev) if isinstance(prev, dict) else None,
     }
+
+
+def get_snapshots(symbols: list[str], keys: tuple[str, str], **kw) -> dict[str, dict]:
+    """Today's quote for several symbols in one call: {symbol: snapshot} in the
+    same shape get_snapshot returns. Symbols with nothing to show are left out."""
+    syms = [_symbol(s) for s in symbols]
+    if not syms:
+        return {}
+    query = urllib.parse.urlencode({"symbols": ",".join(syms), "feed": "iex"})
+    raw = _request("GET", f"{DATA_URL}/v2/stocks/snapshots?{query}", keys, **kw)
+    if isinstance(raw, dict) and isinstance(raw.get("snapshots"), dict):
+        raw = raw["snapshots"]
+    if not isinstance(raw, dict):
+        raise AlpacaError("Alpaca sent a quote this program couldn't read.")
+    return {sym: _snapshot_from(sym, raw[sym]) for sym in syms if isinstance(raw.get(sym), dict)}
 
 
 def clean_order(order: dict) -> dict:
