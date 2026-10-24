@@ -160,6 +160,24 @@ def _quote_block(sym: str, snap: dict | None, daily: list[dict]) -> dict:
     }
 
 
+def build_price(symbol: str, keys: tuple[str, str], **kw) -> dict:
+    """The current price and bid / ask for the order form (one light call; JSON-ready)."""
+    sym = alpaca._symbol(symbol)
+    snap = alpaca.get_snapshot(sym, keys, **kw)
+    day, prev = snap.get("day") or {}, snap.get("prev_day")
+    price = snap.get("price") or day.get("c")
+    if not price:
+        raise alpaca.AlpacaError(f"No current price is available for {sym}. Check the ticker.")
+    prev_close = prev["c"] if prev else None
+    change = None if prev_close is None else price - prev_close
+    return {
+        "symbol": sym, "price": price, "prev_close": prev_close, "change": change,
+        "change_pct": None if not prev_close else change / prev_close * 100.0,
+        "bid": snap.get("bid"), "ask": snap.get("ask"), "bid_size": snap.get("bid_size"), "ask_size": snap.get("ask_size"),
+        "as_of": snap.get("trade_time") or "",
+    }
+
+
 def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, now: datetime | None = None, mode: str | None = None, **kw) -> dict:
     """Everything the quote panel shows for ``symbol`` (JSON-ready)."""
     sym = alpaca._symbol(symbol)
