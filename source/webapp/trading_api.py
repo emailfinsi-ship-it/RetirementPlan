@@ -19,7 +19,7 @@ from source.webapp.pages import quote_chart, watchlist
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
-    "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote",
+    "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
 )
 
@@ -77,6 +77,9 @@ def _handle(path: str, payload: dict) -> dict:
     if path == "/api/alpaca/quote":
         keys, data_mode = quote_chart.market_data_source(payload.get("mode"))
         return quote_chart.build_quote(payload.get("symbol"), keys, str(payload.get("range") or "3M"), mode=data_mode)
+    if path == "/api/alpaca/price":
+        # The order form's current price: read-only, uses the page's own account keys.
+        return quote_chart.build_price(payload.get("symbol"), quote_chart.market_data_keys(payload.get("mode")))
     if path == "/api/watchlist/data":
         items = db.watchlist.list_items()
         if not items:

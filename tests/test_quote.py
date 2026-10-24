@@ -226,6 +226,39 @@ class TestBuildQuote(unittest.TestCase):
         self.assertIn("Not enough price data", quote_chart.chart_html([], "daily"))
 
 
+class TestOrderFormPrice(unittest.TestCase):
+    def snap(self, **kw):
+        base = {"price": 512.34, "trade_time": "2026-10-02T19:59:00Z", "bid": 512.30, "ask": 512.38, "bid_size": 1, "ask_size": 2,
+                "day": {"c": 512.0}, "prev_day": {"c": 510.0}}
+        return {**base, **kw}
+
+    def test_price_change_and_bid_ask(self):
+        with patch.object(alpaca, "get_snapshot", lambda *a, **k: self.snap()):
+            out = quote_chart.build_price("qqq", KEYS)
+        self.assertEqual((out["symbol"], out["price"], out["bid"], out["ask"]), ("QQQ", 512.34, 512.30, 512.38))
+        self.assertAlmostEqual(out["change"], 2.34)
+        self.assertAlmostEqual(out["change_pct"], 2.34 / 510.0 * 100)
+
+    def test_falls_back_to_the_day_close_and_copes_without_a_previous_day(self):
+        with patch.object(alpaca, "get_snapshot", lambda *a, **k: self.snap(price=None, prev_day=None)):
+            out = quote_chart.build_price("QQQ", KEYS)
+        self.assertEqual(out["price"], 512.0)
+        self.assertIsNone(out["change"])
+
+    def test_no_price_is_a_readable_error(self):
+        with patch.object(alpaca, "get_snapshot", lambda *a, **k: self.snap(price=None, day=None)):
+            with self.assertRaises(alpaca.AlpacaError) as ctx:
+                quote_chart.build_price("QQQ", KEYS)
+        self.assertIn("QQQ", str(ctx.exception))
+
+    def test_the_route_uses_the_pages_own_account_keys_and_is_read_only(self):
+        seen = []
+        with patch("source.common.secrets_store.get_alpaca_keys", lambda *, mode="paper": seen.append(mode) or ("K", "S")), \
+                patch.object(quote_chart, "build_price", lambda sym, keys, **k: {"symbol": sym, "keys": keys}):
+            out = trading_api.handle("/api/alpaca/price", {"mode": "live", "symbol": "QQQ"})
+        self.assertEqual((out, seen), ({"symbol": "QQQ", "keys": ("K", "S")}, ["live"]))
+
+
 class TestQuoteRoute(unittest.TestCase):
     def test_the_route_is_read_only_and_needs_no_arming_even_for_live(self):
         calls = []

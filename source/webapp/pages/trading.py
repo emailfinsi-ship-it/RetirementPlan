@@ -196,13 +196,14 @@ def _live_log_html() -> str:
 _TICKET_FORM = """
 <form id="ticket" class="inline" onsubmit="event.preventDefault(); previewOrder(this);">
   <label>Buy or sell<select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
-  <label>Symbol<input name="symbol" autocomplete="off" style="width:90px; text-transform:uppercase;" required></label>
+  <label>Symbol<input name="symbol" autocomplete="off" style="width:90px; text-transform:uppercase;" oninput="priceSoon(this.value)" required></label>
   <label>Shares<input name="qty" type="number" min="1" step="1" style="width:90px" required></label>
   <label>Type<select name="type" onchange="this.form.limit_price.disabled = this.value !== 'limit';"><option value="market">Market (current price)</option><option value="limit">Limit (my price)</option></select></label>
   <label>Limit price<input name="limit_price" type="number" min="0.01" step="0.01" style="width:100px" disabled></label>
   <label>Stays open<select name="time_in_force"><option value="day">Today only</option><option value="gtc">Until cancelled</option></select></label>
   <button type="submit" class="primary">Preview order</button>
 </form>
+<div id="ticket-price" class="status-line" style="margin-top:10px;"><span class="muted">Type a symbol to see its current price.</span></div>
 <div id="ticket-preview" style="margin-top:10px;"></div>
 """
 
@@ -215,6 +216,38 @@ var pendingToken = null;
   if (sym && f) { f.symbol.value = sym.toUpperCase(); f.scrollIntoView({behavior: 'smooth', block: 'center'}); f.qty.focus(); }
 })();
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+var priceTimer = null, priceSym = '';
+function priceSoon(v) { clearTimeout(priceTimer); priceTimer = setTimeout(function () { loadPrice(v); }, 500); }
+function setLimit(p) {
+  var f = document.getElementById('ticket'); if (!f) { return; }
+  f.type.value = 'limit'; f.limit_price.disabled = false; f.limit_price.value = Number(p).toFixed(2);
+}
+function setMarket() { var f = document.getElementById('ticket'); if (f) { f.type.value = 'market'; f.limit_price.disabled = true; f.limit_price.value = ''; } }
+function loadPrice(v) {
+  var box = document.getElementById('ticket-price'); if (!box) { return; }
+  var sym = String(v || '').trim().toUpperCase();
+  if (!/^[A-Z]{1,5}(\\.[A-Z])?$/.test(sym)) { priceSym = ''; box.innerHTML = '<span class="muted">Type a symbol to see its current price.</span>'; return; }
+  var fresh = sym !== priceSym; priceSym = sym;
+  if (fresh) { box.innerHTML = '<span class="muted">Looking up ' + esc(sym) + '&hellip;</span>'; }
+  postJSON('/api/alpaca/price', {mode: TRADE_MODE, symbol: sym}).then(function (d) {
+    if (d.symbol !== priceSym) { return; }
+    var usd = function (n) { return n == null ? '--' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+    var up = (d.change || 0) >= 0, when = d.as_of ? new Date(d.as_of) : null;
+    var h = '<strong>' + esc(d.symbol) + '</strong> <span style="font-size:20px; font-weight:700;">' + usd(d.price) + '</span> ' +
+      (d.change == null ? '' : '<span style="color:' + (up ? '#1baf7a' : '#c94a4a') + '; font-weight:600;">' + (up ? '\u25B2 +' : '\u25BC -') + Math.abs(d.change).toFixed(2) +
+        ' (' + (up ? '+' : '-') + Math.abs(d.change_pct).toFixed(2) + '%) today</span> ') +
+      '<span class="muted">Bid ' + usd(d.bid) + ' / Ask ' + usd(d.ask) + (when && !isNaN(when) ? ' &middot; last trade ' + when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '') + '</span>' +
+      '<div style="margin-top:6px;"><span class="muted">Choose: </span>' +
+      '<button type="button" onclick="setMarket()">Market (fills at about ' + usd(d.price) + ')</button> ' +
+      '<button type="button" onclick="setLimit(' + d.price + ')">Limit at ' + usd(d.price) + '</button>' +
+      (d.bid ? ' <button type="button" onclick="setLimit(' + d.bid + ')">Limit at bid ' + usd(d.bid) + '</button>' : '') +
+      (d.ask ? ' <button type="button" onclick="setLimit(' + d.ask + ')">Limit at ask ' + usd(d.ask) + '</button>' : '') + '</div>' +
+      '<div class="muted small" style="margin-top:4px;">Free IEX prices can lag the full market, so check the price before sending a real order. Refreshes every 20 seconds.</div>';
+    box.innerHTML = h;
+  }).catch(function (e) { if (sym === priceSym) { box.innerHTML = '<span class="status-warn">' + esc(e.message) + '</span>'; } });
+}
+setInterval(function () { if (priceSym && !document.hidden) { loadPrice(priceSym); } }, 20000);
+document.addEventListener('DOMContentLoaded', function () { var f = document.getElementById('ticket'); if (f && f.symbol.value) { loadPrice(f.symbol.value); } });
 function previewOrder(form) {
   var box = document.getElementById('ticket-preview');
   pendingToken = null;
