@@ -240,7 +240,7 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
 
     def test_nav_has_nine_tabs_and_paired_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertEqual(len(NAV_ITEMS), 10)  # the eight plan tabs + Trading + Stock Analysis
+        self.assertEqual(len(NAV_ITEMS), 9)  # the eight plan tabs + Trading
         pairs = {
             "/asset.html": ("/real-estate.html", "Real Estate"),
             "/linked-accounts.html": ("/rebalance.html", "Risk &amp; Suggestions"),
@@ -6095,7 +6095,7 @@ class TestStockAnalysisTab(DashboardTestCase):
         secrets_store.set_alpaca_keys("AKX", "L1", mode="live")
         body = self._get("/stock-analysis.html").read().decode("utf-8")
         self.assertIn('id="watchlist"', body)
-        self.assertIn('<a href="/stock-analysis.html" class="active">', body)
+        self.assertIn('<a href="/stock-analysis.html" class="active">Stock Analysis</a>', body)
 
     def test_the_watchlist_routes_add_list_and_remove(self):
         from datetime import datetime, timedelta, timezone
@@ -6166,7 +6166,16 @@ class TestTradingTab(DashboardTestCase):
         for url in ("/trading.html", "/trading-live.html"):          # and stays lit on either page
             page = self._get(url).read().decode("utf-8")
             self.assertIn('<a href="/trading-live.html" class="active">', page)
-        self.assertLess(page.index("Live account (REAL money)"), page.index("Practice account (play money)"))
+        # the section row under the tab bar lists Live account, then Stock Analysis, then Practice account
+        row = page[page.index('<div class="subnav">'):]
+        row = row[:row.index("</div>")]
+        self.assertLess(row.index("Live Account"), row.index("Stock Analysis"))
+        self.assertLess(row.index("Stock Analysis"), row.index("Practice Account"))
+        self.assertIn('<a href="/trading-live.html" class="active">Live Account</a>', self._get("/trading-live.html").read().decode("utf-8"))
+        self.assertIn('<a href="/trading.html" class="active">Practice Account</a>', self._get("/trading.html").read().decode("utf-8"))
+        stock = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading-live.html" class="active">', stock)           # Trading stays lit on Stock Analysis
+        self.assertIn('<a href="/stock-analysis.html" class="active">Stock Analysis</a>', stock)
 
     def test_the_trading_tab_has_its_own_icon_not_the_blank_default(self):
         from source.webapp.render_helpers.shell import _NAV_ICONS, _nav_icon_html

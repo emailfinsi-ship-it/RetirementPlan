@@ -97,5 +97,6 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
 - Trading: a *Quote and chart* card (price, day and 52-week range, trends, technical Buy / Sell rating, and a price /
   volume / RSI chart with moving averages) above the order form on the practice and live pages.
 
-- Stock Analysis tab: *Quote and chart* moved here from the Trading pages, with a watchlist table (price, change,
-  day and 52-week range, RSI, trends, technical rating). The Trading tab now opens on the Live account page.
+- Stock Analysis: *Quote and chart* moved here from the Trading pages, with a watchlist table (price, change,
+  day and 52-week range, RSI, trends, technical rating). The Trading tab now has a section row (Live Account,
+  Stock Analysis, Practice Account) and opens on Live Account.
