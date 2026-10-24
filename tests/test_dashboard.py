@@ -6260,6 +6260,16 @@ class TestTradingTab(DashboardTestCase):
         self.assertIn('href="/stock-analysis.html"', body)
         self.assertIn("new URLSearchParams(location.search).get('symbol')", body)   # an order link can pre-fill the ticket
 
+    def test_both_order_forms_show_the_current_price_with_market_and_limit_choices(self):
+        from unittest.mock import patch
+        self._connect(self._fake())
+        with patch("urllib.request.urlopen", self._fake()):
+            body = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn('id="ticket-price"', body)
+        self.assertIn("/api/alpaca/price", body)
+        self.assertIn("Limit at ask", body)
+        self.assertIn("Market (fills at about", body)
+
     def test_the_quote_route_returns_rating_trends_and_a_chart(self):
         from datetime import datetime, timedelta, timezone
         from unittest.mock import patch

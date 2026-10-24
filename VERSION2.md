@@ -102,3 +102,6 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 
 - Stock Analysis: company names, a Latest news list on each quote, and a Trade button (watchlist rows and quotes) that
   opens the Live Account order form with the symbol filled in.
+
+- Order forms (practice and live) show the symbol's current price, change, bid and ask with Market / Limit-at-price /
+  bid / ask buttons that fill in the order type and limit price.

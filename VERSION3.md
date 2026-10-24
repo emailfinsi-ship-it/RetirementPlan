@@ -149,3 +149,9 @@ are not touched.
     quote, has a **Trade** button that opens the Live Account page with the symbol already in the order form (if live
     trading is off, the page says to turn it on first and keeps the symbol). Nothing is sent until you preview and
     confirm there, as before. Code: `alpaca.get_asset_name` / `get_news`, `quote_chart.company_names`, table `symbol_names`.
+
+21. **Current price in the order form (practice and live).** Under the order form, the symbol you type (or arrive with
+    from a Trade button) shows its current price, today's change, bid and ask and the time of the last trade, with
+    one-click choices: **Market** (fills at about this price), **Limit at the price**, **Limit at bid**, **Limit at ask**
+    (these fill in the Type and Limit price boxes). It refreshes every 20 seconds, says that free IEX prices can lag
+    the full market, and is read-only. Route `/api/alpaca/price`, `quote_chart.build_price`.
