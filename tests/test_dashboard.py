@@ -4236,6 +4236,7 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         self.assertIn(">Date</text>", section)
         self.assertIn("nw-tip", section)
         self.assertIn("mlc-guide", section)
+        self.assertIn("evenly spaced round values", section)               # a single narrow line still gets y-axis values
 
     def test_section_is_collapsed_by_default(self):
         # A plain <details> with no `open` attribute, matching the rest

@@ -755,6 +755,17 @@ _MULTI_LINE_JS = """<script>
       var l0 = Math.log10(lo), l1 = Math.log10(hi);
       yAt = function (v) { return PT + (1 - (Math.log10(v > 0 ? v : lo) - l0) / (l1 - l0)) * PH; };
       ticks = logTicks(lo, hi); stepHint = 1e9;
+      if (ticks.length < 3) {
+        // A narrow span (a single account, say) holds no 1-2-5 gridlines, so
+        // fall back to evenly spaced round values inside the span.
+        [4, 6, 9].some(function (div) {
+          var st = niceStep((hi - lo) / div), tk = [];
+          for (var v = Math.ceil(lo / st) * st; v <= hi * 1.0001; v += st) { tk.push(v); }
+          if (tk.length >= 3) { ticks = tk; stepHint = st; return true; }
+          if (tk.length > ticks.length) { ticks = tk; stepHint = st; }
+          return false;
+        });
+      }
     } else {
       lo = Math.min(0, Math.min.apply(null, vals)); hi = Math.max.apply(null, vals);
       if (hi - lo <= 0) { hi = lo + Math.max(Math.abs(lo) * 0.1, 1); }
