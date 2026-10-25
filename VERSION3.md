@@ -155,3 +155,22 @@ are not touched.
     one-click choices: **Market** (fills at about this price), **Limit at the price**, **Limit at bid**, **Limit at ask**
     (these fill in the Type and Limit price boxes). It refreshes every 20 seconds, says that free IEX prices can lag
     the full market, and is read-only. Route `/api/alpaca/price`, `quote_chart.build_price`.
+
+22. **Full account numbers: why only four digits show, and a button to fix it.** The Accounts page's "show / hide all"
+    switch reveals whatever number is stored, but Plaid only shares a full account and routing number for checking,
+    savings and cash accounts at a bank that has been allowed the **Auth** product, and never for investment, loan or
+    credit-card accounts. The Accounts page now says how many deposit accounts are showing only four digits and why,
+    and Setup has a new **Enable full account numbers** button next to each such bank (the same one-time Plaid
+    window as Enable Transactions; press Sync now afterwards). Code: `link_item.enable_auth_for_item`,
+    route `/api/plaid-connect-auth`.
+
+23. **Auto-push to GitHub.** `bash scripts/install_auto_push.sh` (once, on the Mac) sets up a background job that every
+    5 minutes pushes master, version2 and version3 to GitHub if they have new commits, using the GitHub login your own
+    Keychain already holds. It only does a plain push (never forced), never asks for a password, and logs to
+    `~/Library/Logs/finsi-auto-push.log`. `bash scripts/auto_push.sh --dry-run` shows what it would push;
+    `bash scripts/install_auto_push.sh --remove` turns it off.
+
+24. **Investment balance chart: pick the lines.** The *Investment balance over time* chart now has **All**, **None** and
+    **Total only** buttons, and every account name under it is a button that shows or hides that line. The chart redraws
+    for what is showing and re-fits its scale (so one small account can be read on its own), and the headline change
+    follows the lines showing. Works for any chart drawn with `_multi_line_chart_html`.

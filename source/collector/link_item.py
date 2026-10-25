@@ -234,6 +234,24 @@ def link_real_item(
 def enable_transactions_for_item(
     item_key: str, *, port: int = DEFAULT_PORT, timeout_seconds: int = 300,
 ) -> None:
+    """Adds the Transactions product to an Item already linked (see enable_product_for_item)."""
+    enable_product_for_item(item_key, "transactions", port=port, timeout_seconds=timeout_seconds)
+
+
+def enable_auth_for_item(
+    item_key: str, *, port: int = DEFAULT_PORT, timeout_seconds: int = 300,
+) -> None:
+    """Adds Plaid's Auth product to an Item already linked, so its checking / savings /
+    cash-management accounts get their full account and routing numbers on the next
+    sync (without it only the last four digits are ever known). Same update-mode
+    flow as Transactions. Auth only covers those deposit accounts, never investment,
+    loan or credit ones, and Plaid may bill for it."""
+    enable_product_for_item(item_key, "auth", port=port, timeout_seconds=timeout_seconds)
+
+
+def enable_product_for_item(
+    item_key: str, product: str, *, port: int = DEFAULT_PORT, timeout_seconds: int = 300,
+) -> None:
     """Re-opens Plaid Link in "update mode" for an already-linked Item to
     grant it the Transactions product, without creating a new Item or
     access token -- see _create_update_mode_link_token's own docstring
@@ -262,11 +280,11 @@ def enable_transactions_for_item(
     access_token = secrets_store.get_item_access_token(item_key)
     profile = item_row.get("credential_profile") or "primary"
     client = build_client(item_row["environment"], profile=profile)
-    link_token = _create_update_mode_link_token(client, access_token, ["transactions"])
+    link_token = _create_update_mode_link_token(client, access_token, [product])
     _run_local_link(link_token, port=port, timeout_seconds=timeout_seconds)
 
     existing_products = {p.strip() for p in (item_row.get("products") or "").split(",") if p.strip()}
-    existing_products.add("transactions")
+    existing_products.add(product)
     db.upsert_plaid_item(
         item_key=item_key,
         plaid_item_id=item_row["plaid_item_id"],

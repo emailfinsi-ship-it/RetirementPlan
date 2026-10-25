@@ -206,6 +206,22 @@ def _render_linked_accounts_page() -> str:
     )
 
     tax_buckets_html = _tax_buckets_section_html()
+    # Full numbers come only from Plaid's Auth product and only for deposit accounts; say why a row shows four digits.
+    short_deposits = [r for r in linked_accounts if r.get("plaid_type") == "depository" and not r.get("account_number")]
+    other_short = [r for r in linked_accounts if r.get("plaid_type") not in (None, "", "depository") and not r.get("account_number")]
+    note_parts = []
+    if short_deposits:
+        n = len(short_deposits)
+        note_parts.append(
+            f"{n} checking, savings or cash account{'s' if n != 1 else ''} show only the last four digits because "
+            'that bank has not been allowed to share the full number yet. On <a href="/setup.html#connect-account">Setup</a>, '
+            "press <strong>Enable full account numbers</strong> next to the bank, finish the Plaid window, then press Sync now."
+        )
+    if other_short:
+        note_parts.append(
+            "Investment, loan and credit-card accounts always show the last four digits: Plaid does not provide full numbers for them."
+        )
+    no_full_number_note = f'<p class="muted small" style="margin:6px 0;">{" ".join(note_parts)}</p>' if note_parts else ""
     body = f"""
 <h2 style="margin-top:0">Linked Accounts <span class="muted" style="font-size:13px; font-weight:400">(live, read-only)</span></h2>
 <p class="muted">Account balances pulled directly from Plaid each time this page loads. An account not yet counted anywhere shows a Classify control in its Line item column below -- pick a Kind/Category and hit Classify to create that Assets-tab line item and link this account's live balance to it in one step. (You can also link one to an existing category row yourself, from that row's own "Linked account" column on the Assets tab.) An account linked either way is already counted in its category table, so it's excluded from the total below to avoid double-counting. See <a href="/account-balances.html">account-balances.html</a> for the standalone export.</p>
@@ -228,6 +244,7 @@ def _render_linked_accounts_page() -> str:
 </div>
 </details>
 <p class="muted small" style="margin:6px 0;">Account numbers are blurred by default. Hover one to read it, or <button type="button" onclick="document.documentElement.classList.toggle('show-acct')" style="font-size:12px; padding:2px 8px;">show / hide all</button>.</p>
+{no_full_number_note}
 <div id="accounts-filter-bar" class="filter-bar"></div>
 <p id="linked-accounts-shown-count" class="muted"></p>
 <table id="linked-accounts-table" class="sortable">

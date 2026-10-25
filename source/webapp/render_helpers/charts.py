@@ -529,6 +529,7 @@ def _multi_line_chart_html(
     direct_label_ok = len(non_empty) <= 4
     color_i = 0
     lines_svg, dots_svg, end_labels_svg, legend_items = [], [], [], []
+    chart_series = []   # the same lines as data, so the page can redraw them for whichever are selected
     for s in non_empty:
         emphasize = bool(s.get("emphasize"))
         if emphasize:
@@ -571,10 +572,14 @@ def _multi_line_chart_html(
             end_labels_svg.append(
                 f'<text x="{lx + 4:.1f}" y="{ly + 3:.1f}" font-size="9" style="fill:{color};">{html.escape(s["name"])}</text>'
             )
+        chart_series.append({
+            "name": s["name"], "color": color, "emph": emphasize, "sw": stroke_width, "r": dot_r,
+            "pts": [[index_of[d], v, d] for d, v in pts],
+        })
         legend_items.append(
-            f'<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;">'
-            f'<span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:{color};"></span>'
-            f'<span class="muted" style="font-size:11px;">{html.escape(s["name"])}</span></span>'
+            f'<button type="button" class="nw-chip mlc-chip" aria-pressed="true" data-i="{len(chart_series) - 1}" '
+            f'title="Click to show or hide this line">'
+            f'<span class="nw-swatch" style="background:{color};"></span>{html.escape(s["name"])}</button>'
         )
 
     first_date, last_date = all_dates[0], all_dates[-1]
@@ -601,24 +606,117 @@ def _multi_line_chart_html(
     )
 
     svg = (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
+        f'<svg class="mlc-svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="-apple-system, sans-serif">'
         f'{grid_svg}{zero_line}{"".join(lines_svg)}{"".join(dots_svg)}{"".join(end_labels_svg)}{x_labels}'
         '</svg>'
     )
-    legend_html = f'<div style="margin-top:4px;">{"".join(legend_items)}</div>' if len(non_empty) >= 2 else ""
+    interactive = len(non_empty) >= 2
+    has_total = any(c["emph"] for c in chart_series)
+    legend_html = (
+        '<div class="nw-controls mlc-controls">'
+        '<button type="button" class="nw-chip" data-mlc="all">All</button>'
+        '<button type="button" class="nw-chip" data-mlc="none">None</button>'
+        + ('<button type="button" class="nw-chip" data-mlc="total">Total only</button>' if has_total else "")
+        + "".join(legend_items) + "</div>"
+        '<p class="muted small" style="margin:2px 0 0;">Click a name to show or hide that line; the scale re-fits to the lines showing.</p>'
+        if interactive else ""
+    )
     full_note = note
     if log_scale:
         log_note = "Logarithmic scale -- equal vertical spacing represents equal percentage change, not equal dollar change."
         full_note = f"{log_note} {note}" if note else log_note
     note_html = f'<p class="muted" style="margin:4px 0 0;">{html.escape(full_note)}</p>' if full_note else ""
+    spec = html.escape(json.dumps({
+        "w": width, "h": height, "pl": pad_left, "pr": pad_right, "pt": pad_top, "pb": pad_bottom,
+        "log": log_scale, "dates": all_dates, "series": chart_series,
+    }, separators=(",", ":")), quote=True)
+    script = _MULTI_LINE_JS if interactive else ""
     return f"""
-<div class="card" style="flex:2 1 480px;">
-<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
-{svg}
+<div class="card mlc" style="flex:2 1 480px;" data-mlc-spec="{spec}">
+<h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span class="mlc-change" style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
+<div class="mlc-plot" style="overflow-x:auto;">{svg}</div>
 {legend_html}
 {note_html}
 </div>
+{script}
 """
+
+
+# Lets a multi-line chart's reader pick which lines to show (the All / None / Total only buttons and a click on
+# any name): the chart is redrawn from the data in its data-mlc-spec for the lines showing, with the y-axis
+# re-fitted to them, so one small account can be looked at on its own. One copy of this runs per page.
+_MULTI_LINE_JS = """<script>
+(function () {
+  if (window.__mlcReady) { return; } window.__mlcReady = true;
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function money(v) { var r = Math.round(v), t = Math.abs(r).toLocaleString('en-US'); return (r < 0 ? '-' : '') + '$' + t; }
+  function short(v) { var a = Math.abs(v), s = v < 0 ? '-' : ''; return a >= 1e6 ? s + '$' + (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? s + '$' + (a / 1e3).toFixed(0) + 'K' : s + '$' + a.toFixed(0); }
+  function logTicks(lo, hi) {
+    if (lo <= 0 || hi <= lo) { return []; }
+    var pats = [[1, 2, 5], [1, 5], [1]], out = [];
+    for (var p = 0; p < pats.length; p++) {
+      out = [];
+      for (var d = Math.floor(Math.log10(lo)); d <= Math.ceil(Math.log10(hi)); d++) {
+        pats[p].forEach(function (m) { var t = m * Math.pow(10, d); if (t >= lo * 0.999 && t <= hi * 1.001) { out.push(t); } });
+      }
+      if (out.length <= 6) { break; }
+    }
+    return out;
+  }
+  function draw(root) {
+    var spec = root._spec, on = root._on, vis = spec.series.filter(function (_s, i) { return on[i]; });
+    var W = spec.w, H = spec.h, pl = spec.pl, pr = spec.pr, pt = spec.pt, pb = spec.pb, pw = W - pl - pr, ph = H - pt - pb, n = spec.dates.length;
+    var svg = root.querySelector('.mlc-svg');
+    var chip = root.querySelectorAll('.mlc-chip'); chip.forEach(function (c) { c.setAttribute('aria-pressed', on[+c.dataset.i] ? 'true' : 'false'); });
+    var ch = root.querySelector('.mlc-change');
+    if (!vis.length) {
+      svg.innerHTML = '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle" font-size="12" style="fill:var(--ink-muted,#777);">No lines selected. Click a name below, or All.</text>';
+      ch.textContent = ''; return;
+    }
+    var vals = []; vis.forEach(function (s) { s.pts.forEach(function (p) { vals.push(p[1]); }); });
+    var lo, hi, yAt, grid = '', zero = '';
+    if (spec.log) {
+      var pos = vals.filter(function (v) { return v > 0; }); lo = pos.length ? Math.min.apply(null, pos) : 1; hi = Math.max.apply(null, vals);
+      if (hi <= lo) { hi = lo * 10; }
+      var l0 = Math.log10(lo), l1 = Math.log10(hi);
+      yAt = function (v) { return pt + (1 - (Math.log10(v > 0 ? v : lo) - l0) / (l1 - l0)) * ph; };
+      logTicks(lo, hi).forEach(function (t) { var y = yAt(t);
+        grid += '<line x1="' + pl + '" y1="' + y.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + y.toFixed(1) + '" style="stroke:var(--border,#e5e2db);" stroke-width="1"/>' +
+          '<text x="' + (pl + 2) + '" y="' + (y - 2).toFixed(1) + '" font-size="9" style="fill:var(--ink-muted,#777);">' + short(t) + '</text>'; });
+    } else {
+      lo = Math.min(0, Math.min.apply(null, vals)); hi = Math.max.apply(null, vals);
+      if (hi - lo <= 0) { hi = lo + Math.max(Math.abs(lo) * 0.1, 1); }
+      yAt = function (v) { return pt + (1 - (v - lo) / (hi - lo)) * ph; };
+      if (lo < 0 && hi > 0) { var zy = yAt(0); zero = '<line x1="' + pl + '" y1="' + zy.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + zy.toFixed(1) + '" style="stroke:var(--border,#e5e2db);" stroke-width="1" stroke-dasharray="3 3"/>'; }
+    }
+    var xAt = function (i) { return pl + (i / (n - 1)) * pw; }, lines = '', dots = '', labels = '';
+    vis.forEach(function (s) {
+      var d = '', prev = null;
+      s.pts.forEach(function (p) { var x = xAt(p[0]).toFixed(1), y = yAt(p[1]).toFixed(1); d += (prev === null || p[0] !== prev + 1 ? ' M ' : ' L ') + x + ' ' + y; prev = p[0]; });
+      lines += '<path d="' + d.trim() + '" fill="none" style="stroke:' + s.color + ';" stroke-width="' + s.sw + '" stroke-linejoin="round" stroke-linecap="round"/>';
+      s.pts.forEach(function (p) { dots += '<circle cx="' + xAt(p[0]).toFixed(1) + '" cy="' + yAt(p[1]).toFixed(1) + '" r="' + s.r + '" style="fill:' + s.color + ';"><title>' + esc(s.name) + ' -- ' + esc(p[2]) + ': ' + money(p[1]) + '</title></circle>'; });
+      if (vis.length <= 4) { var q = s.pts[s.pts.length - 1]; labels += '<text x="' + (xAt(q[0]) - 6).toFixed(1) + '" y="' + (yAt(q[1]) - 7).toFixed(1) + '" font-size="9" text-anchor="end" style="fill:' + s.color + ';">' + esc(s.name) + '</text>'; }
+    });
+    var xl = '<text x="' + pl + '" y="' + (H - 6) + '" font-size="10" style="fill:var(--ink-muted,#777);">' + esc(spec.dates[0]) + '</text>' +
+      '<text x="' + (W - pr) + '" y="' + (H - 6) + '" font-size="10" text-anchor="end" style="fill:var(--ink-muted,#777);">' + esc(spec.dates[n - 1]) + '</text>';
+    svg.innerHTML = grid + zero + lines + dots + labels + xl;
+    var head = vis.filter(function (s) { return s.emph; })[0] || vis[0], a = head.pts[0], b = head.pts[head.pts.length - 1], chg = b[1] - a[1];
+    ch.style.color = chg >= 0 ? '#1baf7a' : '#c94a4a';
+    ch.textContent = (chg >= 0 ? '+' : '') + money(chg) + (a[1] ? ' (' + (chg >= 0 ? '+' : '') + (chg / Math.abs(a[1]) * 100).toFixed(1) + '%)' : '') + ' since ' + a[2];
+  }
+  document.addEventListener('click', function (ev) {
+    var root = ev.target.closest && ev.target.closest('.mlc'); if (!root) { return; }
+    var btn = ev.target.closest('[data-mlc], .mlc-chip'); if (!btn) { return; }
+    if (!root._spec) { root._spec = JSON.parse(root.dataset.mlcSpec); root._on = root._spec.series.map(function () { return true; }); }
+    var on = root._on, act = btn.dataset.mlc;
+    if (act === 'all') { root._on = on = on.map(function () { return true; }); }
+    else if (act === 'none') { root._on = on = on.map(function () { return false; }); }
+    else if (act === 'total') { root._on = on = root._spec.series.map(function (s) { return !!s.emph; }); }
+    else { on[+btn.dataset.i] = !on[+btn.dataset.i]; }
+    draw(root);
+  });
+})();
+</script>"""
 
 
 # Rows a bar chart shows before it scrolls (see .bar-chart's max-height in styles.py).
