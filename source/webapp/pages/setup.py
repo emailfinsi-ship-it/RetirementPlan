@@ -22,6 +22,7 @@ def _render_setup_page() -> str:
 
     presence = secrets_store.vault_presence()
     items = db.list_plaid_items()
+    plaid_accounts = db.list_plaid_accounts()
 
     def item_row(item):
         synced = item["last_synced_at"] or "never"
@@ -40,6 +41,12 @@ def _render_setup_page() -> str:
             "" if "transactions" in products else
             f'<button onclick="enableTransactionsForItem({item["item_key"]!r})">Enable Transactions</button>'
         )
+        # Full account numbers come only from Plaid's Auth product, and only for deposit accounts.
+        has_deposit_account = any(a["item_key"] == item["item_key"] and a["type"] == "depository" for a in plaid_accounts)
+        enable_auth_button = (
+            "" if "auth" in products or not has_deposit_account else
+            f'<button onclick="enableAuthForItem({item["item_key"]!r})">Enable full account numbers</button>'
+        )
         return (
             f'<tr><td>{html.escape(item["item_key"])}</td>'
             f'<td>{html.escape(item["institution_name"] or "")}</td>'
@@ -47,7 +54,7 @@ def _render_setup_page() -> str:
             f'<td>{html.escape(item["environment"])}</td>'
             f'<td>{html.escape(profile_label)}</td>'
             f'<td>{html.escape(synced)}</td>'
-            f'<td>{enable_transactions_button}'
+            f'<td>{enable_transactions_button}{enable_auth_button}'
             f'<button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button></td></tr>'
         )
 
