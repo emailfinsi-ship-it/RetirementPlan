@@ -505,6 +505,8 @@ PAGE_CSS = """
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-md);
     font-size: 11px; color: var(--ink); }
   .nw-tip[hidden] { display: none; }
+  .nw-tip-fixed { position: fixed; min-width: 0; max-width: 300px; white-space: nowrap; }
+  .bar-track[data-ctip], .pie-seg[data-ctip] { cursor: pointer; }
   .nw-tip-date { font-weight: 600; margin-bottom: 4px; color: var(--ink-muted); }
   .nw-tip-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
   .nw-tip-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

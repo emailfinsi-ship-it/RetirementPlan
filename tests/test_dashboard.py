@@ -493,6 +493,8 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
                 resp = self._get(path)
                 body = resp.read().decode("utf-8")
                 self.assertIn("function handlePieSegClick(", body)
+                self.assertIn("data-ctip", body)                       # shared hover tooltip handler
+                self.assertIn("nw-tip-fixed", body)
                 self.assertIn("function handlePieSegKeydown(", body)
                 self.assertIn("function applyPositionFilters(", body)
                 self.assertIn("function clearPositionFilters(", body)
@@ -2163,7 +2165,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
             # on this one bar still filters both of them.
             self.assertIn('data-values="[&quot;Technology&quot;]"', sector_section)
             # $1,500 (AAPL) + $500 (NVDA) = $2,000, all under one "Technology" bar.
-            self.assertIn("Technology: $2,000 (100%)", sector_section)
+            self.assertIn('data-ctip="Technology" data-ctip-val="$2,000 (100%)"', sector_section)
             self.assertEqual(body.count('data-sector="Technology"'), 2)
         finally:
             db.clear_security_industries(["sec-aapl", "sec-nvda"])
@@ -2719,11 +2721,21 @@ class TestGroupedSlicesAndDonutChart(unittest.TestCase):
         # Legend shows value + percent for each slice.
         self.assertIn("75%", html_out)
         self.assertIn("25%", html_out)
-        # Native <title> hover tooltips, one per wedge.
-        self.assertEqual(html_out.count("<title>"), 2)
+        # Shared styled hover tooltip (data-ctip), one per wedge -- no slow native <title>.
+        self.assertEqual(html_out.count('data-ctip="'), 2)
+        self.assertNotIn("<title>", html_out)
+        self.assertIn('data-ctip-val="$750 (75%)"', html_out)
+        self.assertIn('data-ctip-note="Click to filter the list below"', html_out)
         # Fixed-order categorical colors -- first slice gets slot 1, second slot 2.
         self.assertIn(dashboard._DONUT_COLORS[0], html_out)
         self.assertIn(dashboard._DONUT_COLORS[1], html_out)
+
+    def test_bar_chart_rows_use_the_shared_hover_tooltip(self):
+        slices = [("equity", 750.0, ["equity"]), ("bond", 250.0, ["bond"])]
+        out = dashboard._bar_chart_html("Positions by account", slices, dim="institution")
+        self.assertEqual(out.count('data-ctip="'), 2)
+        self.assertNotIn('title="equity: ', out)
+        self.assertIn('data-ctip-val="$250 (25%)"', out)
 
     def test_donut_chart_other_slice_uses_the_muted_color_not_a_categorical_slot(self):
         slices = [
@@ -4219,6 +4231,11 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         self.assertIn("data-mlc-spec=", section)                              # the data the page redraws from
         self.assertIn("Click a name to show or hide that line", section)
         self.assertIn("<svg", section)                                        # and the full chart is still drawn up front
+        # Labeled axes + the same instant hover tooltip as the other line charts.
+        self.assertIn(">Balance", section)
+        self.assertIn(">Date</text>", section)
+        self.assertIn("nw-tip", section)
+        self.assertIn("mlc-guide", section)
 
     def test_section_is_collapsed_by_default(self):
         # A plain <details> with no `open` attribute, matching the rest
@@ -6665,7 +6682,7 @@ class TestLineChartHoverTooltip(unittest.TestCase):
     def test_chart_carries_hover_layer_and_every_day(self):
         from source.webapp.render_helpers import _line_chart_html
         out = _line_chart_html("Trend", [("2026-09-26", 100.0), ("2026-09-27", 150.0), ("2026-10-01", 90.0)])
-        self.assertIn('class="lc-tip"', out)
+        self.assertIn('class="lc-tip nw-tip"', out)
         self.assertIn('class="lc-cross"', out)
         self.assertIn('mousemove', out)
         self.assertIn('touchmove', out)

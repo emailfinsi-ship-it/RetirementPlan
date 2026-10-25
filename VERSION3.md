@@ -174,3 +174,13 @@ are not touched.
     **Total only** buttons, and every account name under it is a button that shows or hides that line. The chart redraws
     for what is showing and re-fits its scale (so one small account can be read on its own), and the headline change
     follows the lines showing. Works for any chart drawn with `_multi_line_chart_html`.
+
+25. **One standard for every graph.** All charts now follow the Net Worth chart's look: labelled axes (the Investment
+    balance chart gained *Balance* / *Date* axis titles, a y-axis with dollar ticks, an x-axis with dates, a dotted
+    guide line and a hover box listing every visible line's value for that day; the Monte Carlo chart gained
+    *Balance* / *Year* titles), and the same styled hover box everywhere. The pie/donut wedges and the bar charts
+    used to show a slow, plain browser tooltip; they now show the shared box (name, amount and percent, and a
+    "Click to filter" hint) instantly, and it also appears when you tab onto a wedge. The trend line and Monte Carlo
+    hover boxes were restyled to match. One shared handler (`data-ctip` attributes, `_tip_attrs` in `charts.py`)
+    draws them, so any future chart gets the same behaviour. The log-scale chart also shows more gridline values
+    when the balances sit within one decade.
