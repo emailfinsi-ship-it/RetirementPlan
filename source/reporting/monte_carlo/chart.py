@@ -44,7 +44,7 @@ def render_fan_svg(
             "No simulation data yet.</text></svg>"
         )
 
-    margin_left, margin_right, margin_top, margin_bottom = 64, 78 if plain else 62, 22, 44 if birth_year else 28
+    margin_left, margin_right, margin_top, margin_bottom = 64, 78 if plain else 62, 22, 58 if birth_year else 42
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
 
@@ -132,15 +132,21 @@ def render_fan_svg(
         if i % label_stride != 0 and i != n - 1:
             continue
         x_labels.append(
-            f'<text x="{x_for(i):.1f}" y="{height - (26 if birth_year else 8)}" text-anchor="middle" font-size="11" '
+            f'<text x="{x_for(i):.1f}" y="{height - (40 if birth_year else 22)}" text-anchor="middle" font-size="11" '
             f'style="fill:var(--ink-muted,#777);">{row["year"]}</text>'
         )
         if birth_year:
             x_labels.append(
-                f'<text x="{x_for(i):.1f}" y="{height - 10}" text-anchor="middle" font-size="10" '
+                f'<text x="{x_for(i):.1f}" y="{height - 26}" text-anchor="middle" font-size="10" '
                 f'style="fill:var(--ink-muted,#777);">age {int(row["year"]) - int(birth_year)}</text>'
             )
 
+    axis_titles = (
+        f'<text transform="translate(12 {margin_top + plot_h / 2:.1f}) rotate(-90)" text-anchor="middle" font-size="10" '
+        f'style="fill:var(--ink-muted,#777);">Balance</text>'
+        f'<text x="{margin_left + plot_w / 2:.1f}" y="{height - 6}" text-anchor="middle" font-size="10" '
+        f'style="fill:var(--ink-muted,#777);">Year{" / age" if birth_year else ""}</text>'
+    )
     marker = ""
     if retirement_year is not None:
         for i, row in enumerate(band):
@@ -168,6 +174,7 @@ def render_fan_svg(
         + "".join(dots)
         + end_label_svg
         + "".join(x_labels)
+        + axis_titles
         + (
             f'<line class="fan-cross" x1="0" y1="{margin_top}" x2="0" y2="{margin_top + plot_h}" '
             f'style="stroke:var(--ink-muted,#777); display:none;" stroke-width="1" stroke-dasharray="4 3"/>'
@@ -193,14 +200,11 @@ def render_fan_svg(
     names = ["Typical", "Cautious", "Strong"] if plain else ["Median", "10th pct", "90th pct"]
     return (
         f'<div class="fan-wrap" style="position:relative; max-width:{width}px;">{svg}'
-        '<div class="fan-tip" role="status" style="display:none; position:absolute; pointer-events:none; z-index:5; '
-        'padding:6px 10px; border-radius:8px; background:var(--surface,#fff); color:var(--ink,#111); '
-        'border:1px solid var(--border,#ddd); box-shadow:var(--shadow-md,0 4px 12px rgba(0,0,0,.15)); '
-        'font-size:12px; line-height:1.4; white-space:nowrap;"></div>'
+        '<div class="fan-tip nw-tip" role="status" style="display:none; min-width:0; white-space:nowrap;"></div>'
         "<script>(function(){"
         "var w=document.currentScript.parentNode,svg=w.querySelector('svg'),tip=w.querySelector('.fan-tip'),"
         "cr=svg.querySelector('.fan-cross'),ring=svg.querySelector('.fan-ring'),"
-        f"P={data},N={json.dumps(names)},VW={width};"
+        f"P={data},N={json.dumps(names)},VW={width},CL={json.dumps(color)};"
         "function hide(){tip.style.display='none';cr.style.display='none';ring.style.display='none';}"
         "function show(e){var r=svg.getBoundingClientRect(),t=e.touches&&e.touches[0]?e.touches[0]:e,"
         "vx=(t.clientX-r.left)/r.width*VW,b=0,bd=1e9,i,d;"
@@ -208,10 +212,10 @@ def render_fan_svg(
         "var p=P[b],k=r.width/VW;"
         "cr.setAttribute('x1',p[0]);cr.setAttribute('x2',p[0]);cr.style.display='';"
         "ring.setAttribute('cx',p[0]);ring.setAttribute('cy',p[1]);ring.style.display='';"
-        "tip.innerHTML='<div style=\"color:var(--ink-muted,#777)\">'+p[2]+(p[3]!==null?' &middot; age '+p[3]:'')+'</div>'"
-        "+'<div><strong>'+N[0]+':</strong> '+p[4]+'</div>'"
-        "+'<div style=\"color:var(--ink-muted,#777)\">'+N[1]+': '+p[5]+'</div>'"
-        "+'<div style=\"color:var(--ink-muted,#777)\">'+N[2]+': '+p[6]+'</div>';"
+        "tip.innerHTML='<div class=\"nw-tip-date\">'+p[2]+(p[3]!==null?' &middot; age '+p[3]:'')+'</div>'"
+        "+'<div class=\"nw-tip-row\"><span class=\"nw-swatch\" style=\"background:'+CL+'\"></span><span class=\"nw-tip-name\">'+N[0]+'</span><span class=\"nw-tip-val\">'+p[4]+'</span></div>'"
+        "+'<div class=\"nw-tip-row\"><span class=\"nw-tip-name nw-tip-pct\">'+N[1]+'</span><span class=\"nw-tip-pct\">'+p[5]+'</span></div>'"
+        "+'<div class=\"nw-tip-row\"><span class=\"nw-tip-name nw-tip-pct\">'+N[2]+'</span><span class=\"nw-tip-pct\">'+p[6]+'</span></div>';"
         "tip.style.display='block';var tw=tip.offsetWidth,x=p[0]*k+12;"
         "if(x+tw>r.width)x=p[0]*k-tw-12;tip.style.left=Math.max(0,x)+'px';"
         "tip.style.top=Math.max(0,p[1]*k-tip.offsetHeight-10)+'px';}"

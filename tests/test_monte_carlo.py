@@ -2323,7 +2323,8 @@ class TestFanChartHover(unittest.TestCase):
 
     def test_responsive_chart_has_instant_hover(self):
         out = render_fan_svg(self._result(), responsive=True, plain=True, birth_year=1970)
-        self.assertIn('class="fan-tip"', out)
+        self.assertIn('class="fan-tip nw-tip"', out)
+        self.assertIn(">Balance</text>", out)
         self.assertIn("mousemove", out)
         self.assertIn("$202", out)
         self.assertIn('["Typical", "Cautious", "Strong"]', out)
