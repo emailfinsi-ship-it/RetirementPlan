@@ -682,6 +682,57 @@ function handlePieSegClick(el) {{
   applyExpenditureFilters();
   applyAccountsFilters();
 }}
+(function() {{
+  // One shared hover tooltip for every element carrying data-ctip -- the
+  // same ".nw-tip" box the Net Worth chart draws, so donut / bar charts
+  // (and anything later) look and behave like the line charts.
+  var tip = null, cur = null;
+  function box() {{
+    if (!tip) {{
+      tip = document.createElement('div');
+      tip.className = 'nw-tip nw-tip-fixed';
+      tip.hidden = true;
+      document.body.appendChild(tip);
+    }}
+    return tip;
+  }}
+  function esc(t) {{
+    return String(t == null ? '' : t).replace(/[&<>"]/g, function(c) {{
+      return {{'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}}[c];
+    }});
+  }}
+  function show(el, x, y) {{
+    var b = box(), d = el.dataset;
+    b.innerHTML = '<div class="nw-tip-date">' + esc(d.ctip) + '</div>' +
+      (d.ctipVal ? '<div class="nw-tip-row">' +
+        (d.ctipColor ? '<span class="nw-swatch" style="background:' + esc(d.ctipColor) + ';"></span>' : '') +
+        '<span class="nw-tip-val">' + esc(d.ctipVal) + '</span></div>' : '') +
+      (d.ctipNote ? '<div class="nw-tip-pct">' + esc(d.ctipNote) + '</div>' : '');
+    b.hidden = false;
+    var w = b.offsetWidth, h = b.offsetHeight;
+    var left = x + 14, top = y + 14;
+    if (left + w > window.innerWidth - 8) left = x - w - 14;
+    if (top + h > window.innerHeight - 8) top = y - h - 14;
+    b.style.left = Math.max(4, left) + 'px';
+    b.style.top = Math.max(4, top) + 'px';
+  }}
+  function hide() {{ cur = null; if (tip) tip.hidden = true; }}
+  document.addEventListener('mousemove', function(e) {{
+    var el = e.target && e.target.closest ? e.target.closest('[data-ctip]') : null;
+    if (!el) {{ if (cur) hide(); return; }}
+    cur = el;
+    show(el, e.clientX, e.clientY);
+  }});
+  document.addEventListener('mouseleave', hide);
+  document.addEventListener('scroll', hide, true);
+  document.addEventListener('focusin', function(e) {{
+    var el = e.target && e.target.closest ? e.target.closest('[data-ctip]') : null;
+    if (!el) return;
+    var r = el.getBoundingClientRect();
+    show(el, r.left + r.width / 2, r.top + r.height / 2);
+  }});
+  document.addEventListener('focusout', hide);
+}})();
 function handlePieSegKeydown(e, el) {{
   if (e.key === 'Enter' || e.key === ' ') {{
     e.preventDefault();
@@ -831,12 +882,10 @@ function refreshLinkedPositionsBarCharts() {{
       var widthPct = maxVal > 0 ? Math.max(v / maxVal * 100, 1.5) : 0;
       var label = bar.querySelector('.bar-label');
       var fill = bar.querySelector('.bar-fill');
+      var track = bar.querySelector('.bar-track');
       var valueLabel = bar.querySelector('.bar-value');
-      if (fill) {{
-        fill.style.width = widthPct.toFixed(1) + '%';
-        fill.title = (label ? label.textContent : '') + ': ' + formatSignedMoney(v) +
-          ' (' + pct.toFixed(0) + '%) -- click to filter the list below';
-      }}
+      if (fill) {{ fill.style.width = widthPct.toFixed(1) + '%'; }}
+      if (track) {{ track.setAttribute('data-ctip-val', formatSignedMoney(v) + ' (' + pct.toFixed(0) + '%)'); }}
       if (valueLabel) {{ valueLabel.textContent = moneyShort(v) + ' (' + pct.toFixed(0) + '%)'; }}
       bar.style.display = v > 0 ? '' : 'none';
     }});

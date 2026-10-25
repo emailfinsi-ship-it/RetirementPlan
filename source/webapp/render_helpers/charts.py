@@ -63,13 +63,27 @@ def _grouped_slices(
     return result
 
 
+_TIP_NOTE = "Click to filter the list below"
+
+
+def _tip_attrs(label: str, value: str, color: str, note: str = _TIP_NOTE) -> str:
+    """data-* attributes for the shared hover tooltip (the delegated
+    handler in the page shell draws the same ".nw-tip" box the Net Worth
+    chart uses) -- label line, value line with a color swatch, and an
+    optional muted note."""
+    return (
+        f'data-ctip="{html.escape(label)}" data-ctip-val="{html.escape(value)}" '
+        f'data-ctip-color="{html.escape(color)}" data-ctip-note="{html.escape(note)}"'
+    )
+
+
 def _donut_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, dim: str, size: int = 180) -> str:
     """Part-to-whole donut for <=6 real segments (+ a folded "Other") --
     categorical hues in fixed slot order, a legend with swatch + label +
     value + percent (identity is never color-alone), a small gap between
     wedges standing in for the mark spec's 2px surface gap (a dash gap
-    rather than a border), and a native <title> hover tooltip per wedge
-    since this is a plain static SVG page, not a JS charting library.
+    rather than a border), and the shared styled hover tooltip (data-ctip,
+    the same look as the Net Worth chart's) per wedge.
 
     Every slice (both the SVG wedge and its legend row) is also a
     clickable/keyboard-focusable ".pie-seg" carrying data-dim/data-slice-id/
@@ -110,10 +124,12 @@ def _donut_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *,
             f'onclick="handlePieSegClick(this)" onkeydown="handlePieSegKeydown(event, this)"'
         )
         segments.append(
-            f'<circle class="pie-seg" {click_attrs} cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{stroke}" '
+            f'<circle class="pie-seg" {click_attrs} {_tip_attrs(label, f"{_money(value)} ({pct:.0f}%)", color)} '
+            f'aria-label="{html.escape(label)}: {html.escape(_money(value))} ({pct:.0f}%)" '
+            f'cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{stroke}" '
             f'stroke-dasharray="{dash:.2f} {remainder:.2f}" stroke-dashoffset="{-offset:.2f}" '
             f'transform="rotate(-90 {cx} {cy})">'
-            f'<title>{html.escape(label)}: {html.escape(_money(value))} ({pct:.0f}%) -- click to filter the list below</title></circle>'
+            '</circle>'
         )
         legend_rows.append(
             f'<div class="legend-row pie-seg" {click_attrs} '
@@ -351,7 +367,7 @@ def _line_chart_html(
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
 <div class="lc-wrap" style="position:relative;">
 {svg}
-<div class="lc-tip" role="status" style="display:none; position:absolute; pointer-events:none; z-index:5; padding:6px 10px; border-radius:8px; background:var(--surface); color:var(--ink); border:1px solid var(--border); box-shadow:var(--shadow-md); font-size:12px; line-height:1.35; white-space:nowrap;"></div>
+<div class="lc-tip nw-tip" role="status" style="display:none; min-width:0; white-space:nowrap;"></div>
 </div>
 {note_html}
 <script>
@@ -370,8 +386,8 @@ def _line_chart_html(
     var p = pts[best], k = r.width / vbw;
     cross.setAttribute('x1', p[0]); cross.setAttribute('x2', p[0]); cross.style.display = '';
     ring.setAttribute('cx', p[0]); ring.setAttribute('cy', p[1]); ring.style.display = '';
-    var delta = p[4] ? '<div style="color:var(--ink-muted);">' + (p[4].charAt(0) === '-' ? '' : '+') + p[4] + ' vs. previous day</div>' : '';
-    tip.innerHTML = '<div style="color:var(--ink-muted);">' + p[2] + '</div><div style="font-weight:650;">' + p[3] + '</div>' + delta;
+    var delta = p[4] ? '<div class="nw-tip-pct">' + (p[4].charAt(0) === '-' ? '' : '+') + p[4] + ' vs. previous day</div>' : '';
+    tip.innerHTML = '<div class="nw-tip-date">' + p[2] + '</div><div class="nw-tip-row"><span class="nw-swatch" style="background:{_LINE_CHART_COLOR};"></span><span class="nw-tip-val">' + p[3] + '</span></div>' + delta;
     tip.style.display = 'block';
     var w = tip.offsetWidth, x = p[0] * k + 12;
     if (x + w > r.width) x = p[0] * k - w - 12;
@@ -634,7 +650,7 @@ def _multi_line_chart_html(
     return f"""
 <div class="card mlc" style="flex:2 1 480px;" data-mlc-spec="{spec}">
 <h3 style="margin-top:0; font-size:13px;">{html.escape(title)} <span class="mlc-change" style="color:{change_color}; font-weight:600;">{html.escape(change_label)}</span></h3>
-<div class="mlc-plot" style="overflow-x:auto;">{svg}</div>
+<div class="mlc-plot">{svg}</div>
 {legend_html}
 {note_html}
 </div>
@@ -648,58 +664,133 @@ def _multi_line_chart_html(
 _MULTI_LINE_JS = """<script>
 (function () {
   if (window.__mlcReady) { return; } window.__mlcReady = true;
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var W = 960, H = 300, PL = 76, PR = 16, PT = 12, PB = 44, PW = W - PL - PR, PH = H - PT - PB, PBOT = PT + PH;
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function day(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
   function money(v) { var r = Math.round(v), t = Math.abs(r).toLocaleString('en-US'); return (r < 0 ? '-' : '') + '$' + t; }
-  function short(v) { var a = Math.abs(v), s = v < 0 ? '-' : ''; return a >= 1e6 ? s + '$' + (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? s + '$' + (a / 1e3).toFixed(0) + 'K' : s + '$' + a.toFixed(0); }
+  function axisMoney(v, step) {
+    var s = v < 0 ? '-' : '', m = Math.abs(v);
+    if (m >= 1e6) { return s + '$' + (m / 1e6).toFixed(step >= 5e5 ? 1 : 2) + 'M'; }
+    if (m >= 1e3) { return s + '$' + (m / 1e3).toFixed(step >= 500 ? 0 : 1) + 'K'; }
+    return s + '$' + m.toFixed(0);
+  }
+  function shortDate(iso, withYear) { var p = iso.split('-'); return MONTHS[+p[1] - 1] + ' ' + (+p[2]) + (withYear ? ', ' + p[0] : ''); }
+  function niceStep(raw) { var e = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * e; }
   function logTicks(lo, hi) {
     if (lo <= 0 || hi <= lo) { return []; }
-    var pats = [[1, 2, 5], [1, 5], [1]], out = [];
+    // The first step pattern giving 3-6 labelled values wins (finest
+    // first, so a narrow range still gets a few); otherwise whichever
+    // pattern gives the most values without passing six.
+    var pats = [[1, 2, 3, 4, 5, 6, 8], [1, 2, 5], [1, 5], [1]], best = [];
     for (var p = 0; p < pats.length; p++) {
-      out = [];
+      var out = [];
       for (var d = Math.floor(Math.log10(lo)); d <= Math.ceil(Math.log10(hi)); d++) {
         pats[p].forEach(function (m) { var t = m * Math.pow(10, d); if (t >= lo * 0.999 && t <= hi * 1.001) { out.push(t); } });
       }
-      if (out.length <= 6) { break; }
+      if (out.length >= 3 && out.length <= 6) { return out; }
+      if (out.length <= 6 && out.length > best.length) { best = out; }
     }
-    return out;
+    return best;
+  }
+  function setup(root) {
+    if (root._spec) { return; }
+    root._spec = JSON.parse(root.dataset.mlcSpec);
+    root._on = root._spec.series.map(function () { return true; });
+    var plot = root.querySelector('.mlc-plot');
+    plot.classList.add('nw-chart');
+    var tip = document.createElement('div'); tip.className = 'nw-tip'; tip.hidden = true; plot.appendChild(tip);
+    root._tip = tip;
+    plot.addEventListener('pointermove', function (ev) { hover(root, ev); });
+    plot.addEventListener('pointerleave', function () { unhover(root); });
+  }
+  function unhover(root) {
+    root._tip.hidden = true;
+    var g = root.querySelector('.mlc-guide'); if (g) { g.setAttribute('visibility', 'hidden'); }
+    var h = root.querySelector('.mlc-hl'); if (h) { h.innerHTML = ''; }
+  }
+  function hover(root, ev) {
+    var st = root._state, svg = root.querySelector('.mlc-svg'); if (!st || !svg) { return; }
+    var r = svg.getBoundingClientRect(), sx = (ev.clientX - r.left) / r.width * W;
+    if (sx < PL - 8 || sx > W - PR + 8) { unhover(root); return; }
+    var best = null, dist = Infinity;
+    st.days.forEach(function (d) { var k = Math.abs(st.xAt(d) - sx); if (k < dist) { dist = k; best = d; } });
+    if (best === null) { return; }
+    var rows = [];
+    st.vis.forEach(function (s) { s.pts.forEach(function (p) { if (day(p[2]) === best) { rows.push({s: s, p: p}); } }); });
+    rows.sort(function (a, b) { return b.p[1] - a.p[1]; });
+    var x = st.xAt(best), g = root.querySelector('.mlc-guide');
+    g.setAttribute('x1', x.toFixed(1)); g.setAttribute('x2', x.toFixed(1)); g.setAttribute('visibility', 'visible');
+    root.querySelector('.mlc-hl').innerHTML = rows.map(function (row) {
+      return '<circle cx="' + x.toFixed(1) + '" cy="' + st.yAt(row.p[1]).toFixed(1) + '" r="4.5" stroke-width="2" style="fill:' + row.s.color + '; stroke:var(--surface);"/>';
+    }).join('');
+    var tip = root._tip;
+    tip.innerHTML = '<div class="nw-tip-date">' + esc(rows.length ? shortDate(rows[0].p[2], true) : '') + '</div>' + rows.map(function (row) {
+      return '<div class="nw-tip-row"><span class="nw-swatch" style="background:' + row.s.color + ';"></span><span class="nw-tip-name">' + esc(row.s.name) +
+        '</span><span class="nw-tip-val">' + money(row.p[1]) + '</span></div>';
+    }).join('');
+    tip.hidden = false;
+    var px = x / W * r.width, w = tip.offsetWidth, left = px + 14;
+    if (left + w > r.width) { left = Math.max(0, px - w - 14); }
+    tip.style.left = left + 'px'; tip.style.top = '8px';
   }
   function draw(root) {
+    setup(root);
     var spec = root._spec, on = root._on, vis = spec.series.filter(function (_s, i) { return on[i]; });
-    var W = spec.w, H = spec.h, pl = spec.pl, pr = spec.pr, pt = spec.pt, pb = spec.pb, pw = W - pl - pr, ph = H - pt - pb, n = spec.dates.length;
-    var svg = root.querySelector('.mlc-svg');
-    var chip = root.querySelectorAll('.mlc-chip'); chip.forEach(function (c) { c.setAttribute('aria-pressed', on[+c.dataset.i] ? 'true' : 'false'); });
-    var ch = root.querySelector('.mlc-change');
+    var holder = root.querySelector('.mlc-svg-holder') || (function () {
+      var old = root.querySelector('.mlc-svg'), h = document.createElement('div'); h.className = 'mlc-svg-holder';
+      old.parentNode.insertBefore(h, old); old.parentNode.removeChild(old); return h; })();
+    root.querySelectorAll('.mlc-chip').forEach(function (c) { c.setAttribute('aria-pressed', on[+c.dataset.i] ? 'true' : 'false'); });
+    var ch = root.querySelector('.mlc-change'), label = 'Balance history chart';
     if (!vis.length) {
-      svg.innerHTML = '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle" font-size="12" style="fill:var(--ink-muted,#777);">No lines selected. Click a name below, or All.</text>';
-      ch.textContent = ''; return;
+      holder.innerHTML = '<svg class="mlc-svg" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:auto; display:block;"><text x="' + W / 2 + '" y="' + H / 2 +
+        '" text-anchor="middle" font-size="14" style="fill:var(--ink-muted,#777);">No lines selected. Click a name below, or All.</text></svg>';
+      root._state = null; ch.textContent = ''; return;
     }
     var vals = []; vis.forEach(function (s) { s.pts.forEach(function (p) { vals.push(p[1]); }); });
-    var lo, hi, yAt, grid = '', zero = '';
+    var lo, hi, yAt, ticks = [], stepHint = 1;
     if (spec.log) {
       var pos = vals.filter(function (v) { return v > 0; }); lo = pos.length ? Math.min.apply(null, pos) : 1; hi = Math.max.apply(null, vals);
       if (hi <= lo) { hi = lo * 10; }
       var l0 = Math.log10(lo), l1 = Math.log10(hi);
-      yAt = function (v) { return pt + (1 - (Math.log10(v > 0 ? v : lo) - l0) / (l1 - l0)) * ph; };
-      logTicks(lo, hi).forEach(function (t) { var y = yAt(t);
-        grid += '<line x1="' + pl + '" y1="' + y.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + y.toFixed(1) + '" style="stroke:var(--border,#e5e2db);" stroke-width="1"/>' +
-          '<text x="' + (pl + 2) + '" y="' + (y - 2).toFixed(1) + '" font-size="9" style="fill:var(--ink-muted,#777);">' + short(t) + '</text>'; });
+      yAt = function (v) { return PT + (1 - (Math.log10(v > 0 ? v : lo) - l0) / (l1 - l0)) * PH; };
+      ticks = logTicks(lo, hi); stepHint = 1e9;
     } else {
       lo = Math.min(0, Math.min.apply(null, vals)); hi = Math.max.apply(null, vals);
       if (hi - lo <= 0) { hi = lo + Math.max(Math.abs(lo) * 0.1, 1); }
-      yAt = function (v) { return pt + (1 - (v - lo) / (hi - lo)) * ph; };
-      if (lo < 0 && hi > 0) { var zy = yAt(0); zero = '<line x1="' + pl + '" y1="' + zy.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + zy.toFixed(1) + '" style="stroke:var(--border,#e5e2db);" stroke-width="1" stroke-dasharray="3 3"/>'; }
+      var step = niceStep((hi - lo) / 4); stepHint = step;
+      for (var t = Math.ceil(lo / step) * step; t <= hi + step * 0.001; t += step) { ticks.push(t); }
+      yAt = function (v) { return PT + (1 - (v - lo) / (hi - lo)) * PH; };
     }
-    var xAt = function (i) { return pl + (i / (n - 1)) * pw; }, lines = '', dots = '', labels = '';
+    var dayset = {}; vis.forEach(function (s) { s.pts.forEach(function (p) { dayset[day(p[2])] = true; }); });
+    var days = Object.keys(dayset).map(Number).sort(function (a, b) { return a - b; }), d0 = days[0], d1 = days[days.length - 1];
+    var xAt = function (d) { return d1 === d0 ? PL + PW / 2 : PL + (d - d0) / (d1 - d0) * PW; };
+    var years = new Date(d1 * 86400000).getUTCFullYear() !== new Date(d0 * 86400000).getUTCFullYear();
+    var svg = '';
+    ticks.forEach(function (t) { var y = yAt(t).toFixed(1);
+      svg += '<line x1="' + PL + '" y1="' + y + '" x2="' + (W - PR) + '" y2="' + y + '" style="stroke:var(--border,#e5e2db);" stroke-width="1"/>' +
+        '<text x="' + (PL - 8) + '" y="' + (+y + 4) + '" font-size="11" text-anchor="end" style="fill:var(--ink-muted,#777);">' + axisMoney(t, stepHint) + '</text>'; });
+    if (!spec.log && lo < 0 && hi > 0) { var zy = yAt(0).toFixed(1); svg += '<line x1="' + PL + '" y1="' + zy + '" x2="' + (W - PR) + '" y2="' + zy + '" style="stroke:var(--ink-muted);" stroke-width="1" stroke-dasharray="3 3"/>'; }
+    svg += '<text transform="translate(12 ' + (PT + PH / 2).toFixed(1) + ') rotate(-90)" font-size="10" text-anchor="middle" style="fill:var(--ink-muted,#777);">Balance' + (spec.log ? ' (log scale)' : '') + '</text>' +
+      '<text x="' + (PL + PW / 2).toFixed(1) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-muted,#777);">Date</text>' +
+      '<line x1="' + PL + '" y1="' + PBOT + '" x2="' + (W - PR) + '" y2="' + PBOT + '" style="stroke:var(--ink-muted,#777);" stroke-width="1"/>' +
+      '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + PBOT + '" style="stroke:var(--ink-muted,#777);" stroke-width="1"/>';
+    var nt = Math.min(6, days.length), seen = {};
+    for (var k = 0; k < nt; k++) {
+      var dd = days[Math.round(k * (days.length - 1) / Math.max(1, nt - 1))]; if (seen[dd]) { continue; } seen[dd] = true;
+      var iso = new Date(dd * 86400000).toISOString().slice(0, 10), xx = xAt(dd).toFixed(1);
+      svg += '<line x1="' + xx + '" y1="' + PBOT + '" x2="' + xx + '" y2="' + (PBOT + 4) + '" style="stroke:var(--ink-muted,#777);" stroke-width="1"/>' +
+        '<text x="' + xx + '" y="' + (PBOT + 18) + '" font-size="11" text-anchor="' + (k === 0 ? 'start' : k === nt - 1 ? 'end' : 'middle') + '" style="fill:var(--ink-muted,#777);">' + esc(shortDate(iso, years)) + '</text>';
+    }
     vis.forEach(function (s) {
       var d = '', prev = null;
-      s.pts.forEach(function (p) { var x = xAt(p[0]).toFixed(1), y = yAt(p[1]).toFixed(1); d += (prev === null || p[0] !== prev + 1 ? ' M ' : ' L ') + x + ' ' + y; prev = p[0]; });
-      lines += '<path d="' + d.trim() + '" fill="none" style="stroke:' + s.color + ';" stroke-width="' + s.sw + '" stroke-linejoin="round" stroke-linecap="round"/>';
-      s.pts.forEach(function (p) { dots += '<circle cx="' + xAt(p[0]).toFixed(1) + '" cy="' + yAt(p[1]).toFixed(1) + '" r="' + s.r + '" style="fill:' + s.color + ';"><title>' + esc(s.name) + ' -- ' + esc(p[2]) + ': ' + money(p[1]) + '</title></circle>'; });
-      if (vis.length <= 4) { var q = s.pts[s.pts.length - 1]; labels += '<text x="' + (xAt(q[0]) - 6).toFixed(1) + '" y="' + (yAt(q[1]) - 7).toFixed(1) + '" font-size="9" text-anchor="end" style="fill:' + s.color + ';">' + esc(s.name) + '</text>'; }
+      s.pts.forEach(function (p) { var x = xAt(day(p[2])).toFixed(1), y = yAt(p[1]).toFixed(1); d += (prev === null || p[0] !== prev + 1 ? ' M ' : ' L ') + x + ' ' + y; prev = p[0]; });
+      svg += '<path d="' + d.trim() + '" fill="none" style="stroke:' + s.color + ';" stroke-width="' + s.sw + '" stroke-linejoin="round" stroke-linecap="round"/>';
+      if (s.pts.length <= 45) { s.pts.forEach(function (p) { svg += '<circle cx="' + xAt(day(p[2])).toFixed(1) + '" cy="' + yAt(p[1]).toFixed(1) + '" r="2.5" style="fill:' + s.color + ';"/>'; }); }
     });
-    var xl = '<text x="' + pl + '" y="' + (H - 6) + '" font-size="10" style="fill:var(--ink-muted,#777);">' + esc(spec.dates[0]) + '</text>' +
-      '<text x="' + (W - pr) + '" y="' + (H - 6) + '" font-size="10" text-anchor="end" style="fill:var(--ink-muted,#777);">' + esc(spec.dates[n - 1]) + '</text>';
-    svg.innerHTML = grid + zero + lines + dots + labels + xl;
+    svg += '<line class="mlc-guide" x1="0" y1="' + PT + '" x2="0" y2="' + PBOT + '" visibility="hidden" style="stroke:var(--ink-muted);" stroke-width="1" stroke-dasharray="2 3"/><g class="mlc-hl"></g>';
+    holder.innerHTML = '<svg class="mlc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + label + '" style="width:100%; height:auto; display:block;" font-family="-apple-system, sans-serif">' + svg + '</svg>';
+    root._state = {vis: vis, days: days, xAt: xAt, yAt: yAt};
     var head = vis.filter(function (s) { return s.emph; })[0] || vis[0], a = head.pts[0], b = head.pts[head.pts.length - 1], chg = b[1] - a[1];
     ch.style.color = chg >= 0 ? '#1baf7a' : '#c94a4a';
     ch.textContent = (chg >= 0 ? '+' : '') + money(chg) + (a[1] ? ' (' + (chg >= 0 ? '+' : '') + (chg / Math.abs(a[1]) * 100).toFixed(1) + '%)' : '') + ' since ' + a[2];
@@ -707,7 +798,7 @@ _MULTI_LINE_JS = """<script>
   document.addEventListener('click', function (ev) {
     var root = ev.target.closest && ev.target.closest('.mlc'); if (!root) { return; }
     var btn = ev.target.closest('[data-mlc], .mlc-chip'); if (!btn) { return; }
-    if (!root._spec) { root._spec = JSON.parse(root.dataset.mlcSpec); root._on = root._spec.series.map(function () { return true; }); }
+    setup(root);
     var on = root._on, act = btn.dataset.mlc;
     if (act === 'all') { root._on = on = on.map(function () { return true; }); }
     else if (act === 'none') { root._on = on = on.map(function () { return false; }); }
@@ -715,6 +806,8 @@ _MULTI_LINE_JS = """<script>
     else { on[+btn.dataset.i] = !on[+btn.dataset.i]; }
     draw(root);
   });
+  function start() { document.querySelectorAll('.mlc').forEach(draw); }   // draw with axes straight away
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start); } else { start(); }
 })();
 </script>"""
 
@@ -757,8 +850,8 @@ def _bar_chart_html(title: str, slices: list[tuple[str, float, list[str]]], *, d
         rows.append(
             f'<div class="bar-row pie-seg" {click_attrs}>'
             f'<span class="bar-label" title="{html.escape(label)}">{html.escape(label)}</span>'
-            f'<span class="bar-track"><span class="bar-fill" style="width:{width_pct:.1f}%; background:{color};" '
-            f'title="{html.escape(label)}: {html.escape(_money(value))} ({pct:.0f}%) -- click to filter the list below"></span></span>'
+            f'<span class="bar-track" {_tip_attrs(label, f"{_money(value)} ({pct:.0f}%)", color)}>'
+            f'<span class="bar-fill" style="width:{width_pct:.1f}%; background:{color};"></span></span>'
             f'<span class="bar-value">{html.escape(_money_short(value))} ({pct:.0f}%)</span>'
             f'</div>'
         )

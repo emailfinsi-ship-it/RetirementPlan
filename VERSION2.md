@@ -113,3 +113,8 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
 - `scripts/auto_push.sh` / `scripts/install_auto_push.sh`: optional background push of the three branches to GitHub.
 
 - Investment balance chart: All / None / Total only buttons and click-a-name to show or hide lines; scale re-fits.
+
+**Graphs follow one standard.** The donut and bar charts show the same instant styled hover box as the Net Worth chart
+(name, amount, percent), the Investment balance chart and the Monte Carlo chart have labelled axes (the Investment
+chart also has dollar and date ticks, a guide line and a hover box listing every visible line), and the trend line
+and Monte Carlo hover boxes were restyled to match. One shared handler (`data-ctip` attributes) draws them.
