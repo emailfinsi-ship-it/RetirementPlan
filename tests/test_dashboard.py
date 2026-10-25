@@ -4191,6 +4191,25 @@ class TestLinkedAccountsInvestmentHistoryChart(DashboardTestCase):
         self.assertIn("Investment balance over time", body)
         self.assertIn("no data yet", body)
 
+    def test_lines_can_be_picked_with_all_none_and_total_only(self):
+        db.upsert_plaid_account(item_key="fidelity", account={
+            "account_id": "acc-ira", "name": "Fidelity IRA", "official_name": "Fidelity IRA",
+            "type": "investment", "subtype": "ira", "mask": "9999",
+            "balances": {"current": 500.0, "available": None, "iso_currency_code": "USD"},
+        })
+        for acct, a, b in (("acc-brokerage", 500_000.0, 520_000.0), ("acc-ira", 500.0, 600.0)):
+            db.record_account_balance_snapshot(account_id=acct, balance=a, snapshot_date="2026-09-01")
+            db.record_account_balance_snapshot(account_id=acct, balance=b, snapshot_date="2026-09-15")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        section = body.split("Investment balance history")[1].split('id="accounts-filter-bar"')[0]
+        self.assertIn('data-mlc="all"', section)
+        self.assertIn('data-mlc="none"', section)
+        self.assertIn('data-mlc="total"', section)
+        self.assertEqual(section.count('class="nw-chip mlc-chip"'), 3)        # two accounts and the Total
+        self.assertIn("data-mlc-spec=", section)                              # the data the page redraws from
+        self.assertIn("Click a name to show or hide that line", section)
+        self.assertIn("<svg", section)                                        # and the full chart is still drawn up front
+
     def test_section_is_collapsed_by_default(self):
         # A plain <details> with no `open` attribute, matching the rest
         # of the program's collapsed-by-default disclosure sections --
@@ -4919,6 +4938,62 @@ class TestSetupPageEnableTransactionsButton(DashboardTestCase):
         )
         body = self._get("/setup.html").read().decode("utf-8")
         self.assertNotIn("enableTransactionsForItem('has_transactions')", body)
+
+
+class TestFullAccountNumbers(DashboardTestCase):
+    """Full account numbers: the Setup button that asks Plaid for Auth, and the Accounts-page note."""
+
+    def tearDown(self):
+        db.delete_plaid_item("bank_item")
+        db.delete_plaid_item("invest_item")
+        secrets_store.clear_vault_cache()
+        self.fake_keyring._store.clear()
+
+    def _link(self, item_key, products, accounts):
+        db.upsert_plaid_item(
+            item_key=item_key, plaid_item_id=f"id-{item_key}", institution_id="ins", institution_name="Test Bank",
+            products=products, environment="sandbox", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        for acct_id, kind, subtype in accounts:
+            db.upsert_plaid_account(item_key=item_key, account={
+                "account_id": acct_id, "name": acct_id, "type": kind, "subtype": subtype, "mask": "1234",
+                "balances": {"current": 100.0, "available": 100.0, "iso_currency_code": "USD"}})
+
+    def test_endpoint_asks_for_auth_and_reports_errors(self):
+        with patch("source.webapp.dashboard.plaid_link_item.enable_auth_for_item") as enable:
+            status, payload = self._post("/api/plaid-connect-auth", {"item_key": "bank_item"})
+        self.assertEqual((status, payload["ok"]), (200, True))
+        enable.assert_called_once_with("bank_item")
+        self.assertEqual(self._post("/api/plaid-connect-auth", {})[0], 400)
+        with patch("source.webapp.dashboard.plaid_link_item.enable_auth_for_item", side_effect=TimeoutError("Timed out")):
+            status, payload = self._post("/api/plaid-connect-auth", {"item_key": "bank_item"})
+        self.assertEqual(status, 500)
+
+    def test_setup_offers_the_button_only_for_a_bank_with_deposit_accounts_and_no_auth_yet(self):
+        self._link("bank_item", ["transactions"], [("chk1", "depository", "checking")])
+        self._link("invest_item", ["investments"], [("brk1", "investment", "brokerage")])
+        body = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn("enableAuthForItem('bank_item')", body)
+        self.assertNotIn("enableAuthForItem('invest_item')", body)           # Plaid has no full numbers for investments
+        db.upsert_plaid_item(
+            item_key="bank_item", plaid_item_id="id-bank_item", institution_id="ins", institution_name="Test Bank",
+            products=["transactions", "auth"], environment="sandbox", linked_at="2026-09-01T00:00:00+00:00")
+        self.assertNotIn("enableAuthForItem('bank_item')", self._get("/setup.html").read().decode("utf-8"))
+
+    def test_accounts_page_explains_which_accounts_show_four_digits_and_why(self):
+        self._link("bank_item", ["transactions"], [("chk1", "depository", "checking")])
+        self._link("invest_item", ["investments"], [("brk1", "investment", "brokerage")])
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn("1 checking, savings or cash account show only the last four digits", body)
+        self.assertIn("Enable full account numbers", body)
+        self.assertIn("Plaid does not provide full numbers for them", body)
+
+    def test_a_full_number_is_shown_and_the_note_drops_away(self):
+        self._link("bank_item", ["transactions", "auth"], [("chk1", "depository", "checking")])
+        db.set_plaid_account_numbers("chk1", account_number="000123456789", routing_number="110000000")
+        body = self._get("/linked-accounts.html").read().decode("utf-8")
+        self.assertIn("000123456789", body)
+        self.assertNotIn("show only the last four digits", body)
 
 
 class TestAssetPageNetWorthHistory(DashboardTestCase):

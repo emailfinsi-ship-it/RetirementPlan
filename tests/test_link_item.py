@@ -167,5 +167,40 @@ class TestEnableTransactionsForItem(PlaidVaultTestCase):
         self.assertEqual(db.get_plaid_item("second_app_item")["credential_profile"], "secondary")
 
 
+class TestEnableAuthForItem(PlaidVaultTestCase):
+    """Same update-mode flow as Transactions, asking for Plaid's Auth product (full account numbers)."""
+
+    def _seed_item(self, item_key="fidelity_401k", *, products=("investments",)):
+        db.upsert_plaid_item(
+            item_key=item_key, plaid_item_id=f"item-{item_key}", institution_id="ins_1",
+            institution_name="Fidelity", products=list(products), environment="sandbox",
+            credential_profile="primary", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        secrets_store.set_item_access_token(item_key, "access-token-abc")
+
+    def test_adds_auth_and_asks_plaid_for_auth_only(self):
+        self._seed_item(products=("investments", "transactions"))
+        client = MagicMock()
+        client.link_token_create.return_value = {"link_token": "update-link-token-abc"}
+        fake_result = link_item._LinkResult()
+        fake_result.public_token = "public-token-abc"
+        with patch("source.collector.link_item.build_client", return_value=client), \
+             patch("source.collector.link_item._run_local_link", return_value=fake_result):
+            link_item.enable_auth_for_item("fidelity_401k")
+        request = client.link_token_create.call_args.args[0]
+        self.assertEqual([str(p) for p in request.additional_consented_products], ["auth"])
+        self.assertEqual(set(db.get_plaid_item("fidelity_401k")["products"].split(",")), {"investments", "transactions", "auth"})
+
+    def test_a_link_timeout_leaves_products_unchanged_for_auth(self):
+        self._seed_item(products=("transactions",))
+        client = MagicMock()
+        client.link_token_create.return_value = {"link_token": "t"}
+        with patch("source.collector.link_item.build_client", return_value=client), \
+             patch("source.collector.link_item._run_local_link", side_effect=TimeoutError("timed out")):
+            with self.assertRaises(TimeoutError):
+                link_item.enable_auth_for_item("fidelity_401k")
+        self.assertEqual(db.get_plaid_item("fidelity_401k")["products"], "transactions")
+
+
 if __name__ == "__main__":
     unittest.main()

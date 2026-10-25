@@ -1253,6 +1253,17 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Item key is required.")
                 plaid_link_item.enable_transactions_for_item(item_key)
                 self._send_json({"ok": True})
+            elif path == "/api/plaid-connect-auth":
+                # Backs the Setup page's per-Item "Enable full account numbers"
+                # button: the same one-time Plaid update-mode Link as Enable
+                # Transactions, asking for the Auth product so a sync can
+                # store the real account / routing numbers of that bank's
+                # checking, savings and cash accounts.
+                item_key = (payload.get("item_key") or "").strip()
+                if not item_key:
+                    raise ValueError("Item key is required.")
+                plaid_link_item.enable_auth_for_item(item_key)
+                self._send_json({"ok": True})
             elif path == "/api/classify-transaction-category":
                 # Backs the Actual Spending page's multi-select "Set
                 # category"/"Reset category" bar -- same tolerant-per-item

@@ -1205,6 +1205,15 @@ function enableTransactionsForItem(itemKey) {{
     .then(function() {{ location.reload(); }})
     .catch(function(err) {{ alert(err.message); btn.disabled = false; btn.textContent = 'Enable Transactions'; }});
 }}
+function enableAuthForItem(itemKey) {{
+  if (!confirm('This opens Plaid Link in a new browser tab so you can allow ' + itemKey + ' to share its full account and routing numbers (checking, savings and cash accounts only). After it finishes, press Sync now. Continue?')) return;
+  var btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Waiting for Plaid Link in the new tab...';
+  postJSON('/api/plaid-connect-auth', {{item_key: itemKey}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(err) {{ alert(err.message); btn.disabled = false; btn.textContent = 'Enable full account numbers'; }});
+}}
 // One consolidated "+ Add" entry point (see the fab button + modal above)
 // for every kind of line item -- Asset/Liability/Expense/Income/Real
 // estate -- instead of a separate add-form duplicated on each tab. All

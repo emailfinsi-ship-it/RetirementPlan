@@ -106,3 +106,10 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
 
 - Order forms (practice and live) show the symbol's current price, change, bid and ask with Market / Limit-at-price /
   bid / ask buttons that fill in the order type and limit price.
+
+- Accounts page explains why some accounts show only four digits; Setup gains **Enable full account numbers** (Plaid
+  Auth) for banks with checking, savings or cash accounts.
+
+- `scripts/auto_push.sh` / `scripts/install_auto_push.sh`: optional background push of the three branches to GitHub.
+
+- Investment balance chart: All / None / Total only buttons and click-a-name to show or hide lines; scale re-fits.

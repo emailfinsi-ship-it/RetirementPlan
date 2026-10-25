@@ -120,6 +120,7 @@ def read_linked_account_balances() -> list:
             # item's Asset/Liability kind correctly without re-deriving
             # this from the display string.
             "is_liability": _is_liability_type(a["type"]),
+            "plaid_type": a["type"] or "",
         })
     return result
 
