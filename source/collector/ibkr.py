@@ -34,6 +34,14 @@ _NAME = "Interactive Brokers"
 
 book = bc.PreviewBook()
 
+# Ports a Client Portal Gateway is commonly set to listen on (its own default is 5000, but macOS uses 5000 for AirPlay,
+# so many people change it). Tried only on this computer, only when the saved address does not answer.
+COMMON_PORTS = (5000, 5001, 5500, 5555, 8888, 8443)
+
+
+class GatewayDown(BrokerError):
+    """Nothing answered at the gateway address (not started, wrong port, or blocked)."""
+
 
 def clean_gateway_url(value) -> str:
     """The gateway address, only if it points at this computer."""
@@ -83,7 +91,7 @@ class Gateway:
                 raise BrokerError("IBKR's gateway is not signed in. Open the gateway address in your browser and sign in, then try again.") from exc
             raise BrokerError(f"IBKR returned an error (HTTP {exc.code}). {detail}".strip()) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise BrokerError("Couldn't reach the IBKR gateway on this computer. Start the Client Portal Gateway and sign in to it first.") from exc
+            raise GatewayDown("Couldn't reach the IBKR gateway on this computer. Start the Client Portal Gateway and sign in to it first.") from exc
         if not raw.strip():
             return None
         try:
@@ -111,10 +119,29 @@ def status(gw: Gateway) -> dict:
     try:
         raw = gw.call("GET", "/iserver/auth/status")
     except BrokerError as exc:
-        return {"connected": False, "message": str(exc)}
+        return {"connected": False, "message": str(exc), "down": isinstance(exc, GatewayDown)}
     if isinstance(raw, dict) and raw.get("authenticated"):
-        return {"connected": True, "message": "Connected to the IBKR gateway."}
-    return {"connected": False, "message": "The IBKR gateway is running but not signed in. Open its address in your browser and sign in."}
+        return {"connected": True, "message": "Connected to the IBKR gateway.", "down": False}
+    return {"connected": False, "down": False,
+            "message": "The IBKR gateway is running but not signed in. Open its address in your browser and sign in."}
+
+
+def find_gateway(skip: str = "", *, opener=None, ports=COMMON_PORTS) -> str | None:
+    """The address of a gateway that answers on this computer at one of the usual ports, or None."""
+    skip = clean_gateway_url(skip) if skip else ""
+    for port in ports:
+        url = f"https://localhost:{port}"
+        if url == skip:
+            continue
+        try:
+            raw = Gateway(url, opener=opener, timeout=1.5).call("GET", "/iserver/auth/status")
+        except GatewayDown:
+            continue
+        except BrokerError:
+            return url              # something answered with an error (for example "not signed in"): it is the gateway
+        if isinstance(raw, dict) and "authenticated" in raw:
+            return url
+    return None
 
 
 def list_accounts(gw: Gateway) -> list[dict]:

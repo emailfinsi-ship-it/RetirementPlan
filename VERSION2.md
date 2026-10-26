@@ -120,3 +120,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Stock Analysis: the Watchlist and Earnings cards start collapsed (click the title to expand) and show a short count.
 
 - IBKR and E*TRADE trading tabs (real money, preview-then-confirm, shared limits and audit log), Trade button menu on the quote card, Rating and hover analysis beside each position, Practice Account tab hidden. See VERSION3.md items 35-37 for the details.
+
+- IBKR tab finds the gateway on its usual alternative ports and remembers the one that answers.

@@ -108,6 +108,16 @@ def _data(payload: dict) -> dict:
         out["gateway_url"] = gateway_url()
         gw = _gateway()
         st = ibkr.status(gw)
+        if st.get("down"):
+            # The saved address does not answer. People often run the gateway on another port (macOS uses 5000
+            # for AirPlay), so look for it on this computer's usual ports and remember the one that answers.
+            found = ibkr.find_gateway(out["gateway_url"], opener=OPENERS["ibkr"])
+            if found:
+                set_meta(_GATEWAY_META, found)
+                out["gateway_url"] = found
+                gw = ibkr.Gateway(found, opener=OPENERS["ibkr"])
+                st = ibkr.status(gw)
+                out["found_note"] = f"Found the IBKR gateway at {found} and saved that address."
         out["connected"], out["message"] = st["connected"], st["message"]
         client = gw
     else:
