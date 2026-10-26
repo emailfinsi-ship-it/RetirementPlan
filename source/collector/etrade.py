@@ -252,12 +252,14 @@ def _day(ms) -> str:
         return ""
 
 
-def lots(c: Client, account: str) -> list[dict]:
-    """Every tax lot of every stock position in the account: when it was bought, how many shares remain, the price paid
-    per share, the total cost basis, today's value and the gain, and whether it is short or long term."""
+def lots(c: Client, account: str, symbol: str | None = None) -> list[dict]:
+    """Every tax lot of every stock position in the account (or just one symbol's): when it was bought, how many shares
+    remain, the price paid per share, the total cost basis, today's value, the gain (today's and total), and whether it is
+    short or long term."""
     out = []
+    want = str(symbol or "").strip().upper()
     for pos in positions(c, account):
-        if not pos.get("position_id"):
+        if not pos.get("position_id") or (want and pos["symbol"] != want):
             continue
         data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/portfolio/{urllib.parse.quote(pos['position_id'])}")
         for lot in _as_list((data.get("PositionLotsResponse") or {}).get("PositionLot")):
@@ -267,6 +269,8 @@ def lots(c: Client, account: str) -> list[dict]:
             term = str(lot.get("termCode") or "").upper()
             out.append({"symbol": pos["symbol"], "acquired": _day(lot.get("acquiredDate")), "qty": qty, "cost_per_share": price,
                         "cost_basis": cost, "market_value": _f(lot.get("marketValue")), "gain": _f(lot.get("totalGain")),
+                        "gain_pct": _first(lot.get("totalGainPct"), (_f(lot.get("totalGain")) / cost * 100) if (cost and _f(lot.get("totalGain")) is not None) else None),
+                        "day_gain": _f(lot.get("daysGain")), "day_gain_pct": _f(lot.get("daysGainPct")),
                         "term": "long" if term in ("LONG", "LONG_TERM", "2") or "LONG" in term else "short" if term else ""})
     return sorted(out, key=lambda r: (r["symbol"], r["acquired"]))
 

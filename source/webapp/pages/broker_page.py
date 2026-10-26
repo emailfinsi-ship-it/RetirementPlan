@@ -26,6 +26,9 @@ _CSS = """
 .bk-step { margin:6px 0; }
 .bk-warn { border:1px solid var(--warn); border-radius:10px; padding:8px 10px; margin:8px 0; }
 .bk-pos td, .bk-pos th { white-space:nowrap; }
+.bk-lot td { background:var(--surface-alt); font-size:13px; }
+.bk-lot td:first-child { border-left:3px solid var(--brand); }
+.lot-toggle { background:none; border:0; padding:2px 6px; font-size:15px; cursor:pointer; color:var(--brand); line-height:1; }
 .bk-pos th.sortable { cursor:pointer; user-select:none; }
 .bk-pos th.sortable:hover { text-decoration:underline; }
 """
@@ -80,21 +83,80 @@ _JS = r"""
       if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; }   // empty values always last
       return (col.str && typeof x === 'string' ? x.localeCompare(y) : (x < y ? -1 : x > y ? 1 : 0)) * SORT.dir;
     });
-    var head = COLS.map(function (c) {
+    var lotsOn = BROKER === 'etrade';
+    var head = (lotsOn ? '<th></th>' : '') + COLS.map(function (c) {
       var on = c.k === k;
       return '<th class="sortable' + ((c.str || c.left) ? '' : ' num') + '" data-sortkey="' + c.k + '" aria-sort="' + (on ? (SORT.dir > 0 ? 'ascending' : 'descending') : 'none') + '" title="Sort by ' + esc(c.t) + '">' + esc(c.t) + (on ? (SORT.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
     }).join('') + '<th></th>';
     return '<table class="bk-pos"><thead><tr>' + head + '</tr></thead><tbody>' + rows.map(function (p) {
+      var open = lotsOn && EXP[p.symbol];
       var buy = '<button type="button" data-act="buy" data-sym="' + esc(p.symbol) + '">Buy</button> ' +
         (p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
-      return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
+      var arrow = lotsOn ? '<td><button type="button" class="lot-toggle" data-act="toggle" data-sym="' + esc(p.symbol) + '" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + (open ? 'Hide' : 'Show') + ' the lots">' + (open ? '\u25be' : '\u25b8') + '</button></td>' : '';
+      return '<tr class="bk-parent">' + arrow + '<td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
         '<td class="num">' + mf(p.price, p.currency) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change, p.currency) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
         '<td class="num">' + num(p.qty) + '</td><td class="num">' + mf(p.avg_cost, p.currency) + '</td>' +
         '<td class="num ' + cl(p.day_gain) + '">' + sg(p.day_gain, p.currency) + '</td><td class="num ' + cl(p.day_gain_pct) + '">' + pc(p.day_gain_pct) + '</td>' +
         '<td class="num ' + cl(p.gain) + '">' + sg(p.gain, p.currency) + '</td><td class="num ' + cl(p.gain_pct) + '">' + pc(p.gain_pct) + '</td>' +
         '<td class="num">' + mf(p.market_value, p.currency) + '</td><td class="num">' + (p.pct_of_portfolio == null ? '--' : Number(p.pct_of_portfolio).toFixed(1) + '%') + '</td>' +
-        '<td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + buy + '</td></tr>';
+        '<td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + buy + '</td></tr>' + (open ? lotRows(p) : '');
     }).join('') + '</tbody></table>';
+  }
+  var EXP = {}, LOTBY = {};          // which stocks are expanded; the lots loaded for each
+  function dmy(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? m[2] + '/' + m[3] + '/' + m[1] : (iso || '--'); }
+  function lotRows(p) {
+    var got = LOTBY[p.symbol], span = COLS.length + 2;
+    if (got === 'loading' || got == null) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="muted">Loading lots\u2026</td></tr>'; }
+    if (got.error) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="status-warn">' + esc(got.error) + '</td></tr>'; }
+    if (!got.length) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="muted">No lot detail came back for this stock.</td></tr>'; }
+    return got.map(function (l) {
+      var sell = l.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(l.qty) + '" title="Fills the ticket with this lot\u2019s shares. E*TRADE sells according to the lot method set on your account.">Sell</button>' : '';
+      return '<tr class="bk-lot"><td></td><td>' + dmy(l.acquired) + (l.term ? ' <span class="muted small">' + esc(l.term) + '</span>' : '') + '</td>' +
+        '<td class="num">' + mf(p.price, p.currency) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
+        '<td class="num">' + num(l.qty) + '</td><td class="num">' + usd(l.cost_per_share, true) + '</td>' +
+        '<td class="num ' + cl(l.day_gain) + '">' + sg(l.day_gain) + '</td><td class="num ' + cl(l.day_gain_pct) + '">' + pc(l.day_gain_pct) + '</td>' +
+        '<td class="num ' + cl(l.gain) + '">' + sg(l.gain) + '</td><td class="num ' + cl(l.gain_pct) + '">' + pc(l.gain_pct) + '</td>' +
+        '<td class="num">' + usd(l.market_value, true) + '</td><td></td><td></td><td>' + sell + '</td></tr>';
+    }).join('');
+  }
+  function redraw() {
+    var wrap = $('bk-pos-wrap'); if (!wrap) { return; }
+    wrap.innerHTML = posTable();
+    if (window.applyRatings) { window.applyRatings(); }
+  }
+  function loadLots(sym) {
+    if (LOTBY[sym]) { return; }
+    LOTBY[sym] = 'loading';
+    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT, symbol: sym}).then(function (r) { LOTBY[sym] = r.lots; redraw(); })
+      .catch(function (e) { LOTBY[sym] = {error: e.message}; redraw(); });
+  }
+  function toggleLots(sym) {
+    if (EXP[sym]) { delete EXP[sym]; } else { EXP[sym] = true; loadLots(sym); }
+    redraw();
+  }
+  function expandAll() {
+    say('bk-lots-note', 'Loading every lot\u2026');
+    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT}).then(function (r) {
+      DATA.positions.forEach(function (p) { LOTBY[p.symbol] = []; EXP[p.symbol] = true; });
+      r.lots.forEach(function (l) { (LOTBY[l.symbol] = LOTBY[l.symbol] || []).push(l); });
+      say('bk-lots-note', ''); redraw();
+    }).catch(function (e) { say('bk-lots-note', e.message, true); });
+  }
+  var LOTS = null;
+  function downloadLots() {
+    say('bk-lots-note', 'Loading every lot in every account\u2026');
+    postJSON('/api/broker/lots', {broker: BROKER, scope: 'all'}).then(function (r) {
+      LOTS = r; say('bk-lots-note', '');
+      var nl = String.fromCharCode(10);
+      var rows = [['Account', 'Symbol', 'Bought', 'Shares', 'Cost per share', 'Cost basis', 'Value now', 'Gain', 'Term']].concat(r.lots.map(function (l) {
+        return [l.account, l.symbol, l.acquired, l.qty, l.cost_per_share, l.cost_basis, l.market_value, l.gain, l.term];
+      }));
+      var csv = rows.map(function (x) { return x.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join(nl);
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+      a.download = 'tax-lots-' + BROKER + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+      if (r.problems && r.problems.length) { say('bk-lots-note', r.problems.join(' '), true); }
+    }).catch(function (e) { say('bk-lots-note', e.message, true); });
   }
   function resort(key) {
     SORT = SORT.key === key ? {key: key, dir: -SORT.dir} : {key: key, dir: (COLS.filter(function (c) { return c.k === key; })[0] || {}).str ? 1 : -1};
@@ -131,6 +193,7 @@ _JS = r"""
 
   function render(d) {
     DATA = d; ACCOUNT = d.account || '';
+    LOTBY = {};
     var live = d.armed
       ? '<p class="status-line status-ok">Live trading is ON ' + (d.persistent ? 'until you turn it off' : 'until ' + new Date(d.armed_until * 1000).toLocaleTimeString()) + '. Limit per order ' + usd(d.per_order) + ', ' + usd(d.daily_remaining) + ' left today (shared with every broker).</p>' +
         '<p><button type="button" data-act="disarm">Turn live trading OFF now</button></p>'
@@ -161,7 +224,8 @@ _JS = r"""
     if (!d.positions.length) { h += '<p class="muted">No stock positions.</p>'; }
     else { h += '<div id="bk-pos-wrap" style="overflow-x:auto">' + posTable() + '</div>'; }
     if (BROKER === 'etrade' && d.positions.length) {
-      h += '<p><button type="button" data-act="lots">Show tax lots and cost basis</button> <span id="bk-lots-note" class="muted small"></span></p><div id="bk-lots"></div>';
+      h += '<p><button type="button" data-act="expandall">Expand all lots</button> <button type="button" data-act="collapseall">Collapse all</button> ' +
+        '<button type="button" data-act="lotscsv">Download every lot, all accounts (CSV)</button> <span id="bk-lots-note" class="muted small">Click the arrow beside a stock to see each purchase (lot) and its cost basis.</span></p>';
     }
     h += '<h3>Orders</h3>';
     if (!d.orders.length) { h += '<p class="muted">No recent orders.</p>'; }
@@ -173,6 +237,7 @@ _JS = r"""
         }).join('') + '</tbody></table></div>';
     }
     $('bk-data').innerHTML = h;
+    Object.keys(EXP).forEach(loadLots);          // stocks left expanded get their lots again after a refresh
     if (window.applyRatings) { window.applyRatings(); }
     $('bk-ticket-card').hidden = false;
     var sel = $('bk-acct'); if (sel) { sel.onchange = function () { load(sel.value); }; }
@@ -204,37 +269,6 @@ _JS = r"""
       '<div class="bk-warn">' + r.messages.map(esc).join('<br>') + '</div>' +
       '<p><button type="button" class="primary" style="background:#c94a4a;" data-act="ack">Send anyway</button> <button type="button" data-act="discard">Cancel this order</button></p></div>';
   }
-  var LOTS = null;
-  function showLots() {
-    say('bk-lots-note', 'Loading every lot in every account (one request per stock)\u2026');
-    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT}).then(function (r) {
-      LOTS = r; say('bk-lots-note', '');
-      var gl = function (g) { return g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true); };
-      var h = (r.problems || []).map(function (m) { return '<p class="status-line status-warn">' + esc(m) + '</p>'; }).join('') + '<h3>Tax lots, all accounts</h3><p class="muted small">Each row is one purchase. Cost basis is what you paid for those shares; gain is value now minus cost basis.</p>' +
-        '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Account</th><th>Symbol</th><th>Bought</th><th class="num">Shares</th><th class="num">Cost / share</th><th class="num">Cost basis</th><th class="num">Value now</th><th class="num">Gain / loss</th><th>Term</th></tr></thead><tbody>' +
-        r.lots.map(function (l) {
-          return '<tr><td>' + esc(l.account) + '</td><td><strong>' + esc(l.symbol) + '</strong></td><td>' + esc(l.acquired || '--') + '</td><td class="num">' + num(l.qty) + '</td><td class="num">' + usd(l.cost_per_share, true) + '</td><td class="num">' + usd(l.cost_basis, true) +
-            '</td><td class="num">' + usd(l.market_value, true) + '</td><td class="num ' + (l.gain == null ? '' : l.gain >= 0 ? 'qp-up' : 'qp-down') + '">' + gl(l.gain) + '</td><td>' + esc(l.term || '--') + '</td></tr>';
-        }).join('') +
-        r.by_account.map(function (a) {
-          return '<tr><td colspan="5">' + esc(a.account) + ' (' + a.lots + ' lots)</td><td class="num">' + usd(a.cost_basis, true) + '</td><td class="num">' + usd(a.market_value, true) + '</td><td class="num">' + gl(a.gain) + '</td><td></td></tr>';
-        }).join('') +
-        '<tr><td colspan="5"><strong>Total, all accounts</strong></td><td class="num"><strong>' + usd(r.total.cost_basis, true) + '</strong></td><td class="num"><strong>' + usd(r.total.market_value, true) + '</strong></td><td class="num"><strong>' + gl(r.total.gain) + '</strong></td><td></td></tr></tbody></table></div>' +
-        '<p><button type="button" data-act="lotscsv">Download as a spreadsheet (CSV)</button></p>';
-      $('bk-lots').innerHTML = h;
-    }).catch(function (e) { say('bk-lots-note', e.message, true); });
-  }
-  function downloadLots() {
-    if (!LOTS) { return; }
-    var nl = String.fromCharCode(10);
-    var rows = [['Account', 'Symbol', 'Bought', 'Shares', 'Cost per share', 'Cost basis', 'Value now', 'Gain', 'Term']].concat(LOTS.lots.map(function (l) {
-      return [l.account, l.symbol, l.acquired, l.qty, l.cost_per_share, l.cost_basis, l.market_value, l.gain, l.term];
-    }));
-    var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join(nl);
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-    a.download = 'tax-lots-' + BROKER + '.csv'; document.body.appendChild(a); a.click(); a.remove();
-  }
   function sent(r) {
     $('bk-preview').innerHTML = '<p class="status-line status-ok">Order sent: ' + esc(r.side) + ' ' + r.qty + ' ' + esc(r.symbol) + ' (' + esc(r.status) + '). Order id ' + esc(r.id) + '.</p>';
     LAST = null; load();
@@ -264,7 +298,9 @@ _JS = r"""
       postJSON('/api/broker/order', {broker: BROKER, account: ACCOUNT, token: LAST.token, confirm_symbol: LAST.order.symbol}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
     }
     else if (act === 'refresh') { load(); }
-    else if (act === 'lots') { showLots(); }
+    else if (act === 'toggle') { toggleLots(b.dataset.sym); }
+    else if (act === 'expandall') { expandAll(); }
+    else if (act === 'collapseall') { EXP = {}; redraw(); }
     else if (act === 'lotscsv') { downloadLots(); }
     else if (act === 'diagnose') {
       var box = $('bk-diag'); box.hidden = false; box.textContent = 'Checking\u2026';
