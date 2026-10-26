@@ -74,6 +74,15 @@ def build_week(*, today: date | None = None, weeks: int = WEEKS, **kw) -> dict:
 
 
 _CSS = """
+details.fold > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+details.fold > summary::-webkit-details-marker { display:none; }
+details.fold > summary h3 { margin:0; display:inline; }
+details.fold > summary::before { content:'\\25B8'; color:var(--ink-muted); font-size:14px; }
+details.fold[open] > summary::before { content:'\\25BE'; }
+details.fold > summary .fold-hint { color:var(--ink-muted); font-size:12px; }
+details.fold[open] > summary { margin-bottom:8px; }
+details.fold[open] > summary .fold-closed { display:none; }
+
 .ew-days { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin:10px 0 4px; }
 .ew-day { border:1px solid var(--border); border-radius:12px; padding:8px 10px; background:var(--surface-alt); min-height:64px; }
 .ew-day.today { border-color:var(--brand); }
@@ -126,11 +135,12 @@ _JS = """
     status('Checking earnings dates\\u2026');
     return postJSON('/api/earnings/week', {}).then(function (d) {
       draw(d);
+      document.getElementById('ew-count').textContent = d.items.length ? d.items.length + (d.items.length === 1 ? ' ticker reports' : ' tickers report') + ' in the next 2 weeks' : '';
       var big = d.items.filter(function (it) { return it.pct != null; }).sort(function (a, b) { return b.pct - a.pct; })[0];
       var line = d.items.length ? d.items.length + (d.items.length === 1 ? ' ticker reports ' : ' tickers report ') + span(d) + ' (' + pretty(d.start) + ' to ' + pretty(d.end) + ').' +
           (big ? ' Biggest holding: ' + big.symbol + ' (' + big.pct + '% of your stocks) on ' + pretty(big.date) + '.' : '')
         : d.checked ? 'None of your ' + d.checked + ' tickers report earnings ' + span(d) + ' (' + pretty(d.start) + ' to ' + pretty(d.end) + ').'
-        : 'Add tickers to your watchlist (or link an investment account) and the ones reporting soon show here.';
+        : 'Put stocks on your watchlist (or link an investment account) and the ones reporting soon show here.';
       if (d.left_out) { line += ' ' + d.left_out + ' of your smallest holdings were not checked.'; }
       if (d.pending > 0 && tries < 5) {
         tries += 1; status(line + ' Still checking ' + d.pending + ' more\\u2026');
@@ -153,13 +163,13 @@ _JS = """
 def earnings_week_card_html() -> str:
     return f"""
 <style>{_CSS}</style>
-<div class="card" id="earnings-week">
-<h3 style="margin-top:0;">Earnings this week and next</h3>
+<details class="card fold" id="earnings-week">
+<summary><h3>Earnings this week and next</h3><span class="fold-hint" id="ew-count"></span><span class="fold-hint fold-closed">click to expand</span></summary>
 <p class="muted">Stocks on your watchlist, and stocks you hold in your linked accounts, that report earnings this week or next. Your biggest holdings come first in each day, and the % is that stock's share of
 the stocks in your linked accounts (so a big one reporting is easy to spot). A report can move a price sharply either way, so it is worth knowing before you place an order. Funds and ETFs do not report earnings.</p>
 <p><button type="button" onclick="earningsWeekRefresh()">Refresh</button> <span id="ew-status" class="muted small"></span></p>
 <div id="ew-out"></div>
 <p class="muted small">Dates come from Yahoo Finance and can change; companies confirm them close to the day. Dates are cached and refreshed about twice a day.</p>
-</div>
+</details>
 {_JS}
 """
