@@ -683,6 +683,50 @@ class TestGatewayLauncher(BrokerApiCase):
         self.tmp.cleanup()
         super().tearDown()
 
+    def test_quitting_stops_a_gateway_left_behind_by_an_earlier_run_but_never_another_process(self):
+        import os
+        import subprocess
+        import time
+        from pathlib import Path
+        run = Path(self.tmp.name) / "datarun"
+        run.mkdir()
+        # a stand-in gateway: its command line names root/conf.yaml, like the real one, and it runs in its own session
+        fake = subprocess.Popen(["bash", "-c", "sleep 60; sleep 0", "bin/run.sh", "root/conf.yaml"], start_new_session=True)
+        other = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        try:
+            with patch.object(self.gw, "run_dir", return_value=run):
+                (run / "finsi-gateway.pid").write_text(str(other.pid))
+                self.assertFalse(self.gw.adopt_orphan())                        # not the gateway: left alone
+                (run / "finsi-gateway.pid").write_text(str(fake.pid))
+                self.assertTrue(self.gw.adopt_orphan())
+                self.assertTrue(self.gw.stop())
+                for _ in range(40):
+                    if fake.poll() is not None:
+                        break
+                    time.sleep(0.05)
+                self.assertIsNotNone(fake.poll())                              # it was stopped
+                self.assertIsNone(other.poll())                                # the unrelated process was not
+        finally:
+            for pr in (fake, other):
+                if pr.poll() is None:
+                    pr.kill()
+                pr.wait()
+            self.gw._orphan_pid = None
+
+    def test_start_writes_a_pid_file_so_a_later_run_can_find_the_gateway(self):
+        from pathlib import Path
+
+        class P:
+            pid = 4242
+
+            def poll(self):
+                return None
+        run = Path(self.tmp.name) / "datarun2"
+        with patch.object(self.gw, "run_dir", return_value=run):
+            run.mkdir()
+            self.gw.start(src=self.src, dest=self.dest, env={}, popen=lambda *a, **k: P())
+            self.assertEqual((run / "finsi-gateway.pid").read_text(), "4242")
+
     def test_prepare_copies_the_files_without_logs_or_cache_and_keeps_an_existing_copy(self):
         out = self.gw.prepare(self.src, self.dest)
         self.assertTrue((out / "bin" / "run.sh").is_file())
