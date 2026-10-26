@@ -269,3 +269,10 @@ are not touched.
 38. **IBKR gateway port is found for you.** If the saved gateway address does not answer, the IBKR tab tries the usual ports on this
     computer (5000, 5001, 5500, 5555, 8888, 8443) and, when one answers, saves it and says so. The connect card now shows the
     Terminal command to start the gateway and where its port is set (`listenPort` in `root/conf.yaml`). Code: `ibkr.find_gateway`.
+
+39. **IBKR gateway comes with the app, with Start / Sign in / Stop buttons.** IBKR's Client Portal Gateway files are kept in
+    `vendor/clientportal` (IBKR's own software, unchanged apart from `root/conf.yaml`: port 5500, because macOS keeps 5000 for AirPlay)
+    and are included in the Mac app by `scripts/build_mac_app.sh`. The IBKR tab's **Start gateway** button copies them once to the
+    app's data folder (so the app itself is never written to) and runs IBKR's own `bin/run.sh root/conf.yaml` there; **Sign in to IBKR**
+    opens the gateway's page; **Stop gateway** stops a gateway this app started. Only that one fixed command is ever run. Java is not
+    bundled: it must be installed on the Mac (the tab says so if it is not). Code: `collector/ibkr_gateway.py`.
