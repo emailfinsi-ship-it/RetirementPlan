@@ -191,3 +191,12 @@ are not touched.
     "Price not available right now" and the reason, instead of looking empty. The watchlist is also shown when no
     Alpaca keys are saved yet (the connect prompt sits above it). Code: `watchlist.stored_rows`, `/api/watchlist/data`
     returns `warning` instead of failing.
+
+27. **MACD crossover everywhere, and a prettier stock chart.** The *Quote and chart* card now says whether MACD is above
+    or below its signal line and when it last crossed (bullish = up through, bearish = down through), the watchlist has
+    a **MACD** column (a crossover from the last 5 trading days is highlighted, otherwise "Above / Below signal"; click
+    the heading to sort), and the chart gained a **MACD panel** (histogram, MACD line, signal line, green up / red down
+    triangles at each crossover). The chart itself was restyled: soft rounded panels, dotted gridlines, a price tag with
+    the latest close on the right axis, red / green tinted overbought / oversold zones on RSI, smoother candles, and an
+    instant floating hover box with open / high / low / close, volume, averages, RSI and MACD for the day under the
+    pointer. Code: `technicals.macd_status`, `quote_chart.chart_html` / `macd_crosses`.

@@ -35,6 +35,7 @@ _PANEL_CSS = """
 .qp-sig li:first-child { border-top:0; }
 .qp-sig b { flex:0 0 16px; text-align:center; }
 .qp-read { min-height:20px; font-size:12px; color:var(--ink-muted); margin:4px 0; font-variant-numeric:tabular-nums; }
+.qp-macd { margin:2px 0 8px; font-size:13px; }
 .qp-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .qp-cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:4px 28px; }
 """
@@ -78,6 +79,12 @@ _PANEL_JS = """
     return '<a href="/trading-live.html?symbol=' + encodeURIComponent(sym) + '" class="pill-link" title="Opens the live account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.">' +
       '<button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
   }
+  function macdText(m) {
+    if (!m || !m.state) { return '<span class="muted">Not enough history</span>'; }
+    var ago = m.bars_ago == null ? '' : (m.bars_ago === 0 ? 'today' : m.bars_ago === 1 ? 'yesterday' : m.bars_ago + ' trading days ago');
+    var cross = !m.cross ? 'No crossover yet' : (m.cross === 'bullish' ? '<span class="qp-up">\\u25B2 Bullish crossover</span>' : '<span class="qp-down">\\u25BC Bearish crossover</span>') + ' ' + ago;
+    return cross + ' <span class="muted">\u00B7 MACD is ' + m.state + ' its signal line</span>';
+  }
   function badgeClass(label) { return /Buy/.test(label) ? 'qp-b-buy' : /Sell/.test(label) ? 'qp-b-sell' : 'qp-b-hold'; }
   function render(d) {
     var q = d.quote, up = (q.change || 0) >= 0, r = d.rating;
@@ -94,6 +101,7 @@ _PANEL_JS = """
       track(d.week52.low, d.week52.high, d.week52.position, 'Low', 'High', '52-week range') + '</div>';
     h += '<div class="qp-rate"><strong>Technical rating</strong><span class="qp-badge ' + badgeClass(r.label) + '">' + esc(r.label) + '</span>' +
       (r.of ? '<span class="muted">' + r.buy_votes + ' of ' + r.of + ' signals bullish, ' + r.sell_votes + ' bearish</span>' : '') + '</div>';
+    h += '<p class="qp-macd"><strong>MACD crossover:</strong> ' + macdText(d.macd) + '</p>';
     h += '<div class="qp-cols"><div><ul class="qp-sig">' + r.signals.map(function (s) {
       return '<li><b class="' + (s.vote > 0 ? 'qp-up' : s.vote < 0 ? 'qp-down' : 'muted') + '">' + (s.vote > 0 ? '\\u25B2' : s.vote < 0 ? '\\u25BC' : '\\u25AC') + '</b><span><strong>' +
         esc(s.name) + '.</strong> ' + esc(s.text) + '</span></li>'; }).join('') + '</ul></div>' +
@@ -102,7 +110,7 @@ _PANEL_JS = """
         var mark = t.direction === 'Up' ? '\\u25B2 ' : t.direction === 'Down' ? '\\u25BC ' : '';
         return '<tr><td>' + esc(t.label) + '</td><td class="' + cls + '">' + mark + esc(t.direction) + '</td><td class="num">' + (t.change_pct == null ? '--' : signed(t.change_pct, '%')) + '</td></tr>';
       }).join('') + '</tbody></table></div></div>';
-    h += '<div class="qp-pills">' + pills() + '</div><div id="qp-read" class="qp-read">Move over the chart for the numbers on any bar. Hollow candle = closed up, filled = closed down.</div>' + d.chart;
+    h += '<div class="qp-pills">' + pills() + '</div><div id="qp-read" class="qp-read">Move over the chart for the numbers on any bar. Hollow candle = closed up, filled = closed down. Triangles on the MACD panel mark crossovers (green up = bullish, red down = bearish).</div>' + d.chart;
     h += '<p class="muted small">Technical signals only: moving averages, RSI, MACD and volume, counted on daily prices. It is not advice and this app never places an order from it. ' +
       'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
       newsHtml(d) +
@@ -116,12 +124,32 @@ _PANEL_JS = """
     var box = svg.getBoundingClientRect(), n = +svg.dataset.n, left = +svg.dataset.left, pw = +svg.dataset.pw, w = +svg.dataset.w;
     var x = (e.clientX - box.left) * (w / box.width);
     var i = Math.max(0, Math.min(n - 1, Math.floor((x - left) / (pw / n)))), r = cur.rows[i]; if (!r) { return; }
-    var line = document.getElementById('qc-cross'); var cx = left + (i + 0.5) * (pw / n);
-    line.setAttribute('x1', cx); line.setAttribute('x2', cx); line.style.display = '';
-    document.getElementById('qp-read').textContent = r.t + '   Open ' + usd(r.o) + '  High ' + usd(r.h) + '  Low ' + usd(r.l) + '  Close ' + usd(r.c) +
-      '  Volume ' + vol(r.v) + (r.rsi == null ? '' : '  RSI ' + r.rsi.toFixed(0)) + (r.a == null ? '' : '  Avg ' + usd(r.a));
+    var k = box.width / w, cx = left + (i + 0.5) * (pw / n);
+    var line = document.getElementById('qc-cross'); line.setAttribute('x1', cx); line.setAttribute('x2', cx); line.style.display = '';
+    var lo = +svg.dataset.lo, hi = +svg.dataset.hi, top = +svg.dataset.ptop, ph = +svg.dataset.ph;
+    var dot = document.getElementById('qc-dot');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', top + (hi - r.c) / (hi - lo) * ph); dot.style.display = '';
+    var up = r.c >= r.o;
+    function row(name, val, cls) { return '<div class="nw-tip-row"><span class="nw-tip-name">' + name + '</span><span class="nw-tip-val ' + (cls || '') + '">' + val + '</span></div>'; }
+    var h = '<div class="nw-tip-date">' + esc(r.t) + '</div>' +
+      row('Open', usd(r.o)) + row('High', usd(r.h)) + row('Low', usd(r.l)) + row('Close', usd(r.c), up ? 'qp-up' : 'qp-down') + row('Volume', vol(r.v));
+    if (r.a != null || r.b != null || r.c2 != null) {
+      h += '<hr>' + (r.a != null ? row(cur.range === '1D' ? 'VWAP' : '20-day avg', usd(r.a)) : '') + (r.b != null ? row('50-day avg', usd(r.b)) : '') + (r.c2 != null ? row('200-day avg', usd(r.c2)) : '');
+    }
+    if (r.rsi != null || r.m != null) {
+      h += '<hr>' + (r.rsi != null ? row('RSI (14)', r.rsi.toFixed(0), r.rsi <= 30 ? 'qp-up' : r.rsi >= 70 ? 'qp-down' : '') : '') +
+        (r.m != null && r.ms != null ? row('MACD', r.m.toFixed(2)) + row('Signal', r.ms.toFixed(2)) + row('Histogram', r.mh.toFixed(2), r.mh >= 0 ? 'qp-up' : 'qp-down') : '');
+    }
+    var tip = document.querySelector('.qc-tip'); tip.innerHTML = h; tip.hidden = false;
+    var wrap = tip.parentNode.getBoundingClientRect(), px = cx * k, tw = tip.offsetWidth;
+    var tx = px + 16; if (tx + tw > wrap.width) { tx = px - tw - 16; }
+    tip.style.left = Math.max(0, tx) + 'px';
+    tip.style.top = Math.max(0, Math.min((e.clientY - wrap.top) - tip.offsetHeight / 2, wrap.height - tip.offsetHeight)) + 'px';
   }
-  function leave() { var l = document.getElementById('qc-cross'); if (l) { l.style.display = 'none'; } }
+  function leave() {
+    ['qc-cross', 'qc-dot'].forEach(function (id) { var l = document.getElementById(id); if (l) { l.style.display = 'none'; } });
+    var tip = document.querySelector('.qc-tip'); if (tip) { tip.hidden = true; }
+  }
   window.lookupQuote = function (sym, range) {
     sym = String(sym || '').trim().toUpperCase(); if (!sym) { return; }
     var out = document.getElementById('qp-out'), box = document.getElementById('quote');
