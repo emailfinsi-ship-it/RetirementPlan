@@ -130,3 +130,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - E*TRADE tax lots and cost basis for all accounts (with CSV), automatic renewal of an idle E*TRADE session, and a keep-alive for the IBKR gateway session.
 
 - IBKR / E*TRADE tabs: Buy and Sell buttons on every position; the "added up across accounts" table is collapsed and only shown when two or more accounts hold stocks.
+
+- IBKR / E*TRADE tabs: sortable positions table with every column of E*TRADE's portfolio view (change, day gain, total gain %, % of portfolio, rating).

@@ -124,7 +124,9 @@ class FakeEtrade:
         if path == "/v1/accounts/KEY1/portfolio.json":
             return Resp({"PortfolioResponse": {"AccountPortfolio": [{"Position": [
                 {"positionId": 9001, "Product": {"securityType": "EQ", "symbol": "KO"}, "symbolDescription": "COCA COLA", "quantity": 20, "pricePaid": 55,
-                 "marketValue": 1300, "totalGain": 200, "positionType": "LONG", "Quick": {"lastTrade": 65}},
+                 "marketValue": 1300, "totalGain": 200, "totalGainPct": 18.18, "daysGain": -12.5, "daysGainPct": -0.95, "totalCost": 1100,
+                 "pctOfPortfolio": 5.2, "dateAcquired": 1609459200000, "positionType": "LONG",
+                 "Quick": {"lastTrade": 65, "change": -0.63, "changePct": -0.96}},
                 {"Product": {"securityType": "OPTN", "symbol": "KO"}, "quantity": 1}]}]}})
         if path == "/v1/accounts/KEY1/orders.json":
             if "EXECUTED" in req.full_url:
@@ -313,6 +315,14 @@ class TestEtrade(unittest.TestCase):
         with self.assertRaises(BrokerError) as cm:
             etrade.list_accounts(self.client(gone))
         self.assertIn("Connect", str(cm.exception))
+
+    def test_positions_carry_every_column_of_the_portfolio_view(self):
+        p = etrade.positions(self.client(), "KEY1")[0]
+        got = {k: p[k] for k in ("price", "change", "change_pct", "qty", "avg_cost", "day_gain", "day_gain_pct", "gain", "gain_pct",
+                                 "market_value", "pct_of_portfolio", "cost_basis", "acquired")}
+        self.assertEqual(got, {"price": 65.0, "change": -0.63, "change_pct": -0.96, "qty": 20.0, "avg_cost": 55.0, "day_gain": -12.5,
+                               "day_gain_pct": -0.95, "gain": 200.0, "gain_pct": 18.18, "market_value": 1300.0,
+                               "pct_of_portfolio": 5.2, "cost_basis": 1100.0, "acquired": "2021-01-01"})
 
     def test_a_rejected_session_says_why(self):
         class Rejects(FakeEtrade):
@@ -843,6 +853,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("Run a check", page)
         self.assertIn("data-act=\"buy\"", page)                                   # Buy as well as Sell on each position
         self.assertIn("Everything held, added up across accounts", page)
+        self.assertIn("data-sortkey", page)                                        # every column heading sorts
+        self.assertIn("function resort", page)
         self.assertIn("withStocks > 1", page)                                      # shown only when 2+ accounts hold stocks
         self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway

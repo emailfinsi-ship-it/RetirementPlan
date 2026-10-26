@@ -26,6 +26,8 @@ _CSS = """
 .bk-step { margin:6px 0; }
 .bk-warn { border:1px solid var(--warn); border-radius:10px; padding:8px 10px; margin:8px 0; }
 .bk-pos td, .bk-pos th { white-space:nowrap; }
+.bk-pos th.sortable { cursor:pointer; user-select:none; }
+.bk-pos th.sortable:hover { text-decoration:underline; }
 """
 
 _JS = r"""
@@ -38,6 +40,62 @@ _JS = r"""
   function num(v) { return v == null ? '--' : Number(v).toLocaleString('en-US', {maximumFractionDigits: 4}); }
   function say(id, text, bad) { var el = $(id); if (el) { el.textContent = text; el.className = bad ? 'status-line status-warn' : 'muted small'; } }
   function err(e) { alert(e.message || e); }
+
+  var SORT = {key: 'market_value', dir: -1};
+  var COLS = [
+    {k: 'symbol', t: 'Symbol', str: true}, {k: 'price', t: 'Last price'}, {k: 'change', t: 'Change $'}, {k: 'change_pct', t: 'Change %'},
+    {k: 'qty', t: 'Shares'}, {k: 'avg_cost', t: 'Price paid'}, {k: 'day_gain', t: 'Day’s gain $'}, {k: 'day_gain_pct', t: 'Day’s gain %'},
+    {k: 'gain', t: 'Total gain $'}, {k: 'gain_pct', t: 'Total gain %'}, {k: 'market_value', t: 'Value $'}, {k: 'pct_of_portfolio', t: '% of portfolio'},
+    {k: 'rating', t: 'Rating', left: true}
+  ];
+  var RATE = {'strong buy': 2, 'buy': 1, 'hold': 0, 'sell': -1, 'strong sell': -2};
+  function ratingOf(sym) {
+    var td = document.querySelector('td[data-rate-sym="' + sym + '"] .pr-badge');
+    var v = td ? RATE[td.textContent.trim().toLowerCase()] : null;
+    return v == null ? null : v;
+  }
+  function rowsFor(list) {
+    var total = list.reduce(function (a, p) { return a + (p.market_value || 0); }, 0);
+    return list.map(function (p) {
+      var r = Object.assign({}, p);
+      if (r.gain_pct == null && r.gain != null && r.avg_cost && r.qty) { r.gain_pct = r.gain / (r.avg_cost * Math.abs(r.qty)) * 100; }
+      if (r.pct_of_portfolio == null && r.market_value != null && total) { r.pct_of_portfolio = r.market_value / total * 100; }
+      r.rating = ratingOf(r.symbol);
+      return r;
+    });
+  }
+  function sg(v) { return v == null ? '--' : (v >= 0 ? '+' : '-') + usd(Math.abs(v), true); }
+  function pc(v) { return v == null ? '--' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+  function cl(v) { return v == null ? '' : v >= 0 ? 'qp-up' : 'qp-down'; }
+  function posTable() {
+    var rows = rowsFor(DATA.positions), k = SORT.key, col = COLS.filter(function (c) { return c.k === k; })[0] || {};
+    rows.sort(function (a, b) {
+      var x = a[k], y = b[k];
+      if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; }   // empty values always last
+      return (col.str && typeof x === 'string' ? x.localeCompare(y) : (x < y ? -1 : x > y ? 1 : 0)) * SORT.dir;
+    });
+    var head = COLS.map(function (c) {
+      var on = c.k === k;
+      return '<th class="sortable' + ((c.str || c.left) ? '' : ' num') + '" data-sortkey="' + c.k + '" aria-sort="' + (on ? (SORT.dir > 0 ? 'ascending' : 'descending') : 'none') + '" title="Sort by ' + esc(c.t) + '">' + esc(c.t) + (on ? (SORT.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    }).join('') + '<th></th>';
+    return '<table class="bk-pos"><thead><tr>' + head + '</tr></thead><tbody>' + rows.map(function (p) {
+      var buy = '<button type="button" data-act="buy" data-sym="' + esc(p.symbol) + '">Buy</button> ' +
+        (p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
+      return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
+        '<td class="num">' + usd(p.price, true) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
+        '<td class="num">' + num(p.qty) + '</td><td class="num">' + usd(p.avg_cost, true) + '</td>' +
+        '<td class="num ' + cl(p.day_gain) + '">' + sg(p.day_gain) + '</td><td class="num ' + cl(p.day_gain_pct) + '">' + pc(p.day_gain_pct) + '</td>' +
+        '<td class="num ' + cl(p.gain) + '">' + sg(p.gain) + '</td><td class="num ' + cl(p.gain_pct) + '">' + pc(p.gain_pct) + '</td>' +
+        '<td class="num">' + usd(p.market_value, true) + '</td><td class="num">' + (p.pct_of_portfolio == null ? '--' : Number(p.pct_of_portfolio).toFixed(1) + '%') + '</td>' +
+        '<td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + buy + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function resort(key) {
+    SORT = SORT.key === key ? {key: key, dir: -SORT.dir} : {key: key, dir: (COLS.filter(function (c) { return c.k === key; })[0] || {}).str ? 1 : -1};
+    var wrap = $('bk-pos-wrap'); if (!wrap) { return; }
+    wrap.innerHTML = posTable();
+    if (window.applyRatings) { window.applyRatings(); }
+  }
 
   function overviewHtml(o) {
     var h = '<div class="card"><h3 style="margin-top:0;">All accounts</h3><div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Account</th><th class="num">Value</th><th class="num">Cash</th><th class="num">Buying power</th><th class="num">Stocks held</th></tr></thead><tbody>' +
@@ -86,16 +144,7 @@ _JS = r"""
     if (d.overview) { h += overviewHtml(d.overview); }
     h += '<h3>Positions' + (d.overview ? ' in this account' : '') + '</h3>';
     if (!d.positions.length) { h += '<p class="muted">No stock positions.</p>'; }
-    else {
-      h += '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Value</th><th class="num">Gain / loss</th><th>Rating</th><th></th></tr></thead><tbody>' +
-        d.positions.map(function (p) {
-          var g = p.gain, cls = g == null ? '' : g >= 0 ? 'qp-up' : 'qp-down';
-          var sell = '<button type="button" data-act="buy" data-sym="' + esc(p.symbol) + '">Buy</button> ' +
-            (p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
-          return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="Open in Stock Analysis"><strong>' + esc(p.symbol) + '</strong></a></td><td class="num">' + num(p.qty) + '</td><td class="num">' + usd(p.avg_cost, true) +
-            '</td><td class="num">' + usd(p.price, true) + '</td><td class="num">' + usd(p.market_value, true) + '</td><td class="num ' + cls + '">' + (g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true)) + '</td><td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + sell + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
-    }
+    else { h += '<div id="bk-pos-wrap" style="overflow-x:auto">' + posTable() + '</div>'; }
     if (BROKER === 'etrade' && d.positions.length) {
       h += '<p><button type="button" data-act="lots">Show tax lots and cost basis</button> <span id="bk-lots-note" class="muted small"></span></p><div id="bk-lots"></div>';
     }
@@ -177,6 +226,7 @@ _JS = r"""
   }
 
   document.addEventListener('click', function (ev) {
+    var th = ev.target.closest('th[data-sortkey]'); if (th) { resort(th.dataset.sortkey); return; }
     var b = ev.target.closest('[data-act]'); if (!b || b.tagName === 'FORM') { return; }
     var act = b.dataset.act;
     if (act === 'disarm') { postJSON('/api/alpaca/live/disarm', {}).then(function () { load(); }).catch(err); }
