@@ -341,7 +341,10 @@ def _handle(path: str, payload: dict) -> dict:
         if not hasattr(mod, "lots"):
             raise BrokerError("IBKR's gateway reports one average cost per position, not individual lots (IBKR gives lots only in its "
                               "Flex reports). The Positions table shows that average cost.")
-        return _all_lots(mod, client)
+        if payload.get("scope") == "all":
+            return _all_lots(mod, client)         # every account, for the spreadsheet download
+        account = _account(broker, client, payload)
+        return {"account": account, "lots": mod.lots(client, account, payload.get("symbol"))}
     account = _account(broker, client, payload)
     if path == "/api/broker/cancel":
         _require_armed()

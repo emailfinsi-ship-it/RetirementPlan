@@ -482,7 +482,11 @@ class TestBrokerRoutes(BrokerApiCase):
     def test_lots_route_totals_for_etrade_and_explains_ibkr(self):
         self.arm()
         self.connect_etrade()
-        out = self.post("/api/broker/lots", {"broker": "etrade"})
+        one = self.post("/api/broker/lots", {"broker": "etrade", "account": "KEY1", "symbol": "ko"})      # one stock, one account
+        self.assertEqual([r["symbol"] for r in one["lots"]], ["KO", "KO"])
+        self.assertEqual(one["lots"][0]["gain_pct"], 30.0)
+        self.assertEqual(self.post("/api/broker/lots", {"broker": "etrade", "account": "KEY1", "symbol": "ZZZ"})["lots"], [])
+        out = self.post("/api/broker/lots", {"broker": "etrade", "scope": "all"})
         self.assertEqual(len(out["lots"]), 2)
         self.assertEqual(out["lots"][0]["account"], "INDIVIDUAL (8301)")
         self.assertEqual(out["by_account"][0]["lots"], 2)
@@ -929,6 +933,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("Everything held, added up across accounts", page)
         self.assertIn("data-sortkey", page)                                        # every column heading sorts
         self.assertIn("function resort", page)
+        self.assertIn("lot-toggle", page)                                          # click the arrow beside a stock to see its lots
+        self.assertIn("data-act=\"expandall\"", page)
         self.assertIn("withStocks > 1", page)                                      # shown only when 2+ accounts hold stocks
         self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
