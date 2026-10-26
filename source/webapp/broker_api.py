@@ -98,8 +98,8 @@ def _account(broker: str, client, payload: dict) -> str:
 def _limits() -> dict:
     lt = db.live_trading
     until = lt.armed_until()
-    return {"armed": until is not None, "armed_until": until, "persistent": lt.is_persistent(), "per_order": lt.per_order_limit(),
-            "daily_remaining": lt.daily_remaining()}
+    return {"armed": until is not None, "armed_until": until, "persistent": lt.is_persistent(), "per_order": lt.as_json(lt.per_order_limit()),
+            "daily_remaining": lt.as_json(lt.daily_remaining())}
 
 
 def _data(payload: dict) -> dict:
@@ -143,49 +143,66 @@ def _data(payload: dict) -> dict:
         out["connected"], out["message"] = False, str(exc)
         return out
     ids = [a["id"] for a in out["accounts"]]
-    out["account"] = str(payload.get("account") or "") if str(payload.get("account") or "") in ids else (ids[0] if ids else "")
-    if not out["account"]:
+    if not ids:
         out["message"] = "No tradable brokerage account was found for this login."
         return out
+    wanted = str(payload.get("account") or "")
+    if len(ids) > 1:
+        # Several accounts: read every account once. With no account picked the page shows all of them (the "All accounts"
+        # view); picking one shows just that one. Either way the order ticket can trade any of them.
+        out["overview"] = _overview(mod, client, out["accounts"], broker)
+        rows = {r["id"]: r for r in out["overview"]["accounts"]}
+        best = max(ids, key=lambda i: float(((rows[i].get("summary") or {}).get("value")) or 0.0))
+        out["view"] = "one" if wanted in ids else "all"
+        out["account"] = wanted if wanted in ids else best
+        row = rows[out["account"]]
+        out["summary"], out["positions"], out["orders"] = row["summary"], row["positions"], row["orders"]
+        out["currencies"] = row.get("currencies") or []
+        for e in row["errors"]:
+            out["errors"].append(e)
+        return out
+    out["view"], out["account"] = "one", ids[0]
     for key, fn in (("summary", mod.summary), ("positions", mod.positions), ("orders", mod.open_orders)):
         try:
             out[key] = fn(client, out["account"])
         except BrokerError as exc:
             out["errors"].append(str(exc))
     if broker == "ibkr":
-        _add_currencies(out, client)
-    if len(out["accounts"]) > 1:
-        out["overview"] = _overview(mod, client, out["accounts"])
+        out["currencies"] = _add_currencies(client, out["account"], out["positions"], out["errors"])
     return out
 
 
-def _add_currencies(out: dict, client) -> None:
-    """IBKR accounts can hold several currencies: add the per-currency balances, and the base-currency value of each
-    position (so a euro holding and a dollar holding can be compared and summed)."""
+def _add_currencies(client, account: str, positions: list[dict], errors: list[str]) -> list[dict]:
+    """IBKR accounts can hold several currencies: the per-currency balances, and the base-currency value of each position
+    (so a euro holding and a dollar holding can be compared and summed)."""
     try:
-        rows = ibkr.ledger(client, out["account"])
+        rows = ibkr.ledger(client, account)
     except BrokerError as exc:
-        out["errors"].append(f"Currency balances: {exc}")
-        return
-    out["currencies"] = rows
+        errors.append(f"Currency balances: {exc}")
+        return []
     rate = {r["currency"]: r["rate"] for r in rows if r.get("rate")}
-    for p in out["positions"]:
+    for p in positions:
         r = rate.get(p.get("currency") or "")
         if r and p.get("market_value") is not None:
             p["base_value"] = p["market_value"] * r
+    return rows
 
 
-def _overview(mod, client, accounts: list[dict]) -> dict:
-    """Every account's balances and holdings, plus the totals and the holdings added up across accounts."""
+def _overview(mod, client, accounts: list[dict], broker: str = "") -> dict:
+    """Every account's balances, holdings and orders, plus the totals and the holdings added up across accounts."""
     rows, held = [], {}
     total = {"value": 0.0, "cash": 0.0, "buying_power": 0.0}
     for acct in accounts:
-        row = {"id": acct["id"], "name": acct["name"], "summary": None, "positions": [], "error": ""}
-        for key, fn in (("summary", mod.summary), ("positions", mod.positions)):
+        row = {"id": acct["id"], "name": acct["name"], "summary": None, "positions": [], "orders": [], "currencies": [],
+               "error": "", "errors": []}
+        for key, fn in (("summary", mod.summary), ("positions", mod.positions), ("orders", mod.open_orders)):
             try:
                 row[key] = fn(client, acct["id"])
             except BrokerError as exc:
-                row["error"] = str(exc)
+                row["error"] = row["error"] or str(exc)
+                row["errors"].append(f"{acct['name']}: {exc}")
+        if broker == "ibkr":
+            row["currencies"] = _add_currencies(client, acct["id"], row["positions"], row["errors"])
         for k in total:
             total[k] += float((row["summary"] or {}).get(k) or 0.0)
         for p in row["positions"]:
@@ -197,7 +214,6 @@ def _overview(mod, client, accounts: list[dict]) -> dict:
                 h["gain"] += float(p["gain"])
                 h["has_gain"] = True
             h["accounts"] += 1
-        row["positions"] = [{"symbol": p["symbol"], "qty": p["qty"], "market_value": p.get("market_value")} for p in row["positions"]]
         rows.append(row)
     holdings = sorted(({**h, "gain": h["gain"] if h["has_gain"] else None} for h in held.values()), key=lambda r: -r["market_value"])
     for h in holdings:

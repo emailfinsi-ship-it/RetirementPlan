@@ -270,12 +270,16 @@ are not touched.
     computer (5000, 5001, 5500, 5555, 8888, 8443) and, when one answers, saves it and says so. The connect card now shows the
     Terminal command to start the gateway and where its port is set (`listenPort` in `root/conf.yaml`). Code: `ibkr.find_gateway`.
 
-39. **IBKR gateway comes with the app, with Start / Sign in / Stop buttons.** IBKR's Client Portal Gateway files are kept in
-    `vendor/clientportal` (IBKR's own software, unchanged apart from `root/conf.yaml`: port 5500, because macOS keeps 5000 for AirPlay)
-    and are included in the Mac app by `scripts/build_mac_app.sh`. The IBKR tab's **Start gateway** button copies them once to the
-    app's data folder (so the app itself is never written to) and runs IBKR's own `bin/run.sh root/conf.yaml` there; **Sign in to IBKR**
-    opens the gateway's page; **Stop gateway** stops a gateway this app started. Only that one fixed command is ever run. Java is not
-    bundled: it must be installed on the Mac (the tab says so if it is not). Code: `collector/ibkr_gateway.py`.
+39. **IBKR gateway comes with the app and starts with it.** IBKR's Client Portal Gateway files are kept in `vendor/clientportal`
+    (IBKR's own software, unchanged apart from `root/conf.yaml`: it listens on port 5757, a port private to this app, and its allow-list
+    is cut down to this computer, 127.0.0.1, only) and are included in the Mac app by `scripts/build_mac_app.sh`. When the dashboard
+    starts (`scripts/run_dashboard.sh`, the other run scripts and the Mac app all go through `dashboard.run`) it starts the gateway in the
+    background unless one already answers on that port, and stops it when the app quits. The first start copies the files to the app's
+    data folder (so the app itself is never written to) and runs IBKR's own `bin/run.sh root/conf.yaml` there. The IBKR tab has
+    **Start gateway**, **Sign in to IBKR** (IBKR's own page: you still sign in to IBKR in the browser), **Stop gateway**, and a switch
+    for starting with the app (on by default). Only that one fixed command is ever run. Java is not bundled: it must be installed on the
+    Mac; if it is not, the app starts normally, the IBKR tab says so, and nothing else is affected. Set `FINSI_NO_GATEWAY=1` to skip
+    the auto-start. Code: `collector/ibkr_gateway.py`, `dashboard.run`.
 40. **Broker tabs: run a check, clear messages, all accounts.** The IBKR and E*TRADE tabs have a **Run a check** button that runs each read
     call in turn and shows what each returned as structure only (field names, types, list lengths: never balances, account numbers or
     tokens), so a tab that shows nothing can be diagnosed. Connect shows its progress inline. With more than one account the tab adds an
@@ -318,3 +322,22 @@ are not touched.
     collapsed. **Expand all lots** / **Collapse all** open and close every stock; sorting keeps each stock's lots with it. **Download
     every lot, all accounts (CSV)** replaces the old separate lots table. The lot's Sell button fills the ticket with that lot's shares
     (E*TRADE sells by the lot method set on your account). Code: `broker_page.py` (`lotRows`, `toggleLots`), `etrade.lots(symbol=)`.
+51. **Orders collapse (IBKR and E*TRADE).** The Orders list starts collapsed with a count ("14 recent, 1 open"), opens with a click, and
+    stays as you leave it when the page refreshes.
+52. **Quieter broker tabs.** The Connect Interactive Brokers / Connect E*TRADE card is collapsible (it opens by itself when you are not
+    signed in, and stays as you leave it). The long "Live trading is ON until ... Limit per order ... left today" line is replaced by a
+    small "Live trading: ON / OFF" control with a Turn off button and a Limits link; the limits themselves are still enforced and are
+    set on the Alpaca tab.
+53. **Trading limits moved to Setup, one setting for every broker, no built-in cap.** Setup has a **Real-money trading limits** card:
+    the most one order may be worth and the most that may be sent per day, applied to Alpaca, IBKR and E*TRADE together (the daily
+    total adds all three). Either can be set to **No limit**. The old $25,000 per order / $50,000 per day maximums are gone; the
+    practice (paper) account keeps its own small cap. The Alpaca tab now just shows today's total and a link to Setup. Every order
+    still needs live trading on, a preview, the retyped symbol, and is written to the audit log. A request that leaves a limit out is
+    refused (it never means "no limit"). Code: `db/live_trading.py` (`set_limits`, `NO_LIMIT`), `pages/setup.py`.
+54. **All accounts at once.** The E*TRADE / IBKR / Alpaca-style broker pages with more than one account no longer open on whichever
+    account happens to be first (which was often the empty one). They open on **All accounts**: the totals table, then every
+    account's balances, positions (with expandable tax lots), currencies (IBKR) and a collapsed Orders section, one under the other.
+    The "Show" menu still narrows to a single account, and Refresh keeps your choice. If you pick one account, or a broker has only
+    one, the page looks as before. The order ticket gained an **Account** menu (set by the Buy/Sell button you press, hidden when
+    there is one account), and Preview/Send/Cancel act on that account. Code: `broker_api._data` (`view`, `overview.accounts`),
+    `pages/broker_page.py`.

@@ -371,7 +371,7 @@ def preview_order(
             "Check the symbol, or use a limit order with your own price."
         )
     estimate = round(price * clean["qty"], 2)
-    limit = MAX_ORDER_NOTIONAL if max_notional is None else min(MAX_ORDER_NOTIONAL, max_notional)
+    limit = MAX_ORDER_NOTIONAL if max_notional is None else max_notional      # real-money limits are the owner's (Setup)
     if estimate > limit:
         raise AlpacaError(f"That order is worth about {_money_text(estimate)}. One order here is limited to {_money_text(limit)}.")
     if daily_remaining is not None and estimate > daily_remaining:

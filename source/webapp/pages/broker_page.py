@@ -76,41 +76,45 @@ _JS = r"""
   function sg(v, c) { return v == null ? '--' : (v >= 0 ? '+' : '-') + mf(Math.abs(v), c); }
   function pc(v) { return v == null ? '--' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
   function cl(v) { return v == null ? '' : v >= 0 ? 'qp-up' : 'qp-down'; }
-  function posTable() {
-    var rows = rowsFor(DATA.positions), k = SORT.key, col = COLS.filter(function (c) { return c.k === k; })[0] || {};
+  function K(id, sym) { return id + '|' + sym; }
+  function secById(id) { return SECTIONS.filter(function (x) { return x.id === id; })[0]; }
+  function posTable(sec) {
+    var rows = rowsFor(sec.positions), k = SORT.key, col = COLS.filter(function (c) { return c.k === k; })[0] || {};
     rows.sort(function (a, b) {
       var x = a[k], y = b[k];
       if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; }   // empty values always last
       return (col.str && typeof x === 'string' ? x.localeCompare(y) : (x < y ? -1 : x > y ? 1 : 0)) * SORT.dir;
     });
-    var lotsOn = BROKER === 'etrade';
+    var lotsOn = BROKER === 'etrade', acct = ' data-acct="' + esc(sec.id) + '"';
     var head = (lotsOn ? '<th></th>' : '') + COLS.map(function (c) {
       var on = c.k === k;
       return '<th class="sortable' + ((c.str || c.left) ? '' : ' num') + '" data-sortkey="' + c.k + '" aria-sort="' + (on ? (SORT.dir > 0 ? 'ascending' : 'descending') : 'none') + '" title="Sort by ' + esc(c.t) + '">' + esc(c.t) + (on ? (SORT.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
     }).join('') + '<th></th>';
     return '<table class="bk-pos"><thead><tr>' + head + '</tr></thead><tbody>' + rows.map(function (p) {
-      var open = lotsOn && EXP[p.symbol];
-      var buy = '<button type="button" data-act="buy" data-sym="' + esc(p.symbol) + '">Buy</button> ' +
-        (p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
-      var arrow = lotsOn ? '<td><button type="button" class="lot-toggle" data-act="toggle" data-sym="' + esc(p.symbol) + '" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + (open ? 'Hide' : 'Show') + ' the lots">' + (open ? '\u25be' : '\u25b8') + '</button></td>' : '';
+      var open = lotsOn && EXP[K(sec.id, p.symbol)];
+      var buy = '<button type="button" data-act="buy"' + acct + ' data-sym="' + esc(p.symbol) + '">Buy</button> ' +
+        (p.qty >= 1 ? '<button type="button" data-act="sell"' + acct + ' data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
+      var arrow = lotsOn ? '<td><button type="button" class="lot-toggle" data-act="toggle"' + acct + ' data-sym="' + esc(p.symbol) + '" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + (open ? 'Hide' : 'Show') + ' the lots">' + (open ? '▾' : '▸') + '</button></td>' : '';
       return '<tr class="bk-parent">' + arrow + '<td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
         '<td class="num">' + mf(p.price, p.currency) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change, p.currency) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
         '<td class="num">' + num(p.qty) + '</td><td class="num">' + mf(p.avg_cost, p.currency) + '</td>' +
         '<td class="num ' + cl(p.day_gain) + '">' + sg(p.day_gain, p.currency) + '</td><td class="num ' + cl(p.day_gain_pct) + '">' + pc(p.day_gain_pct) + '</td>' +
         '<td class="num ' + cl(p.gain) + '">' + sg(p.gain, p.currency) + '</td><td class="num ' + cl(p.gain_pct) + '">' + pc(p.gain_pct) + '</td>' +
         '<td class="num">' + mf(p.market_value, p.currency) + '</td><td class="num">' + (p.pct_of_portfolio == null ? '--' : Number(p.pct_of_portfolio).toFixed(1) + '%') + '</td>' +
-        '<td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + buy + '</td></tr>' + (open ? lotRows(p) : '');
+        '<td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + buy + '</td></tr>' + (open ? lotRows(sec, p) : '');
     }).join('') + '</tbody></table>';
   }
-  var EXP = {}, LOTBY = {};          // which stocks are expanded; the lots loaded for each
+  var CONNECT_SHOWN = false;         // the Connect card opens by itself once if you are not connected, then stays as you leave it
+  var ORDERS_OPEN = {};              // each account's Orders list starts collapsed and stays as you leave it
+  var EXP = {}, LOTBY = {}, SECTIONS = [], CHOICE = '';   // expanded stocks and their lots (by account|symbol); the accounts on screen; the account picked ('' = all)
   function dmy(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? m[2] + '/' + m[3] + '/' + m[1] : (iso || '--'); }
-  function lotRows(p) {
-    var got = LOTBY[p.symbol], span = COLS.length + 2;
-    if (got === 'loading' || got == null) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="muted">Loading lots\u2026</td></tr>'; }
+  function lotRows(sec, p) {
+    var got = LOTBY[K(sec.id, p.symbol)], span = COLS.length + 2;
+    if (got === 'loading' || got == null) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="muted">Loading lots…</td></tr>'; }
     if (got.error) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="status-warn">' + esc(got.error) + '</td></tr>'; }
     if (!got.length) { return '<tr class="bk-lot"><td></td><td colspan="' + (span - 1) + '" class="muted">No lot detail came back for this stock.</td></tr>'; }
     return got.map(function (l) {
-      var sell = l.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(l.qty) + '" title="Fills the ticket with this lot\u2019s shares. E*TRADE sells according to the lot method set on your account.">Sell</button>' : '';
+      var sell = l.qty >= 1 ? '<button type="button" data-act="sell" data-acct="' + esc(sec.id) + '" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(l.qty) + '" title="Fills the ticket with this lot’s shares. E*TRADE sells according to the lot method set on your account.">Sell</button>' : '';
       return '<tr class="bk-lot"><td></td><td>' + dmy(l.acquired) + (l.term ? ' <span class="muted small">' + esc(l.term) + '</span>' : '') + '</td>' +
         '<td class="num">' + mf(p.price, p.currency) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
         '<td class="num">' + num(l.qty) + '</td><td class="num">' + usd(l.cost_per_share, true) + '</td>' +
@@ -120,31 +124,33 @@ _JS = r"""
     }).join('');
   }
   function redraw() {
-    var wrap = $('bk-pos-wrap'); if (!wrap) { return; }
-    wrap.innerHTML = posTable();
+    SECTIONS.forEach(function (sec, i) { var w = $('bk-pos-' + i); if (w) { w.innerHTML = posTable(sec); } });
     if (window.applyRatings) { window.applyRatings(); }
   }
-  function loadLots(sym) {
-    if (LOTBY[sym]) { return; }
-    LOTBY[sym] = 'loading';
-    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT, symbol: sym}).then(function (r) { LOTBY[sym] = r.lots; redraw(); })
-      .catch(function (e) { LOTBY[sym] = {error: e.message}; redraw(); });
+  function loadLots(sec, sym) {
+    var key = K(sec.id, sym);
+    if (LOTBY[key]) { return; }
+    LOTBY[key] = 'loading';
+    postJSON('/api/broker/lots', {broker: BROKER, account: sec.id, symbol: sym}).then(function (r) { LOTBY[key] = r.lots; redraw(); })
+      .catch(function (e) { LOTBY[key] = {error: e.message}; redraw(); });
   }
-  function toggleLots(sym) {
-    if (EXP[sym]) { delete EXP[sym]; } else { EXP[sym] = true; loadLots(sym); }
+  function toggleLots(accId, sym) {
+    var sec = secById(accId), key = K(accId, sym); if (!sec) { return; }
+    if (EXP[key]) { delete EXP[key]; } else { EXP[key] = true; loadLots(sec, sym); }
     redraw();
   }
   function expandAll() {
-    say('bk-lots-note', 'Loading every lot\u2026');
-    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT}).then(function (r) {
-      DATA.positions.forEach(function (p) { LOTBY[p.symbol] = []; EXP[p.symbol] = true; });
-      r.lots.forEach(function (l) { (LOTBY[l.symbol] = LOTBY[l.symbol] || []).push(l); });
-      say('bk-lots-note', ''); redraw();
-    }).catch(function (e) { say('bk-lots-note', e.message, true); });
+    say('bk-lots-note', 'Loading every lot…');
+    Promise.all(SECTIONS.filter(function (sec) { return sec.positions.length; }).map(function (sec) {
+      return postJSON('/api/broker/lots', {broker: BROKER, account: sec.id}).then(function (r) {
+        sec.positions.forEach(function (p) { LOTBY[K(sec.id, p.symbol)] = []; EXP[K(sec.id, p.symbol)] = true; });
+        r.lots.forEach(function (l) { var key = K(sec.id, l.symbol); (LOTBY[key] = LOTBY[key] || []).push(l); });
+      });
+    })).then(function () { say('bk-lots-note', ''); redraw(); }).catch(function (e) { say('bk-lots-note', e.message, true); });
   }
   var LOTS = null;
   function downloadLots() {
-    say('bk-lots-note', 'Loading every lot in every account\u2026');
+    say('bk-lots-note', 'Loading every lot in every account…');
     postJSON('/api/broker/lots', {broker: BROKER, scope: 'all'}).then(function (r) {
       LOTS = r; say('bk-lots-note', '');
       var nl = String.fromCharCode(10);
@@ -160,9 +166,7 @@ _JS = r"""
   }
   function resort(key) {
     SORT = SORT.key === key ? {key: key, dir: -SORT.dir} : {key: key, dir: (COLS.filter(function (c) { return c.k === key; })[0] || {}).str ? 1 : -1};
-    var wrap = $('bk-pos-wrap'); if (!wrap) { return; }
-    wrap.innerHTML = posTable();
-    if (window.applyRatings) { window.applyRatings(); }
+    redraw();
   }
 
   function currencyHtml(rows, summary) {
@@ -195,57 +199,80 @@ _JS = r"""
     DATA = d; ACCOUNT = d.account || '';
     LOTBY = {};
     var live = d.armed
-      ? '<p class="status-line status-ok">Live trading is ON ' + (d.persistent ? 'until you turn it off' : 'until ' + new Date(d.armed_until * 1000).toLocaleTimeString()) + '. Limit per order ' + usd(d.per_order) + ', ' + usd(d.daily_remaining) + ' left today (shared with every broker).</p>' +
-        '<p><button type="button" data-act="disarm">Turn live trading OFF now</button></p>'
-      : '<p class="status-line status-warn">Live trading is OFF, so you can look but not preview or send orders.</p>' +
+      ? '<p class="status-line status-ok"><b>Live trading: ON</b>' + (d.persistent ? '' : ' <span class="muted small">(switches off at ' + new Date(d.armed_until * 1000).toLocaleTimeString() + ')</span>') +
+        ' <button type="button" data-act="disarm">Turn off</button> <a class="muted small" href="/setup.html#live-limits" title="Per-order and daily limits are set in Setup">Limits</a></p>'
+      : '<p class="status-line status-warn"><b>Live trading: OFF</b> <span class="muted small">(you can look but not preview or send orders)</span></p>' +
         '<form data-act="arm" class="inline"><label>To turn it on, type TRADE REAL MONEY<input name="phrase" autocomplete="off" style="width:200px"></label> <label><input name="stay" type="checkbox" checked> Keep it on until I turn it off</label> <button type="submit" class="primary">Turn on</button></form>';
     $('bk-live').innerHTML = live + (d.found_note ? '<p class="status-line status-ok">' + esc(d.found_note) + '</p>' : '');
     var gu = document.querySelector('input[name=url]'); if (gu && d.gateway_url) { gu.value = d.gateway_url; }
     var ga = $('gw-auto'); if (ga && d.gateway_autostart != null) { ga.checked = !!d.gateway_autostart; }
+    if (!d.connected && !CONNECT_SHOWN) { var cc = $('bk-connect'); if (cc) { cc.open = true; } CONNECT_SHOWN = true; }
     if (!d.connected) {
       $('bk-data').innerHTML = '<p class="status-line status-warn">' + esc(d.message || 'Not connected.') + '</p>';
       $('bk-ticket-card').hidden = true;
       return;
     }
-    var h = '';
+    var h = '', multi = d.accounts.length > 1;
     if (!d.accounts.length) { h += '<p class="status-line status-warn">' + esc(d.message || 'Connected, but no brokerage account came back.') + ' Press "Run a check" below and send me what it shows.</p>'; }
-    if (d.accounts.length > 1) {
-      h += '<p><label>Account <select id="bk-acct">' + d.accounts.map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.id === d.account ? ' selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') + '</select></label></p>';
-    } else if (d.accounts.length) { h += '<p class="muted small">Account: ' + esc(d.accounts[0].name) + '</p>'; }
-    if (d.summary) {
-      h += '<div class="bk-tiles"><div class="bk-tile"><span>Account value</span><b>' + usd(d.summary.value) + '</b></div>' +
-        '<div class="bk-tile"><span>Cash</span><b>' + usd(d.summary.cash) + '</b></div>' +
-        '<div class="bk-tile"><span>Buying power</span><b>' + usd(d.summary.buying_power) + '</b></div></div>';
+    var nameOf = function (id) { return (d.accounts.filter(function (a) { return a.id === id; })[0] || {}).name || ''; };
+    if (multi) {
+      SECTIONS = d.view === 'all' ? d.overview.accounts.map(function (a) { return {id: a.id, name: a.name, summary: a.summary, positions: a.positions, orders: a.orders, errors: a.errors || [], currencies: a.currencies || []}; })
+        : [{id: d.account, name: nameOf(d.account), summary: d.summary, positions: d.positions, orders: d.orders, errors: d.errors, currencies: d.currencies || []}];
+      h += '<p><label>Show <select id="bk-acct"><option value="__all__"' + (d.view === 'all' ? ' selected' : '') + '>All accounts</option>' + d.accounts.map(function (a) { return '<option value="' + esc(a.id) + '"' + (d.view !== 'all' && a.id === d.account ? ' selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') + '</select></label></p>';
+    } else {
+      SECTIONS = d.accounts.length ? [{id: d.account, name: nameOf(d.account), summary: d.summary, positions: d.positions, orders: d.orders, errors: d.errors, currencies: d.currencies || []}] : [];
+      if (d.accounts.length) { h += '<p class="muted small">Account: ' + esc(d.accounts[0].name) + '</p>'; }
     }
-    d.errors.forEach(function (m) { h += '<p class="status-line status-warn">' + esc(m) + '</p>'; });
-    if (d.currencies && (d.currencies.length > 1 || (d.currencies.length === 1 && d.currencies[0].currency !== 'USD'))) { h += currencyHtml(d.currencies, d.summary); }
     if (d.overview) { h += overviewHtml(d.overview); }
-    h += '<h3>Positions' + (d.overview ? ' in this account' : '') + '</h3>';
-    if (!d.positions.length) { h += '<p class="muted">No stock positions.</p>'; }
-    else { h += '<div id="bk-pos-wrap" style="overflow-x:auto">' + posTable() + '</div>'; }
-    if (BROKER === 'etrade' && d.positions.length) {
+    if (BROKER === 'etrade' && SECTIONS.some(function (sec) { return sec.positions.length; })) {
       h += '<p><button type="button" data-act="expandall">Expand all lots</button> <button type="button" data-act="collapseall">Collapse all</button> ' +
         '<button type="button" data-act="lotscsv">Download every lot, all accounts (CSV)</button> <span id="bk-lots-note" class="muted small">Click the arrow beside a stock to see each purchase (lot) and its cost basis.</span></p>';
     }
-    h += '<h3>Orders</h3>';
-    if (!d.orders.length) { h += '<p class="muted">No recent orders.</p>'; }
-    else {
-      h += '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th>Side</th><th class="num">Shares</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>' +
-        d.orders.map(function (o) {
-          return '<tr><td><strong>' + esc(o.symbol) + '</strong></td><td>' + esc(o.side) + '</td><td class="num">' + num(o.qty) + (o.filled ? ' (' + num(o.filled) + ' filled)' : '') + '</td><td>' + esc(o.type) + (o.limit_price ? ' ' + usd(o.limit_price, true) : '') +
-            '</td><td>' + esc(o.status) + '</td><td>' + (o.open ? '<button type="button" data-act="cancel" data-id="' + esc(o.id) + '">Cancel</button>' : '') + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
-    }
+    SECTIONS.forEach(function (sec, i) {
+      h += multi ? '<h3 style="margin-bottom:4px;">' + esc(sec.name) + '</h3>' : '<h3>Positions</h3>';
+      var s = sec.summary;
+      if (s && !(multi && d.view === 'all')) {      // the All accounts table above already shows these
+        h += '<div class="bk-tiles"><div class="bk-tile"><span>Account value</span><b>' + usd(s.value) + '</b></div>' +
+          '<div class="bk-tile"><span>Cash</span><b>' + usd(s.cash) + '</b></div>' +
+          '<div class="bk-tile"><span>Buying power</span><b>' + usd(s.buying_power) + '</b></div></div>';
+      }
+      (sec.errors || []).forEach(function (m) { h += '<p class="status-line status-warn">' + esc(m) + '</p>'; });
+      var cu = sec.currencies || [];
+      if (cu.length > 1 || (cu.length === 1 && cu[0].currency !== 'USD')) { h += currencyHtml(cu, s); }
+      if (!sec.positions.length) { h += '<p class="muted">No stock positions.</p>'; }
+      else { h += '<div id="bk-pos-' + i + '" style="overflow-x:auto">' + posTable(sec) + '</div>'; }
+      var nOpen = sec.orders.filter(function (o) { return o.open; }).length, isOpen = !!ORDERS_OPEN[sec.id];
+      h += '<details class="fold" id="bk-orders-' + i + '"' + (isOpen ? ' open' : '') + '><summary><strong>Orders</strong> <span class="muted small">(' +
+        (sec.orders.length ? sec.orders.length + ' recent' + (nOpen ? ', <b>' + nOpen + ' open</b>' : ', none open') : 'none') + ' &mdash; click to show or hide)</span></summary>';
+      if (!sec.orders.length) { h += '<p class="muted">No recent orders.</p>'; }
+      else {
+        h += '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th>Side</th><th class="num">Shares</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>' +
+          sec.orders.map(function (o) {
+            return '<tr><td><strong>' + esc(o.symbol) + '</strong></td><td>' + esc(o.side) + '</td><td class="num">' + num(o.qty) + (o.filled ? ' (' + num(o.filled) + ' filled)' : '') + '</td><td>' + esc(o.type) + (o.limit_price ? ' ' + usd(o.limit_price, true) : '') +
+              '</td><td>' + esc(o.status) + '</td><td>' + (o.open ? '<button type="button" data-act="cancel" data-acct="' + esc(sec.id) + '" data-id="' + esc(o.id) + '">Cancel</button>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }
+      h += '</details>';
+    });
     $('bk-data').innerHTML = h;
-    Object.keys(EXP).forEach(loadLots);          // stocks left expanded get their lots again after a refresh
+    SECTIONS.forEach(function (sec, i) { var od = $('bk-orders-' + i); if (od) { od.addEventListener('toggle', function () { ORDERS_OPEN[sec.id] = od.open; }); } });
+    Object.keys(EXP).forEach(function (key) {          // stocks left expanded get their lots again after a refresh
+      var cut = key.lastIndexOf('|'), sec = secById(key.slice(0, cut)); if (sec) { loadLots(sec, key.slice(cut + 1)); }
+    });
     if (window.applyRatings) { window.applyRatings(); }
+    // the order ticket can trade any of the accounts: pick one here (Buy / Sell on a stock picks its account)
+    var tf = $('bk-form'), ta = tf.account, keep = ta.value;
+    ta.innerHTML = d.accounts.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>'; }).join('');
+    ta.value = d.accounts.some(function (a) { return a.id === keep; }) ? keep : d.account;
+    ta.parentNode.hidden = d.accounts.length < 2;
     $('bk-ticket-card').hidden = false;
     var sel = $('bk-acct'); if (sel) { sel.onchange = function () { load(sel.value); }; }
   }
 
   function load(account) {
+    if (account !== undefined) { CHOICE = account; }
     say('bk-status', 'Loading…');
-    return postJSON('/api/broker/data', {broker: BROKER, account: account || ACCOUNT}).then(function (d) { render(d); say('bk-status', d.connected ? 'Updated ' + new Date().toLocaleTimeString() + '.' : ''); })
+    return postJSON('/api/broker/data', {broker: BROKER, account: CHOICE}).then(function (d) { render(d); say('bk-status', d.connected ? 'Updated ' + new Date().toLocaleTimeString() + '.' : ''); })
       .catch(function (e) { say('bk-status', e.message, true); });
   }
 
@@ -255,7 +282,8 @@ _JS = r"""
   }
   function showPreview(p) {
     LAST = p; var o = p.order;
-    var h = '<div class="bk-preview"><strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> (' + (o.type === 'limit' ? 'limit ' + usd(o.limit_price, true) : 'market') + ', ' + (o.time_in_force === 'gtc' ? 'good till cancelled' : 'today only') + ')' +
+    var an = ((DATA.accounts || []).filter(function (a) { return a.id === p.account; })[0] || {}).name;
+    var h = '<div class="bk-preview">' + (an ? '<div class="muted small">Account: ' + esc(an) + '</div>' : '') + '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> (' + (o.type === 'limit' ? 'limit ' + usd(o.limit_price, true) : 'market') + ', ' + (o.time_in_force === 'gtc' ? 'good till cancelled' : 'today only') + ')' +
       '<br>Worth about <strong>' + usd(p.estimate, true) + '</strong>' + (p.price ? ' at ' + usd(p.price, true) + ' a share' : '') + (p.commission != null ? '; estimated commission ' + usd(p.commission, true) : '') + '.' +
       (p.notes && p.notes.length ? '<div class="bk-warn">' + p.notes.map(esc).join('<br>') + '</div>' : '') +
       '<form data-act="send" class="inline bk-step"><label>To send this REAL-MONEY order, type its symbol (' + esc(o.symbol) + ')<input name="confirm" autocomplete="off" style="width:110px; text-transform:uppercase"></label> ' +
@@ -264,7 +292,7 @@ _JS = r"""
     $('bk-preview').innerHTML = h;
   }
   function showAck(r) {
-    LAST = {token: r.token, order: LAST ? LAST.order : null};
+    LAST = {token: r.token, order: LAST ? LAST.order : null, account: LAST ? LAST.account : ACCOUNT};
     $('bk-preview').innerHTML = '<div class="bk-preview"><p class="bk-danger">Interactive Brokers asked a question before accepting this order. Nothing has been sent yet.</p>' +
       '<div class="bk-warn">' + r.messages.map(esc).join('<br>') + '</div>' +
       '<p><button type="button" class="primary" style="background:#c94a4a;" data-act="ack">Send anyway</button> <button type="button" data-act="discard">Cancel this order</button></p></div>';
@@ -280,25 +308,25 @@ _JS = r"""
     var act = b.dataset.act;
     if (act === 'disarm') { postJSON('/api/alpaca/live/disarm', {}).then(function () { load(); }).catch(err); }
     else if (act === 'sell') {
-      var f = $('bk-form'); f.symbol.value = b.dataset.sym; f.side.value = 'sell'; f.qty.value = b.dataset.qty;
+      var f = $('bk-form'); if (b.dataset.acct) { f.account.value = b.dataset.acct; } f.symbol.value = b.dataset.sym; f.side.value = 'sell'; f.qty.value = b.dataset.qty;
       $('bk-ticket-card').scrollIntoView({behavior: 'smooth', block: 'start'});
       say('bk-ticket-note', 'Selling ' + b.dataset.qty + ' ' + b.dataset.sym + '. Change the number to sell fewer; pick Limit and a price to sell only at that price or better. Nothing is sent until you preview and confirm.');
     }
     else if (act === 'buy') {
-      var fb = $('bk-form'); fb.symbol.value = b.dataset.sym; fb.side.value = 'buy'; fb.qty.value = '1';
+      var fb = $('bk-form'); if (b.dataset.acct) { fb.account.value = b.dataset.acct; } fb.symbol.value = b.dataset.sym; fb.side.value = 'buy'; fb.qty.value = '1';
       $('bk-ticket-card').scrollIntoView({behavior: 'smooth', block: 'start'});
       say('bk-ticket-note', 'Buying ' + b.dataset.sym + ' in this account. Set the number of shares; pick Limit and a price to buy only at that price or lower. Nothing is sent until you preview and confirm.');
     }
     else if (act === 'cancel') {
       if (!confirm('Cancel this order?')) { return; }
-      postJSON('/api/broker/cancel', {broker: BROKER, account: ACCOUNT, order_id: b.dataset.id}).then(function () { load(); }).catch(err);
+      postJSON('/api/broker/cancel', {broker: BROKER, account: b.dataset.acct || ACCOUNT, order_id: b.dataset.id}).then(function () { load(); }).catch(err);
     }
     else if (act === 'discard') { LAST = null; $('bk-preview').innerHTML = ''; }
     else if (act === 'ack') {
-      postJSON('/api/broker/order', {broker: BROKER, account: ACCOUNT, token: LAST.token, confirm_symbol: LAST.order.symbol}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
+      postJSON('/api/broker/order', {broker: BROKER, account: LAST.account || ACCOUNT, token: LAST.token, confirm_symbol: LAST.order.symbol}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
     }
     else if (act === 'refresh') { load(); }
-    else if (act === 'toggle') { toggleLots(b.dataset.sym); }
+    else if (act === 'toggle') { toggleLots(b.dataset.acct, b.dataset.sym); }
     else if (act === 'expandall') { expandAll(); }
     else if (act === 'collapseall') { EXP = {}; redraw(); }
     else if (act === 'lotscsv') { downloadLots(); }
@@ -316,14 +344,14 @@ _JS = r"""
     ev.preventDefault();
     if (act === 'arm') { postJSON('/api/alpaca/live/arm', {phrase: f.phrase.value, stay_on: f.stay.checked, broker: BROKER}).then(function () { load(); }).catch(err); }
     else if (act === 'send') {
-      postJSON('/api/broker/order', {broker: BROKER, account: ACCOUNT, token: LAST.token, confirm_symbol: f.confirm.value}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
+      postJSON('/api/broker/order', {broker: BROKER, account: LAST.account || ACCOUNT, token: LAST.token, confirm_symbol: f.confirm.value}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
     }
   });
   document.addEventListener('DOMContentLoaded', function () {
     var f = $('bk-form');
     f.addEventListener('submit', function (ev) {
       ev.preventDefault(); say('bk-ticket-note', '');
-      postJSON('/api/broker/preview', {broker: BROKER, account: ACCOUNT, order: order()}).then(showPreview).catch(function (e) { $('bk-preview').innerHTML = ''; say('bk-ticket-note', e.message, true); });
+      postJSON('/api/broker/preview', {broker: BROKER, account: f.account.value || ACCOUNT, order: order()}).then(function (p) { p.account = f.account.value || ACCOUNT; showPreview(p); }).catch(function (e) { $('bk-preview').innerHTML = ''; say('bk-ticket-note', e.message, true); });
     });
     var sym = new URLSearchParams(location.search).get('symbol'); if (sym) { f.symbol.value = sym.toUpperCase(); }
     f.type.addEventListener('change', function () { f.limit_price.disabled = f.type.value !== 'limit'; });
@@ -340,6 +368,7 @@ _TICKET = """
 <h3 style="margin-top:0;">Order ticket</h3>
 <p class="muted">Whole shares only. You will see the order priced first, then confirm it by typing the symbol. Nothing is sent until you do.</p>
 <form id="bk-form" class="bk-ticket">
+  <label>Account<select name="account"></select></label>
   <label>Symbol<input name="symbol" autocomplete="off" style="width:100px; text-transform:uppercase" required></label>
   <label>Action<select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
   <label>Shares<input name="qty" type="number" min="1" step="1" style="width:90px" required></label>
@@ -356,8 +385,7 @@ _TICKET = """
 
 def _ibkr_connect_html(url: str) -> str:
     return f"""
-<div class="card">
-<h3 style="margin-top:0;">Connect Interactive Brokers</h3>
+<details class="card fold" id="bk-connect"><summary><strong>Connect Interactive Brokers</strong> <span class="muted small">(gateway, sign-in and settings &mdash; click to show)</span></summary>
 <p class="muted">IBKR connects through its own <strong>Client Portal Gateway</strong>, a small Java program that runs on this computer and comes with this app.
 It starts by itself when this app starts (you can turn that off below) and listens only on this computer, on a port private to this app. If it is not running, press <strong>Start gateway</strong> and wait about 10 seconds, then press <strong>Sign in to IBKR</strong>: IBKR's own sign-in page opens in your browser
 (it may warn about the certificate; that is normal for this local program, so continue past it). Your IBKR password goes only to IBKR's gateway, never to this app.
@@ -372,7 +400,7 @@ The gateway signs you out after a while, and when it does this page tells you to
   <button type="submit">Save and check</button>
   <button type="button" data-act="refresh">Check connection</button>
 </form>
-</div>
+</details>
 <script>
 (function () {{
   function $(id) {{ return document.getElementById(id); }}
@@ -418,9 +446,10 @@ def _etrade_connect_html(state: dict) -> str:
 <div id="et-code" hidden><p class="status-line status-ok">A sign-in page was opened. Approve it, then paste the code E*TRADE shows.
 <a id="et-link" target="_blank" rel="noopener noreferrer" href="#">Open the sign-in page again</a></p>
 <form class="inline" id="et-finish"><label>Verification code<input name="verifier" autocomplete="off" style="width:140px" required></label> <button type="submit" class="primary">Finish</button></form></div></div>"""
+    signed = bool(state.get("has_keys") and state.get("has_session"))
+    status = "signed in" if signed else ("press Connect" if state.get("has_keys") else "add your keys")
     return f"""
-<div class="card">
-<h3 style="margin-top:0;">Connect E*TRADE</h3>
+<details class="card fold" id="bk-connect"{"" if signed else " open"}><summary><strong>Connect E*TRADE</strong> <span class="muted small">({status} &mdash; click to {"hide" if not signed else "show"})</span></summary>
 <p class="muted">Get a <strong>consumer key and secret</strong> from E*TRADE's developer page (developer.etrade.com): use the <strong>production</strong> key
 (this app does not use sandbox keys). It is stored in the macOS Keychain, never in the database.
 Your E*TRADE password goes only to E*TRADE. <strong>E*TRADE does not cover orders sent through its API under its Customer Protection Guarantee.</strong></p>
@@ -431,7 +460,7 @@ Your E*TRADE password goes only to E*TRADE. <strong>E*TRADE does not cover order
   <button type="submit">{'Replace keys' if state.get('has_keys') else 'Save keys'}</button>
 </form>
 {steps}
-</div>
+</details>
 <script>
 (function () {{
   function $(id) {{ return document.getElementById(id); }}

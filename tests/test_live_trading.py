@@ -55,18 +55,23 @@ class TestArmingAndLimits(TempConfigTestCase):
         self.assertEqual((LT.per_order_limit(), LT.daily_limit()), (LT.DEFAULT_PER_ORDER, LT.DEFAULT_DAILY))
         LT.set_limits(500, 1500)
         self.assertEqual((LT.per_order_limit(), LT.daily_limit()), (500.0, 1500.0))
-        for per_order, daily in ((0, 100), (100, 0), (LT.PER_ORDER_CEILING + 1, LT.DAILY_CEILING),
-                                 (100, LT.DAILY_CEILING + 1), (2000, 1000), ("x", 5), (None, None)):
+        for per_order, daily in ((0, 100), (100, 0), (2000, 1000), ("x", 5), (0.5, 5)):
             with self.subTest(per_order=per_order, daily=daily):
                 with self.assertRaises(ValueError):
                     LT.set_limits(per_order, daily)
         self.assertEqual((LT.per_order_limit(), LT.daily_limit()), (500.0, 1500.0))
 
-    def test_a_tampered_limit_is_held_to_the_ceiling(self):
-        db.set_meta("live_trading_per_order_limit", "9999999")
-        db.set_meta("live_trading_daily_limit", "9999999")
-        self.assertEqual((LT.per_order_limit(), LT.daily_limit()), (LT.PER_ORDER_CEILING, LT.DAILY_CEILING))
-        db.set_meta("live_trading_daily_limit", "garbage")
+    def test_there_is_no_built_in_ceiling_and_either_limit_can_be_switched_off(self):
+        LT.set_limits(250_000, 1_000_000)                       # far above the old $25,000 / $50,000 maximums
+        self.assertEqual((LT.per_order_limit(), LT.daily_limit()), (250_000.0, 1_000_000.0))
+        LT.set_limits(None, 5000)
+        self.assertFalse(LT.is_limited(LT.per_order_limit()))
+        self.assertIsNone(LT.as_json(LT.per_order_limit()))
+        self.assertEqual(LT.daily_limit(), 5000.0)
+        LT.set_limits("none", None)
+        self.assertFalse(LT.is_limited(LT.daily_limit()))
+        self.assertFalse(LT.is_limited(LT.daily_remaining()))   # nothing is ever "used up"
+        db.set_meta("live_trading_daily_limit", "garbage")      # an unreadable saved value falls back to the default, not to "none"
         self.assertEqual(LT.daily_limit(), LT.DEFAULT_DAILY)
 
     def test_the_daily_total_counts_only_today(self):
