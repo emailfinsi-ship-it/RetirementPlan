@@ -114,3 +114,7 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Investment balance chart: All / None / Total only buttons and click-a-name to show or hide lines; scale re-fits.
 
 - Earnings card is now "Earnings this week and next": two weeks, held stocks checked from the largest position down (up to 150 tickers), biggest holding first within each day, each chip tagged with its share of your stock holdings.
+
+- Quote card: "Add to watchlist" button next to Trade (toggles to "On your watchlist"); the watchlist's separate "Add tickers" box was removed.
+
+- Stock Analysis: the Watchlist and Earnings cards start collapsed (click the title to expand) and show a short count.

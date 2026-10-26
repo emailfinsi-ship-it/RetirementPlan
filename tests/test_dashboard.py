@@ -201,12 +201,13 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertEqual(resp.status, 404)
 
     def test_expense_nav_label_and_title_reflect_income_and_expense(self):
-        # The tab covers both Expense and Income line-item sections (see
-        # _render_expense_page), so its nav label/title says so rather
-        # than just "Expense".
+        # The page covers both Expense and Income line-item sections (see
+        # _render_expense_page), so its section label/title says so rather
+        # than just "Expense". It sits under the My Plan tab.
         resp = self._get("/expense.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/expense.html" class="active">.*<span class="nl">Income &amp; Expenses</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertIn('<a href="/expense.html" class="active">Income &amp; Expenses</a>', body)
         self.assertIn("<title>" + branding.PRODUCT_NAME + " — Income &amp; Expenses</title>", body)
 
     def test_monte_carlo_page_renders_with_no_data(self):
@@ -238,25 +239,33 @@ class TestPagesRenderWithEmptyState(DashboardTestCase):
         self.assertIn('id="wi-spend"', mc)
         self.assertLess(mc.index('id="wi-spend"'), mc.index('name="expected_return_pct"'))
 
-    def test_nav_has_nine_tabs_and_paired_pages_share_one(self):
+    def test_nav_has_three_tabs_plus_setup_and_grouped_pages_share_one(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertEqual(len(NAV_ITEMS), 9)  # the eight plan tabs + Trading
-        pairs = {
-            "/asset.html": ("/real-estate.html", "Real Estate"),
-            "/linked-accounts.html": ("/rebalance.html", "Risk &amp; Suggestions"),
-            "/real-expenditure.html": ("/budget-vs-actual.html", "Budget vs Actual"),
-            "/drawdown-planning.html": ("/legacy-planning.html", "Legacy Planning"),
+        self.assertEqual([label for _h, label in NAV_ITEMS], ["Today", "My Plan", "Explore", "Trading", "Setup"])
+        groups = {
+            "/linked-accounts.html": ["/linked-positions.html", "/asset.html", "/real-estate.html", "/expense.html",
+                                      "/real-expenditure.html", "/budget-vs-actual.html"],
+            "/monte-carlo.html": ["/rebalance.html", "/drawdown-planning.html", "/legacy-planning.html"],
         }
-        for first, (second, label) in pairs.items():
-            for path in (first, second):
+        for first, others in groups.items():
+            for path in [first] + others:
                 with self.subTest(path=path):
                     body = self._get(path).read().decode("utf-8")
                     self.assertIn(f'<a href="{first}" class="active">', body)  # same top-level tab lit
-                    self.assertIn(f'<a href="{second}"', body)
-                    self.assertIn(f'>{label}</a>', body)
-        # Unpaired tabs show no section row.
-        body = self._get("/monte-carlo.html").read().decode("utf-8")
+                    self.assertIn('<div class="subnav">', body)
+                    for other in others:
+                        self.assertIn(f'<a href="{other}"', body)
+        # Today and Setup show no section row.
+        body = self._get("/summary.html").read().decode("utf-8")
         self.assertNotIn('<div class="subnav">', body)
+
+    def test_my_plan_section_row_is_in_the_chosen_order(self):
+        body = self._get("/asset.html").read().decode("utf-8")
+        order = ["/linked-accounts.html", "/linked-positions.html", "/asset.html", "/real-estate.html",
+                 "/expense.html", "/real-expenditure.html", "/budget-vs-actual.html"]
+        sub = body.split('<div class="subnav">')[1]
+        positions = [sub.index(f'href="{h}"') for h in order]
+        self.assertEqual(positions, sorted(positions))
 
     def test_income_tab_explains_how_rental_income_is_taxed(self):
         body = self._get("/expense.html").read().decode("utf-8")
@@ -2045,7 +2054,7 @@ class TestLinkedPositionsPage(DashboardTestCase):
     def test_nav_includes_linked_positions_tab(self):
         resp = self._get("/linked-positions.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">Linked Accounts</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
         self.assertIn('href="/linked-positions.html" class="active">Positions</a>', body)
 
     def test_asset_page_no_longer_embeds_the_positions_table_but_links_to_it(self):
@@ -4083,7 +4092,8 @@ class TestLinkedAccountsPage(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         body = resp.read().decode("utf-8")
         self.assertIn("Linked Accounts", body)
-        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">Linked Accounts</span></a>')
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertIn('href="/linked-accounts.html" class="active">Accounts</a>', body)
 
     def test_shows_balance_donuts_and_a_sortable_total(self):
         resp = self._get("/linked-accounts.html")
@@ -5195,8 +5205,9 @@ class TestBudgetVsActualRouting(DashboardTestCase):
     def test_page_is_reachable_and_in_the_nav(self):
         body = self._get("/budget-vs-actual.html").read().decode("utf-8")
         self.assertIn("Budget vs Actual", body)
-        # Budget vs Actual lives under the Spending tab, next to Actual Spending.
-        self.assertRegex(body, r'href="/real-expenditure.html" class="active">.*<span class="nl">Spending</span></a>')
+        # Budget vs Actual lives under the My Plan tab, next to Actual Spending.
+        self.assertRegex(body, r'href="/linked-accounts.html" class="active">.*<span class="nl">My Plan</span></a>')
+        self.assertIn('href="/budget-vs-actual.html" class="active">Budget vs Actual</a>', body)
         self.assertIn('<div class="subnav">', body)
 
     def test_real_expenditure_page_links_to_it(self):
@@ -5877,7 +5888,7 @@ class TestLegacyPlanningPage(DashboardTestCase):
     def test_nav_includes_legacy_planning_tab(self):
         resp = self._get("/legacy-planning.html")
         body = resp.read().decode("utf-8")
-        self.assertRegex(body, r'href="/drawdown-planning.html" class="active">.*<span class="nl">Drawdown &amp; Legacy</span></a>')
+        self.assertRegex(body, r'href="/monte-carlo.html" class="active">.*<span class="nl">Explore</span></a>')
         self.assertIn('href="/legacy-planning.html" class="active">Legacy Planning</a>', body)
 
     def test_page_loads_with_no_data_at_all(self):
@@ -6218,6 +6229,28 @@ class TestStockAnalysisTab(DashboardTestCase):
         self.assertIn("Latest news about", body)
         self.assertIn('rel="noopener noreferrer"', body)                                      # headline links leave the app safely
 
+    def test_quote_header_has_add_to_watchlist_beside_trade_and_the_watchlist_has_no_add_form(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertNotIn('id="wl-form"', body)                                               # tickers are added from the quote card
+        self.assertNotIn(">Add tickers<", body)
+        head = body[body.index("'<span style=\"margin-left:auto;\">'"):]
+        self.assertLess(head.index("watchButton()"), head.index("tradeButton(d.symbol)"))     # watchlist button first, Trade beside it
+        self.assertIn("window.watchHas", body)                                               # the button knows if it is saved already
+        self.assertIn("window.quoteWatchSync", body)
+        self.assertIn("Add ' + cur.symbol + ' to watchlist", body)
+
+    def test_watchlist_and_earnings_cards_are_collapsed_until_clicked(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        for card_id in ("watchlist", "earnings-week"):
+            tag = body[body.index(f'<details class="card fold" id="{card_id}"'):].split(">", 1)[0]
+            self.assertNotIn(" open", tag)                       # closed by default; the summary line is the click target
+        self.assertIn("click to expand", body)
+        self.assertIn('id="quote"', body)                         # the quote card stays open
+
     def test_the_live_page_pre_fills_the_ticket_or_explains_why_it_cannot(self):
         from source.common import secrets_store
         secrets_store.set_alpaca_keys("AKX", "L1", mode="live")
@@ -6292,9 +6325,10 @@ class TestTradingTab(DashboardTestCase):
         with patch("urllib.request.urlopen", fake):
             return self._post("/api/alpaca-keys", {"key_id": "PKX", "secret": "S3"})
 
-    def test_trading_is_its_own_main_tab(self):
+    def test_trading_is_its_own_main_icon_next_to_explore(self):
         from source.webapp.render_helpers.shell import NAV_ITEMS
-        self.assertIn(("trading-live.html", "Trading"), NAV_ITEMS)
+        labels = [label for _h, label in NAV_ITEMS]
+        self.assertEqual(labels.index("Trading"), labels.index("Explore") + 1)
         body = self._get("/summary.html").read().decode("utf-8")
         self.assertIn('<a href="/trading-live.html"', body)          # the tab opens on the live account
         for url in ("/trading.html", "/trading-live.html"):          # and stays lit on either page
