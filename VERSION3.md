@@ -313,3 +313,8 @@ are not touched.
     ends it. The gateway's process number is saved, so after the app is reopened the Stop button can still stop a gateway an earlier run
     started (only a process whose command line is this app's gateway, `root/conf.yaml`, is ever stopped). The app also turns macOS
     quit signals into a clean exit. Code: `ibkr_gateway.start_with_app` / `adopt_orphan` / `stop`, `dashboard._quit_cleanly`.
+50. **Positions and tax lots in one table (E*TRADE).** Each stock in the Positions table has an arrow: click it to open that stock's lots
+    right under it (date bought, price paid per share, shares, today's and total gain, value), and click again to collapse. Rows start
+    collapsed. **Expand all lots** / **Collapse all** open and close every stock; sorting keeps each stock's lots with it. **Download
+    every lot, all accounts (CSV)** replaces the old separate lots table. The lot's Sell button fills the ticket with that lot's shares
+    (E*TRADE sells by the lot method set on your account). Code: `broker_page.py` (`lotRows`, `toggleLots`), `etrade.lots(symbol=)`.
