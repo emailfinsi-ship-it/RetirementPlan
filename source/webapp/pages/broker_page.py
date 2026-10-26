@@ -186,11 +186,13 @@ def _ibkr_connect_html(url: str) -> str:
     return f"""
 <div class="card">
 <h3 style="margin-top:0;">Connect Interactive Brokers</h3>
-<p class="muted">IBKR connects through its own <strong>Client Portal Gateway</strong>, a small program you run on this computer.
-Start it (in Terminal: <code>cd ~/clientportal &amp;&amp; bin/run.sh root/conf.yaml</code>, wherever you unzipped it), open its address in your browser
-(the port is the <code>listenPort</code> in its <code>root/conf.yaml</code>; IBKR's default is 5000, and this app also tries the usual alternatives) and sign in to your IBKR account there.
-Your IBKR password goes only to IBKR's gateway, never to this app. The gateway signs you out after a while, and when it does this page
-tells you to sign in again.</p>
+<p class="muted">IBKR connects through its own <strong>Client Portal Gateway</strong>, a small Java program that runs on this computer and comes with this app.
+Press <strong>Start gateway</strong>, wait about 10 seconds, then press <strong>Sign in to IBKR</strong>: IBKR's own sign-in page opens in your browser
+(it may warn about the certificate; that is normal for this local program, so continue past it). Your IBKR password goes only to IBKR's gateway, never to this app.
+The gateway signs you out after a while, and when it does this page tells you to sign in again. It needs Java (11 or newer is safest) installed on the Mac.</p>
+<p><button type="button" class="primary" id="gw-start">Start gateway</button>
+<a id="gw-signin" href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" class="pill-link"><button type="button">Sign in to IBKR</button></a>
+<button type="button" id="gw-stop">Stop gateway</button> <span id="gw-note" class="muted small"></span></p>
 <form class="inline" onsubmit="event.preventDefault();
   postJSON('/api/broker/ibkr/gateway', {{url: this.url.value}}).then(function() {{ brokerReload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>Gateway address (this computer only)<input name="url" value="{html.escape(url, quote=True)}" style="width:260px"></label>
@@ -198,6 +200,27 @@ tells you to sign in again.</p>
   <button type="button" data-act="refresh">Check connection</button>
 </form>
 </div>
+<script>
+(function () {{
+  function $(id) {{ return document.getElementById(id); }}
+  document.addEventListener('DOMContentLoaded', function () {{
+    var tries = 0;
+    function poll() {{
+      brokerReload();
+      if (tries++ < 6) {{ setTimeout(poll, 5000); }}
+    }}
+    $('gw-start').onclick = function () {{
+      $('gw-note').textContent = 'Starting\u2026';
+      postJSON('/api/broker/ibkr/start', {{}}).then(function (r) {{
+        $('gw-note').textContent = r.message; $('gw-signin').href = r.url; tries = 0; setTimeout(poll, 5000);
+      }}).catch(function (e) {{ $('gw-note').textContent = ''; alert(e.message); }});
+    }};
+    $('gw-stop').onclick = function () {{
+      postJSON('/api/broker/ibkr/stop', {{}}).then(function (r) {{ $('gw-note').textContent = r.stopped ? 'Stopped.' : 'This app did not start a gateway, so there is nothing to stop here.'; brokerReload(); }});
+    }};
+  }});
+}})();
+</script>
 """
 
 

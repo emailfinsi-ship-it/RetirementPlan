@@ -62,6 +62,10 @@ echo "Installing build dependencies..."
 "$BUILD_VENV/bin/python" -m pip install --no-compile -q -r requirements.txt "pyinstaller>=6.10"
 "$BUILD_VENV/bin/python" -m pip install -q --only-binary=:all: cryptography
 
+if [ ! -f vendor/clientportal/bin/run.sh ]; then
+  echo "vendor/clientportal (IBKR's Client Portal Gateway files) is missing -- copy your clientportal folder there first." >&2
+  exit 1
+fi
 echo "Running PyInstaller (a few minutes)..."
 rm -rf build dist "$SERVER_NAME.spec"
 # --collect-all on the packages most likely to hide files PyInstaller's static
@@ -85,6 +89,7 @@ rm -rf build dist "$SERVER_NAME.spec"
   --collect-all requests_cache \
   --collect-all frozendict \
   --add-data "source/webapp/static:source/webapp/static" \
+  --add-data "vendor/clientportal:vendor/clientportal" \
   run_app.py
 
 if [ ! -x "dist/$SERVER_NAME/$SERVER_NAME" ]; then
