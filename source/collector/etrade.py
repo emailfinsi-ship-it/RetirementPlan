@@ -229,9 +229,15 @@ def positions(c: Client, account: str) -> list[dict]:
             if str(p.get("positionType") or "LONG").upper() == "SHORT":
                 qty = -abs(qty)
             paid = _f(p.get("pricePaid"))
-            out.append({"position_id": str(p.get("positionId") or ""), "symbol": str(prod.get("symbol") or "").upper(), "name": str(p.get("symbolDescription") or ""), "qty": qty,
-                        "avg_cost": paid, "price": _f((p.get("Quick") or {}).get("lastTrade")), "market_value": _f(p.get("marketValue")),
-                        "gain": _f(p.get("totalGain"))})
+            quick = p.get("Quick") or {}
+            out.append({"position_id": str(p.get("positionId") or ""), "symbol": str(prod.get("symbol") or "").upper(),
+                        "name": str(p.get("symbolDescription") or ""), "qty": qty,
+                        "avg_cost": paid, "price": _f(quick.get("lastTrade")), "market_value": _f(p.get("marketValue")),
+                        "gain": _f(p.get("totalGain")), "gain_pct": _f(p.get("totalGainPct")),
+                        "change": _f(quick.get("change")), "change_pct": _f(quick.get("changePct")),
+                        "day_gain": _f(p.get("daysGain")), "day_gain_pct": _f(p.get("daysGainPct")),
+                        "pct_of_portfolio": _f(p.get("pctOfPortfolio")), "cost_basis": _f(p.get("totalCost")),
+                        "acquired": _day(p.get("dateAcquired"))})
     return sorted(out, key=lambda r: -(r["market_value"] or 0))
 
 
