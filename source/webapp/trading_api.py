@@ -77,8 +77,10 @@ def _handle(path: str, payload: dict) -> dict:
         lt.disarm()
         return {}
     if path == "/api/alpaca/live/limits":
+        if "per_order" not in payload or "daily" not in payload:
+            raise ValueError("Send both limits (use null for no limit).")      # a missing value must never mean "no limit"
         lt.set_limits(payload.get("per_order"), payload.get("daily"))
-        return {"per_order": lt.per_order_limit(), "daily": lt.daily_limit()}
+        return {"per_order": lt.as_json(lt.per_order_limit()), "daily": lt.as_json(lt.daily_limit())}
     # Stock Analysis tab: read-only market data. Prices are the same for either account, so
     # these use whichever saved keys are there (practice first) and never need arming.
     if path == "/api/alpaca/quote":

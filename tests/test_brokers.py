@@ -444,6 +444,18 @@ class BrokerApiCase(TempConfigTestCase):
     def arm(self):
         db.live_trading.arm(db.live_trading.CONFIRM_PHRASE)
 
+    def test_limits_are_one_setting_for_every_broker_and_can_be_removed(self):
+        out = self.post("/api/alpaca/live/limits", {"per_order": None, "daily": 400000})
+        self.assertEqual(out, {"per_order": None, "daily": 400000.0})
+        with self.assertRaises(ValueError):                                   # a missing value must never mean "no limit"
+            self.post("/api/alpaca/live/limits", {"daily": 100})
+        self.arm()
+        self.assertIsNone(self.post("/api/broker/data", {"broker": "ibkr"})["per_order"])
+        bc.check_size(90_000.0, max_notional=db.live_trading.per_order_limit(), daily_remaining=db.live_trading.daily_remaining())
+        db.live_trading.set_limits(1000, 5000)
+        with self.assertRaises(BrokerError):
+            bc.check_size(2000.0, max_notional=db.live_trading.per_order_limit(), daily_remaining=db.live_trading.daily_remaining())
+
     def test_keys_are_production_only_and_show_only_their_last_four(self):
         self.post("/api/broker/etrade/keys", {"consumer_key": "ABCDEF1234", "consumer_secret": "S", "sandbox": True})
         st = broker_api.etrade_state()
@@ -921,6 +933,17 @@ class TestBrokerPages(DashboardTestCase):
         page = self._get("/trading.html").read().decode("utf-8")
         self.assertIn('<a href="/trading-live.html" class="active">', page)
 
+    def test_setup_has_the_trading_limits_card_and_the_trading_page_points_to_it(self):
+        setup = self._get("/setup.html").read().decode("utf-8")
+        self.assertIn('id="live-limits"', setup)
+        self.assertIn("Alpaca, IBKR and E*TRADE together", setup)
+        self.assertIn("No limit", setup)
+        from source.webapp.pages import trading
+        alpaca_page = trading._live_controls_html()                            # the switch card shown on the Alpaca tab
+        self.assertNotIn("The highest limits this app allows", alpaca_page)
+        self.assertNotIn('name="per_order"', alpaca_page)                      # the form moved to Setup
+        self.assertIn("/setup.html#live-limits", alpaca_page)
+
     def test_ibkr_page_explains_the_gateway_and_holds_the_ticket(self):
         page = self._get("/ibkr.html").read().decode("utf-8")
         self.assertIn("Client Portal Gateway", page)
@@ -933,6 +956,13 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("Everything held, added up across accounts", page)
         self.assertIn("data-sortkey", page)                                        # every column heading sorts
         self.assertIn("function resort", page)
+        self.assertIn('id="bk-orders-', page)                                      # Orders is a collapsed section with a count
+        self.assertIn("ORDERS_OPEN = {}", page)
+        self.assertIn("__all__", page)                                             # "All accounts" choice
+        self.assertIn('name="account"', page)                                      # account picker on the order ticket
+        self.assertIn('id="bk-connect"', page)                                     # the Connect card is a collapsible section
+        self.assertIn("Live trading: ON", page)
+        self.assertNotIn("left today (shared with every broker)", page)
         self.assertIn("lot-toggle", page)                                          # click the arrow beside a stock to see its lots
         self.assertIn("data-act=\"expandall\"", page)
         self.assertIn("withStocks > 1", page)                                      # shown only when 2+ accounts hold stocks

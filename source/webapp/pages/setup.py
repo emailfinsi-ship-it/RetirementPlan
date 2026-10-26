@@ -99,6 +99,7 @@ def _render_setup_page() -> str:
         rules=db.list_category_rules(), category_options_html=category_options_html,
     )
     auto_sync_html = _auto_sync_card_html()
+    live_limits_html = _live_limits_card_html()
     rentcast_html = _rentcast_card_html(has_key=secrets_store.has_rentcast_api_key())
     plaid_credentials_html = "".join(
         _plaid_credentials_profile_html(profile=name, presence=presence.profiles[name]) for name in secrets_store.PROFILES
@@ -215,6 +216,7 @@ def _render_setup_page() -> str:
 {rentcast_html}
 {network_html}
 </details>
+{live_limits_html}
 {quit_html}
 
 <details class="card" style="padding:12px 16px;">
@@ -648,6 +650,39 @@ def _category_rules_card_html(*, rules: list[dict], category_options_html: str) 
 <tbody>{builtin_rows_html}</tbody>
 </table>
 </details>
+</div>
+"""
+
+
+def _live_limits_card_html() -> str:
+    """Setup page card for the real-money trading limits. One setting for every broker (Alpaca, IBKR, E*TRADE): the same
+    daily total is shared by all of them. Either limit can be switched off."""
+    lt = db.live_trading
+    per, daily = lt.per_order_limit(), lt.daily_limit()
+    spent = lt.spent_today()
+
+    def box(name: str, value: float, label: str) -> str:
+        none = not lt.is_limited(value)
+        shown = "" if none else f"{value:.0f}"
+        return (f'<label>{label} ($)<input name="{name}" type="number" min="1" step="1" value="{shown}" style="width:130px"'
+                f'{" disabled" if none else ""}></label>'
+                f'<label style="flex-direction:row; align-items:center; gap:6px;"><input type="checkbox" name="{name}_none" style="width:auto"'
+                f'{" checked" if none else ""} onchange="this.form.{name}.disabled = this.checked;"> No limit</label>')
+
+    return f"""
+<div class="card" id="live-limits">
+<h2 style="margin-top:0">Real-money trading limits</h2>
+<p class="muted">These apply to every real-money order sent from this app, on <strong>Alpaca, IBKR and E*TRADE together</strong>: the most one order
+may be worth, and the most that may be sent in a day (the daily total adds up all three). Turn a box to <em>No limit</em> to remove that limit.
+Sent today: <strong>${spent:,.2f}</strong>. Every order still needs a preview, retyping the symbol, and live trading switched on, and is written to the audit log.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/alpaca/live/limits', {{per_order: this.per_order_none.checked ? null : this.per_order.value, daily: this.daily_none.checked ? null : this.daily.value}})
+    .then(function() {{ location.reload(); }})
+    .catch(function(e) {{ alert(e.message); }});">
+  {box("per_order", per, "Most per order")}
+  {box("daily", daily, "Most per day")}
+  <button type="submit" class="primary">Save limits</button>
+</form>
 </div>
 """
 

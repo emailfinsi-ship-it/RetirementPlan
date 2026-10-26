@@ -138,3 +138,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - The IBKR gateway keeps running when FinSi quits (started only if not already up; only the Stop gateway button ends it), so quitting and reopening does not end your IBKR sign-in.
 
 - E*TRADE tab: Positions and tax lots in one table (arrow beside each stock opens its lots; Expand all / Collapse all; CSV of every lot in all accounts).
+
+- All accounts at once on the broker pages; no fixed live-order limits (set in Setup); Orders/Connect collapsible; live ON/OFF control.
