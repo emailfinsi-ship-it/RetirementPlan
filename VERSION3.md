@@ -298,3 +298,5 @@ are not touched.
     Code: `etrade.Client.json`, `ibkr_gateway.keepalive_once`.
 45. **E*TRADE sign-in is easier to read.** The tab says "Signed in" while a session is valid; pressing Connect again no longer drops the
     current session until the new one is confirmed; and when E*TRADE rejects a session the message includes E*TRADE's own reason.
+46. **Buy and Sell on every position** (IBKR and E*TRADE tabs): Buy fills the order ticket with that stock; Sell fills it with your shares.
+    "Everything held, added up across accounts" is now collapsed, and only appears when two or more accounts hold stocks.
