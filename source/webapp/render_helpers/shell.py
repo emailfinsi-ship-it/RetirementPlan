@@ -42,13 +42,20 @@ NAV_GROUPS = (
         ("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning"),
     ),
     (
-        ("trading-live.html", "Live Account"), ("stock-analysis.html", "Stock Analysis"),
-        ("trading.html", "Practice Account"),
+        ("trading-live.html", "Alpaca"), ("ibkr.html", "IBKR"), ("etrade.html", "E*TRADE"),
+        ("stock-analysis.html", "Stock Analysis"),
     ),
 )
 
+# Pages that belong to a group but are not offered in its row for now (the Alpaca practice account).
+_HIDDEN_GROUP_PAGES = {"trading.html": "trading-live.html"}
+
 
 def _group_for(active: str):
+    active_in_group = _HIDDEN_GROUP_PAGES.get(active, active)
+    for group in NAV_GROUPS:
+        if any(href == active_in_group for href, _ in group):
+            return group
     for group in NAV_GROUPS:
         if any(href == active for href, _ in group):
             return group

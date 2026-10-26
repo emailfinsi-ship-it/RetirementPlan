@@ -5,6 +5,8 @@ price / volume / RSI chart. Data comes from the /api/alpaca/quote route
 
 from __future__ import annotations
 
+import json
+
 from source.webapp.pages.quote_chart import CHART_CSS
 
 _PANEL_CSS = """
@@ -25,6 +27,12 @@ _PANEL_CSS = """
 .qp-track { position:relative; height:8px; border-radius:4px; background:color-mix(in srgb, var(--ink-muted) 30%, transparent); margin:6px 0 2px; }
 .qp-track i { position:absolute; top:-4px; width:4px; height:16px; border-radius:2px; background:var(--brand); }
 .qp-trackl { display:flex; justify-content:space-between; font-size:12px; color:var(--ink-muted); }
+.qp-trade { position:relative; display:inline-block; }
+.qp-trade > summary { list-style:none; cursor:pointer; display:inline-block; padding:7px 16px; border-radius:999px; background:var(--brand); color:#fff; font-weight:600; font-size:14px; }
+.qp-trade > summary::-webkit-details-marker { display:none; }
+.qp-trade-menu { position:absolute; right:0; z-index:20; min-width:170px; margin-top:6px; padding:8px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.18); display:flex; flex-direction:column; gap:4px; }
+.qp-trade-menu a { padding:6px 10px; border-radius:8px; font-weight:600; }
+.qp-trade-menu a:hover { background:var(--brand-soft); }
 .qp-watch.on { border-color:var(--success); color:var(--success); }
 .qp-pills { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
 .qp-rate { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:10px 0 4px; }
@@ -88,9 +96,17 @@ _PANEL_JS = """
       b.textContent = on ? '\\u2605 On your watchlist (click to remove)' : '\\u2606 Add ' + cur.symbol + ' to watchlist';
     });
   };
+  // Trade opens the order form of the account you pick. With one account it is a plain button; with several
+  // it is a small menu (Alpaca, IBKR, E*TRADE) so a real order always goes to the account you chose.
+  var TRADE_TARGETS = __TRADE_TARGETS__;
   function tradeButton(sym) {
-    return '<a href="/trading-live.html?symbol=' + encodeURIComponent(sym) + '" class="pill-link" title="Opens the live account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.">' +
-      '<button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
+    var q = '?symbol=' + encodeURIComponent(sym), tip = 'Opens that account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.';
+    if (TRADE_TARGETS.length === 1) {
+      return '<a href="' + TRADE_TARGETS[0][1] + q + '" class="pill-link" title="' + tip + '"><button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
+    }
+    return '<details class="qp-trade"><summary class="primary" title="' + tip + '">Trade ' + esc(sym) + ' \\u25BE</summary><div class="qp-trade-menu">' +
+      '<span class="muted small">Trade with\\u2026</span>' +
+      TRADE_TARGETS.map(function (t) { return '<a href="' + t[1] + q + '">' + esc(t[0]) + '</a>'; }).join('') + '</div></details> ';
   }
   function loadEarn(sym, tries) {
     postJSON('/api/earnings', {symbols: [sym]}).then(function (r) {
@@ -147,7 +163,7 @@ _PANEL_JS = """
       'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
       newsHtml(d) +
       '<p class="qp-actions">' + watchButton() + tradeButton(d.symbol) +
-      '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a></p>';
+      '</p>';
     document.getElementById('qp-out').innerHTML = h;
     window.quoteWatchSync();
     loadEarn(d.symbol, 0);
@@ -209,6 +225,22 @@ _PANEL_JS = """
 """
 
 
+def trade_targets() -> list[list[str]]:
+    """[[label, page], ...]: the real-money accounts the Trade button can open (Alpaca when its live keys are saved,
+    IBKR always since its gateway needs no saved secret, E*TRADE once its keys are saved)."""
+    from source.common import secrets_store
+    out = []
+    try:
+        if secrets_store.has_alpaca_keys(mode="live"):
+            out.append(["Alpaca", "/trading-live.html"])
+        out.append(["IBKR", "/ibkr.html"])
+        if secrets_store.has_broker_secret("etrade"):
+            out.append(["E*TRADE", "/etrade.html"])
+    except Exception:       # a locked Keychain must not break the page
+        out = [["Alpaca", "/trading-live.html"], ["IBKR", "/ibkr.html"]]
+    return out
+
+
 def quote_panel_html(mode: str = "auto") -> str:
     """``mode`` picks which saved Alpaca keys read the prices; \"auto\" prefers the practice keys."""
     return f"""
@@ -223,5 +255,5 @@ Looking things up never places an order and works even while live trading is off
 </form>
 <div id="qp-out"></div>
 </div>
-{_PANEL_JS.replace("__MODE__", mode)}
+{_PANEL_JS.replace("__MODE__", mode).replace("__TRADE_TARGETS__", json.dumps(trade_targets()))}
 """

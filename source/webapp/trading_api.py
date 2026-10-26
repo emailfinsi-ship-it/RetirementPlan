@@ -18,14 +18,15 @@ from datetime import date
 from source.collector import alpaca
 from source.common import db, secrets_store
 from source.collector import earnings
+from source.webapp import broker_api
 from source.webapp.pages import earnings_panel, quote_chart, watchlist
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
-    "/api/earnings", "/api/earnings/week",
-)
+    "/api/earnings", "/api/earnings/week", "/api/ratings",
+) + broker_api.ROUTES
 
 
 def _mode(payload: dict) -> str:
@@ -51,6 +52,8 @@ def handle(path: str, payload: dict) -> dict:
 
 def _handle(path: str, payload: dict) -> dict:
     lt = db.live_trading
+    if path in broker_api.ROUTES:          # the IBKR and E*TRADE tabs (same arming and limits, own module)
+        return broker_api.handle(path, payload)
     if path == "/api/alpaca-keys":
         mode = _mode(payload)
         keys = (str(payload.get("key_id") or "").strip(), str(payload.get("secret") or "").strip())
@@ -66,7 +69,7 @@ def _handle(path: str, payload: dict) -> dict:
             lt.disarm()  # no live keys, nothing to be armed
         return {}
     if path == "/api/alpaca/live/arm":
-        if not secrets_store.has_alpaca_keys(mode="live"):
+        if str(payload.get("broker") or "") not in broker_api.BROKERS and not secrets_store.has_alpaca_keys(mode="live"):
             raise ValueError("Save your live Alpaca keys first.")
         until = lt.arm(str(payload.get("phrase") or ""))
         return {"armed_until": until}
@@ -95,6 +98,21 @@ def _handle(path: str, payload: dict) -> dict:
             return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
         except (alpaca.AlpacaError, secrets_store.SecretNotFoundError, OSError, ValueError) as exc:
             return {"rows": watchlist.stored_rows(items, "Price not available right now."), "warning": str(exc) or exc.__class__.__name__}
+    if path == "/api/ratings":
+        # Technical rating and the numbers behind it for stocks you hold (read-only; same data as Stock Analysis).
+        syms = []
+        for raw in (payload.get("symbols") or [])[:40]:
+            try:
+                sym = db.watchlist.clean_symbol(raw)
+            except ValueError:
+                continue
+            if sym not in syms:
+                syms.append(sym)
+        if not syms:
+            return {"items": []}
+        keys, data_mode = quote_chart.market_data_source(payload.get("mode"))
+        rows = watchlist.build_rows([{"symbol": s_, "note": ""} for s_ in syms], keys, mode=data_mode)
+        return {"items": rows}
     if path == "/api/earnings":
         syms = []
         for raw in (payload.get("symbols") or [])[:earnings.MAX_SYMBOLS]:

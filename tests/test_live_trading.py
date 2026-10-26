@@ -322,6 +322,18 @@ class TestLivePage(TradingApiCase):
         self.assertIn("function sellPosition(", body)
         self.assertIn('id="ticket-note"', body)
 
+    def test_each_position_gets_a_rating_cell_and_the_hover_script(self):
+        self.connect_live()
+        self.fake.routes[("GET", "api.alpaca.markets/v2/positions")] = [
+            {"symbol": "AAPL", "qty": "3", "avg_entry_price": "300", "current_price": "344.5", "market_value": "1033.5",
+             "unrealized_pl": "133.5", "unrealized_plpc": "0.148"}]
+        body = _render_trading_page("live")
+        self.assertIn('<td data-rate-sym="AAPL">', body)
+        self.assertIn("<th>Rating</th>", body)
+        self.assertIn("/api/ratings", body)
+        self.assertIn("data-ctip-val", body)                         # the symbol's hover box is filled by the script
+        self.assertLess(body.index('data-rate-sym="AAPL"'), body.index("sellPosition('AAPL', 3)"))   # rating sits before Sell
+
     def test_the_sell_button_on_a_switched_off_live_page_points_to_the_switch(self):
         self.connect_live()
         self.fake.routes[("GET", "api.alpaca.markets/v2/positions")] = [

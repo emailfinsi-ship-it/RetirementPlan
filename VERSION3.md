@@ -242,3 +242,26 @@ are not touched.
 34. **Watchlist and Earnings cards start collapsed.** On Stock Analysis both cards show just their title (with a short count such as
     "5 stocks" or "3 tickers report in the next 2 weeks") and open when you click the title; they still load in the background so
     the counts are ready. Code: `<details class="card fold">` in `watchlist.py` and `earnings_panel.py`.
+
+35. **IBKR and E*TRADE tabs (real money), and the Practice tab hidden.** The Trading row is now Alpaca | IBKR | E*TRADE | Stock Analysis
+    (the Alpaca practice page still exists but is not offered for now). Each broker tab has: a connect card, account picker,
+    balances, positions with a **Sell** button and a technical **Rating**, open and recent orders with **Cancel**, and the same
+    preview-then-confirm ticket as Alpaca (type the symbol to send). All the safety rules are shared: live trading must be switched on
+    (the phrase works from any of these tabs), the per-order limit and the **daily limit count every broker together**, the account
+    sent by the page must be one the broker lists, a preview token works once for one broker and account, and every order is written
+    to the audit log with the broker's name (`live_order_log.broker`). *IBKR* connects through IBKR's own Client Portal Gateway on this
+    computer (address accepted only if it is localhost; you sign in to IBKR in your browser; if IBKR asks a question before accepting an
+    order the app shows it and waits for "Send anyway", it never answers for you). *E*TRADE* uses OAuth 1.0a: save your consumer key and
+    secret (Keychain), press Connect, approve in the browser and paste the code; the session ends every night. Code:
+    `collector/ibkr.py`, `collector/etrade.py`, `collector/broker_common.py`, `webapp/broker_api.py`, `pages/broker_page.py`. **Not yet
+    tried against the real brokers** (they cannot be reached from where this was built): the response shapes follow each broker's
+    published API and are tested with simulated responses, so first use should be read-only (balances and positions), then a small order.
+
+36. **Trade button chooses the account.** On the quote card the **Trade** button is a small menu (Alpaca, IBKR and, once its keys are
+    saved, E*TRADE) that opens that account's order form with the symbol filled in; with one account it stays a plain button.
+    The "Practice order" button was removed.
+
+37. **Rating beside each position, and analysis on hover.** The Alpaca Live Account, IBKR and E*TRADE position tables show a **Rating**
+    (Strong Buy to Strong Sell, the same technical rating as Stock Analysis) next to Sell, and hovering the symbol or the rating shows
+    the signals behind it (bullish and bearish count, RSI, MACD crossover, trends). Needs Alpaca market-data keys saved (practice or
+    live); without them the cell shows a dash. Code: `pages/position_ratings.py`, route `/api/ratings`.

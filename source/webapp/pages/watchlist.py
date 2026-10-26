@@ -55,6 +55,7 @@ def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
         "macd_sort": None if macd["state"] is None else (1 if macd["state"] == "above" else -1),
         "trend_short": trend[20]["direction"], "trend_medium": trend[50]["direction"], "trend_long": trend[200]["direction"],
         "rating": rating["label"], "rating_score": rating["ratio"] if rating["of"] else None,
+        "buy_votes": rating["buy_votes"], "sell_votes": rating["sell_votes"], "signal_count": rating["of"],
         "as_of": quote["as_of"],
     }
 

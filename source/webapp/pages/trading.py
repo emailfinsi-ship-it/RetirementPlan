@@ -12,6 +12,7 @@ from datetime import datetime
 
 from source.collector import alpaca
 from source.common import db, secrets_store
+from source.webapp.pages import position_ratings
 from source.webapp.render_helpers import _money, _shell
 
 _OPEN_STATUSES = {"new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding", "pending_replace"}
@@ -116,12 +117,12 @@ def _positions_html(positions: list[dict]) -> str:
         f"<td class=\"num\">{html.escape(_num(p['qty'], 4).rstrip('0').rstrip('.'))}</td>"
         f"<td class=\"num\">{_money(p['avg_entry_price'], cents=True)}</td>"
         f"<td class=\"num\">{_money(p['current_price'], cents=True)}</td>"
-        f"<td class=\"num\">{_money(p['market_value'], cents=True)}</td>{_gain_cell(p)}{_sell_cell(p)}</tr>"
+        f"<td class=\"num\">{_money(p['market_value'], cents=True)}</td>{_gain_cell(p)}{position_ratings.rating_cell(p['symbol'])}{_sell_cell(p)}</tr>"
         for p in positions
     )
     return (
         '<table><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Avg cost</th><th class="num">Price</th>'
-        f'<th class="num">Value</th><th class="num">Gain / loss</th><th></th></tr></thead><tbody>{rows}</tbody></table>'
+        f'<th class="num">Value</th><th class="num">Gain / loss</th><th>Rating</th><th></th></tr></thead><tbody>{rows}</tbody></table>'
     )
 
 
@@ -200,7 +201,7 @@ def _live_log_html(orders: list[dict] | None = None) -> str:
     if orders:
         db.live_trading.sync_statuses(orders)
     by_id = {o["id"]: o for o in orders or []}
-    rows = db.live_trading.list_live_orders(15)
+    rows = db.live_trading.list_live_orders(15, broker="alpaca")
     if not rows:
         return '<p class="muted">No real-money orders have been sent from this app yet.</p>'
     body = "".join(
@@ -390,6 +391,8 @@ def _render_trading_page(mode: str = "paper") -> str:
     if acct is not None:
         body += _account_card_html(acct, mode)
         body += f"<h3>Positions</h3>{_positions_html(positions)}"
+        if positions:
+            body += position_ratings.block()
         body += (
             '<p class="muted">Want to research a stock first? <a href="/stock-analysis.html">Stock Analysis</a> has quotes, '
             'charts, a buy / sell rating and your watchlist.</p>'

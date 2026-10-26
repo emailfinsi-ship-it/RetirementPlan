@@ -1,0 +1,302 @@
+"""E*TRADE (https://developer.etrade.com): balances, positions, quotes and orders for the E*TRADE tab.
+
+How it connects: E*TRADE uses OAuth 1.0a. You paste your own consumer key and secret (from E*TRADE's developer
+page), this program asks E*TRADE for a one-time sign-in link, you approve it in your browser and paste back the
+short code E*TRADE shows, and E*TRADE then gives this program a session. Your E*TRADE password never reaches this
+program. A session lasts until midnight US Eastern (and ends after two hours without use), so each day you start
+trading you connect again; that is E*TRADE's rule, not something this program can change.
+
+Orders follow source.collector.broker_common: E*TRADE's own preview is called first (it checks the order and gives
+a cost estimate), then a single-use token sends exactly that previewed order. E*TRADE states that its Customer
+Protection Guarantee does not cover orders sent through the API.
+
+Every network call goes through the client's ``opener`` so tests never touch E*TRADE. The response shapes follow
+E*TRADE's published API; the parsers are tolerant and anything unreadable becomes a plain-language error.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import re
+import secrets
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from source.collector import broker_common as bc
+from source.collector.broker_common import BrokerError
+
+LIVE_BASE = "https://api.etrade.com"
+SANDBOX_BASE = "https://apisb.etrade.com"
+AUTHORIZE_URL = "https://us.etrade.com/e/t/etws/authorize"
+
+book = bc.PreviewBook()
+
+
+def _enc(value) -> str:
+    return urllib.parse.quote(str(value), safe="~")
+
+
+def _f(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class Client:
+    def __init__(self, consumer_key: str, consumer_secret: str, token: str = "", token_secret: str = "", *,
+                 sandbox: bool = False, opener=None, timeout: float = 15.0, clock=time.time):
+        if not consumer_key or not consumer_secret:
+            raise BrokerError("Save your E*TRADE consumer key and secret first.")
+        self.ck, self.cs, self.token, self.ts = consumer_key, consumer_secret, token, token_secret
+        self.base = SANDBOX_BASE if sandbox else LIVE_BASE
+        self.opener = opener or urllib.request.urlopen
+        self.timeout, self.clock = timeout, clock
+
+    # -- OAuth 1.0a signing (HMAC-SHA1) --
+    def _auth_header(self, method: str, url: str, query: dict, extra: dict | None = None) -> str:
+        oauth = {"oauth_consumer_key": self.ck, "oauth_nonce": secrets.token_hex(16), "oauth_signature_method": "HMAC-SHA1",
+                 "oauth_timestamp": str(int(self.clock())), "oauth_version": "1.0"}
+        if self.token:
+            oauth["oauth_token"] = self.token
+        oauth.update(extra or {})
+        pairs = sorted((_enc(k), _enc(v)) for k, v in {**query, **oauth}.items())
+        base = "&".join([method.upper(), _enc(url), _enc("&".join(f"{k}={v}" for k, v in pairs))])
+        key = f"{_enc(self.cs)}&{_enc(self.ts)}"
+        oauth["oauth_signature"] = base64.b64encode(hmac.new(key.encode(), base.encode(), hashlib.sha1).digest()).decode()
+        return "OAuth " + ", ".join(f'{_enc(k)}="{_enc(v)}"' for k, v in sorted(oauth.items()))
+
+    def raw(self, method: str, path: str, *, query: dict | None = None, body=None, extra_oauth: dict | None = None) -> str:
+        query = {k: str(v) for k, v in (query or {}).items()}
+        url = self.base + path
+        full = url + ("?" + urllib.parse.urlencode(query, quote_via=urllib.parse.quote) if query else "")
+        headers = {"Authorization": self._auth_header(method, url, query, extra_oauth), "Accept": "application/json"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(full, data=data, headers=headers, method=method)
+        try:
+            with self.opener(req, timeout=self.timeout) as resp:
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            message = ""
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+                message = str((payload.get("Error") or {}).get("message") or "") if isinstance(payload, dict) else ""
+            except Exception:  # noqa: BLE001 -- no readable detail is fine
+                pass
+            if exc.code == 401:
+                raise BrokerError("E*TRADE says the session is not valid (it ends every night). Press Connect to sign in again.") from exc
+            if exc.code == 429:
+                raise BrokerError("E*TRADE's request limit was reached. Try again in a minute.") from exc
+            raise BrokerError(f"E*TRADE returned an error (HTTP {exc.code}). {message}".strip()) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise BrokerError("Couldn't reach E*TRADE. Check the internet connection.") from exc
+
+    def json(self, method: str, path: str, *, query: dict | None = None, body=None):
+        text = self.raw(method, path + ".json", query=query, body=body)
+        if not text.strip():
+            return {}
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise BrokerError("E*TRADE sent a response this program couldn't read.") from exc
+        if isinstance(data, dict) and isinstance(data.get("Error"), dict):
+            raise BrokerError(f"E*TRADE: {data['Error'].get('message') or 'request refused'}")
+        return data
+
+
+# ---- connecting ----
+
+def _form(text: str) -> dict:
+    return {k: v[0] for k, v in urllib.parse.parse_qs(text.strip()).items()}
+
+
+def start_login(consumer_key: str, consumer_secret: str, *, sandbox: bool = False, opener=None) -> dict:
+    """Step 1: asks E*TRADE for a one-time token. Returns it with the address the person opens to approve."""
+    c = Client(consumer_key, consumer_secret, sandbox=sandbox, opener=opener)
+    got = _form(c.raw("GET", "/oauth/request_token", extra_oauth={"oauth_callback": "oob"}))
+    if not got.get("oauth_token"):
+        raise BrokerError("E*TRADE did not give a sign-in token. Check the consumer key and secret (sandbox keys only work in sandbox).")
+    url = f"{AUTHORIZE_URL}?key={_enc(consumer_key)}&token={_enc(got['oauth_token'])}"
+    return {"request_token": got["oauth_token"], "request_secret": got.get("oauth_token_secret", ""), "authorize_url": url}
+
+
+def finish_login(consumer_key: str, consumer_secret: str, request_token: str, request_secret: str, verifier: str, *,
+                 sandbox: bool = False, opener=None) -> dict:
+    """Step 2: swaps the one-time token and the code E*TRADE displayed for a session."""
+    verifier = str(verifier or "").strip()
+    if not verifier:
+        raise BrokerError("Paste the verification code E*TRADE showed you.")
+    c = Client(consumer_key, consumer_secret, request_token, request_secret, sandbox=sandbox, opener=opener)
+    got = _form(c.raw("GET", "/oauth/access_token", extra_oauth={"oauth_verifier": verifier}))
+    if not got.get("oauth_token") or not got.get("oauth_token_secret"):
+        raise BrokerError("E*TRADE did not accept that code. Start the sign-in again and paste the new code.")
+    return {"token": got["oauth_token"], "token_secret": got["oauth_token_secret"]}
+
+
+def renew(c: Client) -> None:
+    """Keeps a session that has been idle alive (it is still cut off at midnight US Eastern)."""
+    c.raw("GET", "/oauth/renew_access_token")
+
+
+# ---- reading ----
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def list_accounts(c: Client) -> list[dict]:
+    data = c.json("GET", "/v1/accounts/list")
+    accounts = ((data.get("AccountListResponse") or {}).get("Accounts") or {}).get("Account")
+    out = []
+    for a in _as_list(accounts):
+        if str(a.get("accountStatus") or "ACTIVE").upper() != "ACTIVE" or str(a.get("institutionType") or "BROKERAGE").upper() != "BROKERAGE":
+            continue
+        key = str(a.get("accountIdKey") or "")
+        if key:
+            name = " ".join(x for x in (str(a.get("accountDesc") or a.get("accountName") or "").strip(), f"({a.get('accountId')})" if a.get("accountId") else "") if x)
+            out.append({"id": key, "name": name or key})
+    return out
+
+
+def summary(c: Client, account: str) -> dict:
+    data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/balance", query={"instType": "BROKERAGE", "realTimeNAV": "true"})
+    bal = data.get("BalanceResponse") or {}
+    comp = bal.get("Computed") or {}
+    rt = comp.get("RealTimeValues") or {}
+    return {"value": _f(rt.get("totalAccountValue")), "cash": _f(comp.get("cashAvailableForInvestment")),
+            "buying_power": _f(comp.get("cashBuyingPower")), "currency": "USD"}
+
+
+def positions(c: Client, account: str) -> list[dict]:
+    data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/portfolio", query={"count": 250})
+    out = []
+    for block in _as_list((data.get("PortfolioResponse") or {}).get("AccountPortfolio")):
+        for p in _as_list(block.get("Position")):
+            prod = p.get("Product") or {}
+            if str(prod.get("securityType") or "EQ").upper() != "EQ":
+                continue
+            qty = _f(p.get("quantity"))
+            if not qty:
+                continue
+            if str(p.get("positionType") or "LONG").upper() == "SHORT":
+                qty = -abs(qty)
+            paid = _f(p.get("pricePaid"))
+            out.append({"symbol": str(prod.get("symbol") or "").upper(), "name": str(p.get("symbolDescription") or ""), "qty": qty,
+                        "avg_cost": paid, "price": _f((p.get("Quick") or {}).get("lastTrade")), "market_value": _f(p.get("marketValue")),
+                        "gain": _f(p.get("totalGain"))})
+    return sorted(out, key=lambda r: -(r["market_value"] or 0))
+
+
+def _order_row(o: dict) -> dict:
+    detail = (_as_list(o.get("OrderDetail")) or [{}])[0]
+    inst = (_as_list(detail.get("Instrument")) or [{}])[0]
+    status = str(detail.get("status") or "").upper()
+    price_type = str(detail.get("priceType") or "").upper()
+    return {"id": str(o.get("orderId") or ""), "symbol": str((inst.get("Product") or {}).get("symbol") or "").upper(),
+            "side": str(inst.get("orderAction") or "").lower().replace("_", " "),
+            "qty": _f(inst.get("orderedQuantity") or inst.get("quantity")), "filled": _f(inst.get("filledQuantity")) or 0.0,
+            "type": "limit" if price_type == "LIMIT" else "market" if price_type == "MARKET" else price_type.lower(),
+            "limit_price": _f(detail.get("limitPrice")), "status": status.lower().replace("_", " "),
+            "open": status in ("OPEN", "PARTIAL", "INDIVIDUAL_FILLS", "PENDING", "OPEN_PENDING")}
+
+
+def open_orders(c: Client, account: str) -> list[dict]:
+    rows = []
+    for status_name in ("OPEN", "EXECUTED"):
+        try:
+            data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/orders", query={"status": status_name, "count": 25})
+        except BrokerError:
+            if status_name == "OPEN":
+                raise
+            continue
+        rows += [_order_row(o) for o in _as_list((data.get("OrdersResponse") or {}).get("Order"))]
+    return rows
+
+
+def last_price(c: Client, symbol: str) -> float | None:
+    data = c.json("GET", f"/v1/market/quote/{urllib.parse.quote(symbol)}")
+    for q in _as_list((data.get("QuoteResponse") or {}).get("QuoteData")):
+        price = _f((q.get("All") or {}).get("lastTrade"))
+        if price:
+            return price
+    return None
+
+
+# ---- trading ----
+
+def _order_request(clean: dict, client_order_id: str, preview_id=None) -> dict:
+    limit = clean["type"] == "limit"
+    order = {
+        "allOrNone": "false", "priceType": "LIMIT" if limit else "MARKET",
+        "orderTerm": "GOOD_UNTIL_CANCEL" if clean["time_in_force"] == "gtc" else "GOOD_FOR_DAY",
+        "marketSession": "REGULAR", "stopPrice": "", "limitPrice": f"{clean['limit_price']:.2f}" if limit else "",
+        "Instrument": [{"Product": {"securityType": "EQ", "symbol": clean["symbol"]}, "orderAction": clean["side"].upper(),
+                        "quantityType": "QUANTITY", "quantity": clean["qty"]}],
+    }
+    body = {"orderType": "EQ", "clientOrderId": client_order_id, "Order": [order]}
+    if preview_id is not None:
+        body["PreviewIds"] = [{"previewId": preview_id}]
+    return body
+
+
+def preview(c: Client, account: str, order: dict, *, max_notional=None, daily_remaining=None) -> dict:
+    clean = bc.clean_order(order)
+    cid = secrets.token_hex(8)
+    data = c.json("POST", f"/v1/accounts/{urllib.parse.quote(account)}/orders/preview",
+                  body={"PreviewOrderRequest": _order_request(clean, cid)})
+    resp = data.get("PreviewOrderResponse") or {}
+    ids = _as_list(resp.get("PreviewIds"))
+    if not ids or ids[0].get("previewId") in (None, ""):
+        raise BrokerError("E*TRADE did not accept that order for preview" + _messages(resp) + ".")
+    detail = (_as_list(resp.get("Order")) or [{}])[0]
+    price = clean["limit_price"] or last_price(c, clean["symbol"])
+    estimate = _f(detail.get("estimatedTotalAmount")) or (round(price * clean["qty"], 2) if price else None)
+    if estimate is None:
+        raise BrokerError("Couldn't work out what that order is worth, so its size can't be checked. Use a limit order with your own price.")
+    estimate = round(abs(estimate), 2)
+    bc.check_size(estimate, max_notional=max_notional, daily_remaining=daily_remaining)
+    token = book.issue({"broker": "etrade", "account": account, "order": clean, "estimate": estimate, "client_order_id": cid,
+                        "preview_id": ids[0]["previewId"]})
+    return {"order": clean, "price": price, "estimate": estimate, "commission": _f(detail.get("estimatedCommission")),
+            "notes": _messages(resp, plain=True), "token": token, "expires_in": bc.PREVIEW_SECONDS, "broker": "etrade"}
+
+
+def _messages(resp: dict, *, plain: bool = False):
+    msgs = []
+    for o in _as_list(resp.get("Order")):
+        for m in _as_list((o.get("messages") or {}).get("Message")):
+            if m.get("description"):
+                msgs.append(str(m["description"]))
+    if plain:
+        return msgs
+    return (": " + "; ".join(msgs)) if msgs else ""
+
+
+def place(c: Client, account: str, token: str, *, daily_remaining=None) -> dict:
+    entry = book.claim(token, broker="etrade", account=account)
+    if daily_remaining is not None and entry["estimate"] > daily_remaining:
+        raise BrokerError("That order would go over today's trading limit.")
+    data = c.json("POST", f"/v1/accounts/{urllib.parse.quote(account)}/orders/place",
+                  body={"PlaceOrderRequest": _order_request(entry["order"], entry["client_order_id"], entry["preview_id"])})
+    resp = data.get("PlaceOrderResponse") or {}
+    ids = _as_list(resp.get("OrderIds"))
+    if not ids or ids[0].get("orderId") in (None, ""):
+        raise BrokerError("E*TRADE did not confirm the order" + _messages(resp) + ". Check E*TRADE before trying again.")
+    return {"id": str(ids[0]["orderId"]), "status": "submitted", "estimate": entry["estimate"], **entry["order"], "broker": "etrade"}
+
+
+def cancel(c: Client, account: str, order_id: str) -> None:
+    order_id = str(order_id or "")
+    if not re.fullmatch(r"\d{1,20}", order_id):
+        raise BrokerError("That order id isn't valid.")
+    c.json("PUT", f"/v1/accounts/{urllib.parse.quote(account)}/orders/cancel", body={"CancelOrderRequest": {"orderId": int(order_id)}})
