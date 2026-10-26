@@ -45,6 +45,7 @@ from source.common.db.category_rules import (
 from source.common.db.net_worth_snapshots import list_net_worth_snapshots, record_snapshot
 from source.common.db import live_trading  # noqa: F401 -- db.live_trading.* (Trading tab's live-mode settings and audit log)
 from source.common.db import watchlist  # noqa: F401 -- db.watchlist.* (Stock Analysis tab's tickers)
+from source.common.db import earnings as earnings_db  # noqa: F401 -- db.earnings_db.* (cached next-earnings dates)
 from source.common.db.debt_balance_snapshots import (
     list_debt_balance_snapshots,
     record_debt_balance_snapshot,

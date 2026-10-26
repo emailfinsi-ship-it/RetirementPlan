@@ -502,6 +502,16 @@ CREATE TABLE IF NOT EXISTS watchlist (
     note TEXT NOT NULL DEFAULT ''
 );
 
+-- Next earnings report date per ticker (looked up from Yahoo Finance, refreshed about twice a day).
+-- next_date is NULL when the ticker has none to report (an ETF, say); last_date is the report date just gone by
+-- (kept so "this week" still lists a company that reported on Monday); checked_at says when we last asked.
+CREATE TABLE IF NOT EXISTS earnings_dates (
+    symbol TEXT PRIMARY KEY,
+    next_date TEXT,
+    last_date TEXT,
+    checked_at TEXT NOT NULL
+);
+
 -- Company names looked up once from Alpaca so Stock Analysis can show them without asking every time.
 CREATE TABLE IF NOT EXISTS symbol_names (
     symbol TEXT PRIMARY KEY,

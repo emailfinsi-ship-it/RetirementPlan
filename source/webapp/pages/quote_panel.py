@@ -79,6 +79,24 @@ _PANEL_JS = """
     return '<a href="/trading-live.html?symbol=' + encodeURIComponent(sym) + '" class="pill-link" title="Opens the live account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.">' +
       '<button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
   }
+  function loadEarn(sym, tries) {
+    postJSON('/api/earnings', {symbols: [sym]}).then(function (r) {
+      var el = document.getElementById('qp-earn'), it = r.items && r.items[0];
+      if (!el || cur.symbol !== sym) { return; }
+      if (it && it.date) {
+        var dd = new Date(it.date + 'T12:00:00');
+        el.className = it.days >= 0 && it.days <= 7 ? 'qp-down' : '';
+        el.textContent = dd.toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'}) +
+          ' (' + (it.days < 0 ? 'already reported this week' : it.days === 0 ? 'today' : it.days === 1 ? 'tomorrow' : 'in ' + it.days + ' days') + ')';
+      } else if (it && it.known) {
+        el.className = 'muted'; el.textContent = 'None scheduled (funds and ETFs do not report earnings)';
+      } else if (r.pending > 0 && tries < 3) {
+        setTimeout(function () { loadEarn(sym, tries + 1); }, 6000);
+      } else {
+        el.className = 'muted'; el.textContent = 'Not available right now';
+      }
+    }).catch(function () { var el = document.getElementById('qp-earn'); if (el) { el.textContent = 'Not available right now'; } });
+  }
   function macdText(m) {
     if (!m || !m.state) { return '<span class="muted">Not enough history</span>'; }
     var ago = m.bars_ago == null ? '' : (m.bars_ago === 0 ? 'today' : m.bars_ago === 1 ? 'yesterday' : m.bars_ago + ' trading days ago');
@@ -102,6 +120,7 @@ _PANEL_JS = """
     h += '<div class="qp-rate"><strong>Technical rating</strong><span class="qp-badge ' + badgeClass(r.label) + '">' + esc(r.label) + '</span>' +
       (r.of ? '<span class="muted">' + r.buy_votes + ' of ' + r.of + ' signals bullish, ' + r.sell_votes + ' bearish</span>' : '') + '</div>';
     h += '<p class="qp-macd"><strong>MACD crossover:</strong> ' + macdText(d.macd) + '</p>';
+    h += '<p class="qp-macd"><strong>Next earnings:</strong> <span id="qp-earn" class="muted">checking\\u2026</span></p>';
     h += '<div class="qp-cols"><div><ul class="qp-sig">' + r.signals.map(function (s) {
       return '<li><b class="' + (s.vote > 0 ? 'qp-up' : s.vote < 0 ? 'qp-down' : 'muted') + '">' + (s.vote > 0 ? '\\u25B2' : s.vote < 0 ? '\\u25BC' : '\\u25AC') + '</b><span><strong>' +
         esc(s.name) + '.</strong> ' + esc(s.text) + '</span></li>'; }).join('') + '</ul></div>' +
@@ -117,6 +136,7 @@ _PANEL_JS = """
       '<p class="qp-actions">' + tradeButton(d.symbol) + '<button type="button" id="qp-watch" onclick="quoteWatch()">\\u2606 Add ' + esc(d.symbol) + ' to watchlist</button> ' +
       '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a></p>';
     document.getElementById('qp-out').innerHTML = h;
+    loadEarn(d.symbol, 0);
     var hit = document.getElementById('qc-hit'); if (hit) { hit.addEventListener('mousemove', hover); hit.addEventListener('mouseleave', leave); }
   }
   function hover(e) {

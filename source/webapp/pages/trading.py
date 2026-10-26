@@ -96,6 +96,17 @@ def _gain_cell(p: dict) -> str:
     return f'<td class="num" style="color:{color};">{_signed_money(pl)}{pct}</td>'
 
 
+def _sell_cell(p: dict) -> str:
+    """A Sell button that fills the order form below (the person then picks Market or a Limit price and
+    previews it as usual -- nothing is sent from here). Whole shares only, as the form takes whole shares."""
+    qty = p.get("qty") or 0
+    if qty < 1:
+        return "<td></td>"
+    sym = html.escape(p["symbol"], quote=True)
+    return (f'<td class="num"><button type="button" class="sell-btn" title="Fill in the order form to sell {sym}" '
+            f'onclick="sellPosition(\'{sym}\', {qty:g})">Sell</button></td>')
+
+
 def _positions_html(positions: list[dict]) -> str:
     if not positions:
         return '<p class="muted">No positions yet. Place a practice order below to see it here.</p>'
@@ -105,12 +116,12 @@ def _positions_html(positions: list[dict]) -> str:
         f"<td class=\"num\">{html.escape(_num(p['qty'], 4).rstrip('0').rstrip('.'))}</td>"
         f"<td class=\"num\">{_money(p['avg_entry_price'], cents=True)}</td>"
         f"<td class=\"num\">{_money(p['current_price'], cents=True)}</td>"
-        f"<td class=\"num\">{_money(p['market_value'], cents=True)}</td>{_gain_cell(p)}</tr>"
+        f"<td class=\"num\">{_money(p['market_value'], cents=True)}</td>{_gain_cell(p)}{_sell_cell(p)}</tr>"
         for p in positions
     )
     return (
         '<table><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Avg cost</th><th class="num">Price</th>'
-        f'<th class="num">Value</th><th class="num">Gain / loss</th></tr></thead><tbody>{rows}</tbody></table>'
+        f'<th class="num">Value</th><th class="num">Gain / loss</th><th></th></tr></thead><tbody>{rows}</tbody></table>'
     )
 
 
@@ -176,7 +187,19 @@ One order may be at most {_money(per_order)}.</p>
 """
 
 
-def _live_log_html() -> str:
+def _log_status(row: dict, order: dict | None) -> str:
+    status = row["status"]
+    if order and order.get("filled_qty") and order.get("filled_avg_price") and status in ("filled", "partially_filled"):
+        return f"{status.replace('_', ' ')}: {order['filled_qty']:g} at {_money(order['filled_avg_price'], cents=True)}"
+    return status.replace("_", " ")
+
+
+def _live_log_html(orders: list[dict] | None = None) -> str:
+    """The real-money orders this app sent. Their status is refreshed from Alpaca's order list first
+    (an order is saved as "pending_new" when sent and fills afterwards); a filled order shows its fill."""
+    if orders:
+        db.live_trading.sync_statuses(orders)
+    by_id = {o["id"]: o for o in orders or []}
     rows = db.live_trading.list_live_orders(15)
     if not rows:
         return '<p class="muted">No real-money orders have been sent from this app yet.</p>'
@@ -184,7 +207,7 @@ def _live_log_html() -> str:
         f"<tr><td>{html.escape(r['placed_at'].replace('T', ' '))}</td><td>{html.escape(r['side'])}</td>"
         f"<td><strong>{html.escape(r['symbol'])}</strong></td><td class=\"num\">{r['qty']}</td>"
         f"<td>{html.escape(r['order_type'])}</td><td class=\"num\">{_money(r['estimate'], cents=True)}</td>"
-        f"<td>{html.escape(r['status'])}</td></tr>"
+        f"<td>{html.escape(_log_status(r, by_id.get(r['order_id'])))}</td></tr>"
         for r in rows
     )
     return (
@@ -203,6 +226,7 @@ _TICKET_FORM = """
   <label>Stays open<select name="time_in_force"><option value="day">Today only</option><option value="gtc">Until cancelled</option></select></label>
   <button type="submit" class="primary">Preview order</button>
 </form>
+<p id="ticket-note" class="muted small" style="margin:8px 0 0;"></p>
 <div id="ticket-price" class="status-line" style="margin-top:10px;"><span class="muted">Type a symbol to see its current price.</span></div>
 <div id="ticket-preview" style="margin-top:10px;"></div>
 """
@@ -272,6 +296,25 @@ function previewOrder(form) {
         '<button type="button" onclick="clearPreview()">Cancel</button>';
     }
   }).catch(function (e) { box.innerHTML = '<p class="status-line status-warn">' + esc(e.message) + '</p>'; });
+}
+// The Sell button beside a position: fill the order form with a sale of that stock (all the whole shares
+// held -- change the number to sell fewer), market type by default; the person picks Market or Limit and previews.
+function sellPosition(sym, held) {
+  var f = document.getElementById('ticket');
+  if (!f) {
+    var h = document.getElementById('ticket-hint');
+    if (h) { h.style.display = ''; h.textContent = 'To sell ' + sym + ', turn live trading on above; this page then opens the order form with the sale filled in.'; h.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+    return;
+  }
+  var whole = Math.max(1, Math.floor(held));
+  f.side.value = 'sell'; f.symbol.value = sym; f.qty.value = whole; setMarket();
+  var note = document.getElementById('ticket-note');
+  if (note) {
+    note.textContent = 'Selling ' + sym + ': set to ' + whole + (whole === 1 ? ' share' : ' shares') + ' (you hold ' + held + '). Change the number to sell fewer, ' +
+      'then choose Market (sell at the current price) or a Limit price (sell only at that price or better), and press Preview.' +
+      (held !== whole ? ' The form takes whole shares only, so a fraction of a share stays.' : '');
+  }
+  f.scrollIntoView({behavior: 'smooth', block: 'center'}); loadPrice(sym); f.qty.focus();
 }
 function clearPreview() { pendingToken = null; document.getElementById('ticket-preview').innerHTML = ''; }
 function confirmOrder() {
@@ -358,5 +401,5 @@ def _render_trading_page(mode: str = "paper") -> str:
             f'<p><button type="button" onclick="{html.escape(_disconnect_js(mode))}">Remove saved keys</button></p>'
         )
     if live:
-        body += f"<h3>Real-money orders sent from this app</h3>{_live_log_html()}"
+        body += f"<h3>Real-money orders sent from this app</h3>{_live_log_html(orders)}"
     return _shell(title="Trading", active=page, body=body)
