@@ -118,3 +118,7 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
 (name, amount, percent), the Investment balance chart and the Monte Carlo chart have labelled axes (the Investment
 chart also has dollar and date ticks, a guide line and a hover box listing every visible line), and the trend line
 and Monte Carlo hover boxes were restyled to match. One shared handler (`data-ctip` attributes) draws them.
+
+**Watchlist always shows what you saved.** The saved tickers and notes appear as soon as the Stock Analysis page opens
+(drawn from the database); if prices cannot be read the list is still shown with the reason, and it is also shown
+before any Alpaca keys are saved.
