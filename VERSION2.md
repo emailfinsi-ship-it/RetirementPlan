@@ -52,36 +52,35 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
   - The Simple/Full switch is removed; every tab and tool is always shown. The header button is now "Report Download". The Tutorial page lists the User guide above the video.
   - The tutorial video is now two videos (Setting up; A tour of every screen), narrated by an illustrated presenter named Fin instead of the robot. Every tab's "About this page" bar has a "Watch this screen" link that opens the screens video at that tab. A Quit button sits after the Theme button; the Setup Wizard is a banner at the top of Setup; the spreadsheet import is last on Setup.
 
-## Plain / Technical wording
-A **Wording** button in the header (next to Theme) switches every page between everyday words
-(the default) and the full financial wording. Page names never change and no number changes.
-The words live in `source/webapp/plain_rules.py`; `source/webapp/wording.py` applies them.
-Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11.0%", and more).
-
 - **Debt paydown over time (Assets & Debts).** A "Debt paydown over time" chart now sits right
-  under the Liabilities table. It follows every liability and every home mortgage (your share of
-  the loan) one point a day, with a "paid down $X since DATE" headline (falling is green). The
-  default line is All debts (liabilities plus mortgages); chips plot Liabilities, Home mortgages
-  or any single debt, in $ or % change. Each debt's own history starts the day this ships
-  (new table `debt_balance_snapshots`); the Liabilities total already had history. A workbook
-  re-import keeps the history of imported loans and properties (matched by name).
+    under the Liabilities table. It follows every liability and every home mortgage (your share of
+    the loan) one point a day, with a "paid down $X since DATE" headline (falling is green). The
+    default line is All debts (liabilities plus mortgages); chips plot Liabilities, Home mortgages
+    or any single debt, in $ or % change. Each debt's own history starts the day this ships
+    (new table `debt_balance_snapshots`, filled by the same daily capture as net worth); the
+    Liabilities total already had history. A workbook re-import keeps the history of imported
+    loans and properties (matched by name).
 
-- **Trading tab (Alpaca practice account).** A new *Trading* tab (owner login only) connects to your Alpaca **paper**
-  account: practice account value, cash, buying power, positions with gain/loss, and recent orders (open ones can
-  be cancelled). The order ticket is two steps: *Preview* prices and size-checks the order, then *Place practice
-  order* sends exactly that order once. Safety is in code: only Alpaca's paper host is ever used (live keys and
-  live trading are not supported), one order is limited to $25,000, and confirming needs a single-use token that
-  expires in 5 minutes. Keys are stored in the Keychain vault and checked before saving. Practice balances
-  are never counted in net worth or the plan.
+- **Trading tab (Alpaca practice account).** A new *Trading* tab (Explore menu, owner login only) connects to your
+    Alpaca **paper** account: practice account value, cash, buying power, positions with gain/loss, and recent orders
+    (open ones can be cancelled). A practice order ticket works in two steps: *Preview* prices and size-checks the
+    order, then *Place practice order* sends exactly that order once. Safety is built in code, not just the page:
+    the only host used for trading is Alpaca's paper host (live keys and live trading are not supported), one
+    order is limited to $25,000, a market order needs a recent price to be sized, and the confirm step needs a
+    single-use token that expires in 5 minutes. The key pair is stored in the Keychain vault, checked with Alpaca
+    before it is saved, and removable with *Disconnect*. Practice balances are never counted in net worth or the
+    plan. Code: `source/collector/alpaca.py`, `source/webapp/pages/trading.py`.
 
-- **Live (real-money) trading on the Trading tab.** The Trading tab now has two pages: the practice account and a
-  separate **Live account (REAL money)** page. Live keys are stored apart from the practice keys and checked with
-  Alpaca before saving. Live trading is **off** until you type `TRADE REAL MONEY`; it then stays on for 8 hours
-  and switches itself off (or turn it off any time). While it is on, every order needs *Preview*, then you must
-  **type the symbol again** to send it. You set a per-order limit and a per-day limit (defaults $2,000 and
-  $5,000; never more than $25,000 per order or $50,000 per day); the daily total counts what this app already
-  sent today, and every real-money order sent is recorded in a list on the page. Cancelling never needs the
-  switch, and removing the live keys also switches live trading off.
+  **Live (real-money) trading, added to the Trading tab.** *Trading* is now its own main icon next to
+  Explore, with two pages: the practice account and a separate **Live account (REAL money)** page. Live
+  keys are stored apart from the practice keys and checked with Alpaca before saving. Live trading is
+  **off** until you type `TRADE REAL MONEY`; it then stays on for 8 hours and switches itself off (or turn
+  it off any time). While it is on, every order still needs *Preview*, then you must **type the symbol again**
+  to send it. You set a per-order limit and a per-day limit (defaults $2,000 and $5,000; the app never allows
+  more than $25,000 per order or $50,000 per day), the daily total counts what this app already sent today,
+  and every real-money order sent is recorded in an audit list on the page. Cancelling an order never needs the
+  switch. Removing the live keys also switches live trading off. Code: `source/webapp/trading_api.py`,
+  `source/common/db/live_trading.py`.
 
 ## Summary quick glance and client report (also in version 3)
 
@@ -114,20 +113,4 @@ Grammar fixes apply in both modes (proper dash, "Total assets over time", "an 11
 
 - Investment balance chart: All / None / Total only buttons and click-a-name to show or hide lines; scale re-fits.
 
-**Graphs follow one standard.** The donut and bar charts show the same instant styled hover box as the Net Worth chart
-(name, amount, percent), the Investment balance chart and the Monte Carlo chart have labelled axes (the Investment
-chart also has dollar and date ticks, a guide line and a hover box listing every visible line), and the trend line
-and Monte Carlo hover boxes were restyled to match. One shared handler (`data-ctip` attributes) draws them.
-
-**Watchlist always shows what you saved.** The saved tickers and notes appear as soon as the Stock Analysis page opens
-(drawn from the database); if prices cannot be read the list is still shown with the reason, and it is also shown
-before any Alpaca keys are saved.
-
-**MACD crossover and a prettier stock chart.** The quote card and a new watchlist MACD column show whether MACD is above or
-below its signal line and the latest bullish / bearish crossover; the chart has a MACD panel with crossover triangles,
-softer styling and an instant hover box.
-
-**Earnings, compact watchlist, order status, Sell buttons.** The watchlist has a Next earnings column and the Stock Analysis tab an
-"Earnings this week" card (dates from Yahoo Finance via yfinance, cached); the watchlist table is compact (company name on hover,
-Note last); the real-money orders table now refreshes each order's status from Alpaca (filled orders no longer read "pending new");
-every position has a Sell button that fills the order form (Market or Limit).
+- Earnings card is now "Earnings this week and next": two weeks, held stocks checked from the largest position down (up to 150 tickers), biggest holding first within each day, each chip tagged with its share of your stock holdings.
