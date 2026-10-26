@@ -3,7 +3,7 @@
 Live trading is off until the owner types the confirmation phrase, switches
 itself off again after ``ARM_HOURS`` (unless the owner chose "keep on until I
 turn it off"), and is bounded by a per-order limit and
-a daily limit the owner sets (each capped by a ceiling in code). Every live
+a daily limit the owner sets in Setup (one setting for every broker; either can be "no limit"). Every live
 order that was sent is written to ``live_order_log``; the daily limit counts
 what that log says was already sent today. Practice (paper) trading uses none
 of this.
@@ -23,8 +23,7 @@ STAY_ON_DAYS = 3650  # "keep on until I turn it off": a far-future switch-off ti
 _PERSISTENT_AFTER = 30 * 86400
 DEFAULT_PER_ORDER = 2_000.0
 DEFAULT_DAILY = 5_000.0
-PER_ORDER_CEILING = 25_000.0
-DAILY_CEILING = 50_000.0
+NO_LIMIT = float("inf")      # stored as the word "none"; sent to pages as null
 
 _ARMED_UNTIL = "live_trading_armed_until"
 _PER_ORDER = "live_trading_per_order_limit"
@@ -67,35 +66,55 @@ def is_armed(*, now: float | None = None) -> bool:
     return armed_until(now=now) is not None
 
 
-def _limit(key: str, default: float, ceiling: float) -> float:
+def _limit(key: str, default: float) -> float:
+    raw = get_meta(key, default)
+    if str(raw).strip().lower() in ("none", "off", "unlimited", "inf"):
+        return NO_LIMIT
     try:
-        value = float(get_meta(key, default))
+        value = float(raw)
     except (TypeError, ValueError):
         return default
-    return min(max(value, 1.0), ceiling)
+    return value if value >= 1.0 else default
 
 
 def per_order_limit() -> float:
-    return _limit(_PER_ORDER, DEFAULT_PER_ORDER, PER_ORDER_CEILING)
+    """The most one real-money order may be worth, in dollars (``NO_LIMIT`` when the owner chose none)."""
+    return _limit(_PER_ORDER, DEFAULT_PER_ORDER)
 
 
 def daily_limit() -> float:
-    return _limit(_DAILY, DEFAULT_DAILY, DAILY_CEILING)
+    """The most that may be sent in one day across every broker (``NO_LIMIT`` when the owner chose none)."""
+    return _limit(_DAILY, DEFAULT_DAILY)
 
 
-def set_limits(per_order: float, daily: float) -> None:
+def is_limited(value: float) -> bool:
+    return value != NO_LIMIT
+
+
+def as_json(value: float):
+    """A limit as a page can read it: the dollar amount, or None for no limit."""
+    return value if is_limited(value) else None
+
+
+def _parse_limit(value, what: str) -> float:
+    if value is None or str(value).strip().lower() in ("", "none", "off", "unlimited", "inf"):
+        return NO_LIMIT
     try:
-        per_order, daily = float(per_order), float(daily)
+        number = float(value)
     except (TypeError, ValueError):
-        raise ValueError("Enter both limits as dollar amounts.") from None
-    if not 1 <= per_order <= PER_ORDER_CEILING:
-        raise ValueError(f"The per-order limit must be between $1 and ${PER_ORDER_CEILING:,.0f}.")
-    if not 1 <= daily <= DAILY_CEILING:
-        raise ValueError(f"The daily limit must be between $1 and ${DAILY_CEILING:,.0f}.")
-    if per_order > daily:
+        raise ValueError(f"Enter the {what} limit as a dollar amount, or choose no limit.") from None
+    if number < 1:
+        raise ValueError(f"The {what} limit must be at least $1, or choose no limit.")
+    return number
+
+
+def set_limits(per_order, daily) -> None:
+    """Saves the limits. ``None`` (or "none") for either means no limit."""
+    per_order, daily = _parse_limit(per_order, "per-order"), _parse_limit(daily, "daily")
+    if is_limited(per_order) and is_limited(daily) and per_order > daily:
         raise ValueError("The per-order limit can't be larger than the daily limit.")
-    set_meta(_PER_ORDER, f"{per_order:.2f}")
-    set_meta(_DAILY, f"{daily:.2f}")
+    set_meta(_PER_ORDER, f"{per_order:.2f}" if is_limited(per_order) else "none")
+    set_meta(_DAILY, f"{daily:.2f}" if is_limited(daily) else "none")
 
 
 def log_live_order(*, symbol: str, side: str, qty: int, order_type: str, estimate: float, order_id: str, status: str,
@@ -118,7 +137,8 @@ def spent_today(*, today: date | None = None) -> float:
 
 
 def daily_remaining(*, today: date | None = None) -> float:
-    return max(0.0, daily_limit() - spent_today(today=today))
+    limit = daily_limit()
+    return limit if not is_limited(limit) else max(0.0, limit - spent_today(today=today))
 
 
 def list_live_orders(limit: int = 20, broker: str | None = None) -> list[dict]:

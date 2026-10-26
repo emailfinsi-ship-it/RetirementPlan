@@ -157,6 +157,8 @@ def _live_controls_html() -> str:
     lt = db.live_trading
     until = lt.armed_until()
     spent, daily, per_order = lt.spent_today(), lt.daily_limit(), lt.per_order_limit()
+    per_text = _money(per_order) if lt.is_limited(per_order) else "no limit"
+    daily_text = _money(daily) if lt.is_limited(daily) else "no limit"
     if until is not None:
         if lt.is_persistent():
             how = "LIVE TRADING IS ON until you turn it off."
@@ -178,17 +180,10 @@ def _live_controls_html() -> str:
 </form>"""
     return f"""
 <div class="card" style="border:2px solid #c94a4a;">
-<h3 style="margin-top:0; color:#c94a4a;">Live trading switch and limits</h3>
+<h3 style="margin-top:0; color:#c94a4a;">Live trading switch</h3>
 {state}
-<p class="muted">Sent from this app today: <strong>{_money(spent, cents=True)}</strong> of the {_money(daily)} daily limit.
-One order may be at most {_money(per_order)}.</p>
-<form class="inline" onsubmit="event.preventDefault();
-  postJSON('/api/alpaca/live/limits', {{per_order: this.per_order.value, daily: this.daily.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
-  <label>Most per order ($)<input name="per_order" type="number" min="1" max="{lt.PER_ORDER_CEILING:.0f}" step="1" value="{per_order:.0f}" style="width:110px"></label>
-  <label>Most per day ($)<input name="daily" type="number" min="1" max="{lt.DAILY_CEILING:.0f}" step="1" value="{daily:.0f}" style="width:110px"></label>
-  <button type="submit">Save limits</button>
-</form>
-<p class="muted" style="margin-bottom:0;">The highest limits this app allows are {_money(lt.PER_ORDER_CEILING)} per order and {_money(lt.DAILY_CEILING)} per day.</p>
+<p class="muted" style="margin-bottom:0;">Sent from this app today (all brokers): <strong>{_money(spent, cents=True)}</strong>.
+Limits: {per_text} per order, {daily_text} per day. <a href="/setup.html#live-limits">Change the limits in Setup</a>.</p>
 </div>
 """
 

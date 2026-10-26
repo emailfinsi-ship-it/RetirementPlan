@@ -37,7 +37,7 @@ def money_text(value: float) -> str:
 
 
 def check_size(estimate: float, *, max_notional: float | None, daily_remaining: float | None) -> None:
-    limit = alpaca.MAX_ORDER_NOTIONAL if max_notional is None else min(alpaca.MAX_ORDER_NOTIONAL, max_notional)
+    limit = alpaca.MAX_ORDER_NOTIONAL if max_notional is None else max_notional      # the owner's limit from Setup (may be none)
     if estimate > limit:
         raise BrokerError(f"That order is worth about {money_text(estimate)}. One order here is limited to {money_text(limit)}.")
     if daily_remaining is not None and estimate > daily_remaining:
