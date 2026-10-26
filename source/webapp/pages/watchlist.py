@@ -42,6 +42,7 @@ def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
     rsi_now = next((v for v in reversed(ta.rsi([b["c"] for b in daily])) if v is not None), None)
     trend = {t["window"]: t for t in ta.trends(daily)}
     rating = ta.rating(daily)
+    macd = ta.macd_status(daily)
     week = ta.range_stats(daily[-253:], quote["price"])
     return {
         **base,
@@ -50,6 +51,8 @@ def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
         "volume": quote["volume"],
         "week_low": week["low"], "week_high": week["high"], "week_position": week["position"],
         "rsi": rsi_now,
+        "macd_state": macd["state"], "macd_cross": macd["cross"], "macd_ago": macd["bars_ago"],
+        "macd_sort": None if macd["state"] is None else (1 if macd["state"] == "above" else -1),
         "trend_short": trend[20]["direction"], "trend_medium": trend[50]["direction"], "trend_long": trend[200]["direction"],
         "rating": rating["label"], "rating_score": rating["ratio"] if rating["of"] else None,
         "as_of": quote["as_of"],
@@ -117,7 +120,7 @@ _JS = """
   var COLS = [
     ['symbol', 'Symbol', false], ['price', 'Price', true], ['change', 'Change', true], ['change_pct', 'Change %', true],
     ['day_position', 'Day range', true], ['week_position', '52-week range', true], ['volume', 'Volume', true],
-    ['rsi', 'RSI', true], ['trend_long', 'Trend', false], ['rating_score', 'Rating', true]
+    ['rsi', 'RSI', true], ['macd_sort', 'MACD', true], ['trend_long', 'Trend', false], ['rating_score', 'Rating', true]
   ];
   function sorted() {
     if (!sortKey) { return rows.slice(); }
@@ -145,18 +148,26 @@ _JS = """
       var act = '<td style="white-space:nowrap;"><a href="/trading-live.html?symbol=' + encodeURIComponent(r.symbol) + '" class="pill-link" title="Open the live order form for ' + s + '">' +
         '<button type="button" class="primary wl-trade">Trade</button></a> <button type="button" class="wl-x" title="Remove ' + s + '" onclick="watchRemove(\\'' + s + '\\')">\\u00D7</button></td>';
       if (r.pending && !r.error) {
-        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="9" class="muted">Loading prices\\u2026</td>' + note + act + '</tr>';
+        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="10" class="muted">Loading prices\\u2026</td>' + note + act + '</tr>';
       }
       if (r.error) {
-        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="9" class="muted">' + esc(r.error) + '</td>' + note + act + '</tr>';
+        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="10" class="muted">' + esc(r.error) + '</td>' + note + act + '</tr>';
       }
       var up = (r.change || 0) >= 0, cls = r.change == null ? '' : up ? 'qp-up' : 'qp-down';
+      var macdCell = '<span class="muted">--</span>';
+      if (r.macd_state) {
+        var recent = r.macd_cross && r.macd_ago != null && r.macd_ago <= 5, isUp = r.macd_state === 'above';
+        var when = r.macd_ago === 0 ? 'today' : r.macd_ago === 1 ? 'yesterday' : r.macd_ago + ' days ago';
+        macdCell = recent
+          ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '" title="MACD crossed its signal line ' + when + '">' + (r.macd_cross === 'bullish' ? '\\u25B2 Bullish' : '\\u25BC Bearish') + ' cross <span class="muted small">' + when + '</span></span>'
+          : '<span class="' + (isUp ? 'qp-up' : 'qp-down') + '" title="' + (r.macd_cross ? 'Last crossover: ' + r.macd_cross + ', ' + when : 'No crossover in the history') + '">' + (isUp ? '\\u25B2 Above signal' : '\\u25BC Below signal') + '</span>';
+      }
       var rsiCls = r.rsi == null ? '' : r.rsi <= 30 ? 'wl-rsi-lo' : r.rsi >= 70 ? 'wl-rsi-hi' : '';
       return '<tr><td><a href="#quote" class="wl-sym" title="Open the chart and rating" onclick="lookupQuote(\\'' + s + '\\'); return false;">' + s + '</a>' +
         (r.name ? '<div class="wl-name" title="' + esc(r.name) + '">' + esc(r.name) + '</div>' : '') + '</td>' +
         '<td class="num">' + usd(r.price) + '</td><td class="num ' + cls + '">' + signed(r.change) + '</td><td class="num ' + cls + '">' + signed(r.change_pct, '%') + '</td>' +
         '<td class="num">' + mini(r.day_low, r.day_high, r.day_position) + '</td><td class="num">' + mini(r.week_low, r.week_high, r.week_position) + '</td>' +
-        '<td class="num">' + vol(r.volume) + '</td><td class="num ' + rsiCls + '">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td>' +
+        '<td class="num">' + vol(r.volume) + '</td><td class="num ' + rsiCls + '">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td><td class="num wl-macd" style="white-space:nowrap;">' + macdCell + '</td>' +
         '<td class="num wl-trend">' + arrow(r.trend_short, 'Short term (about 1 month)') + arrow(r.trend_medium, 'Medium term (about 3 months)') + arrow(r.trend_long, 'Long term (about 1 year)') + '</td>' +
         '<td class="num"><span class="qp-badge ' + badgeClass(r.rating) + '" style="font-size:12px; padding:2px 10px;">' + esc(r.rating) + '</span></td>' + note + act + '</tr>';
     }).join('');
@@ -222,7 +233,7 @@ Reading prices never places an order.</p>
 </form>
 <p id="wl-status" class="muted small"></p>
 <div id="wl-out"></div>
-<p class="muted small">Rating counts moving-average, RSI, MACD and volume signals on daily prices. Trend arrows are short (about a month), medium (about 3 months) and long (about a year). Technical signals only, not advice.</p>
+<p class="muted small">Rating counts moving-average, RSI, MACD and volume signals on daily prices. The MACD column shows whether it is above or below its signal line and flags a crossover from the last 5 trading days. Trend arrows are short (about a month), medium (about 3 months) and long (about a year). Technical signals only, not advice.</p>
 </div>
 {js}
 """

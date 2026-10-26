@@ -122,3 +122,7 @@ and Monte Carlo hover boxes were restyled to match. One shared handler (`data-ct
 **Watchlist always shows what you saved.** The saved tickers and notes appear as soon as the Stock Analysis page opens
 (drawn from the database); if prices cannot be read the list is still shown with the reason, and it is also shown
 before any Alpaca keys are saved.
+
+**MACD crossover and a prettier stock chart.** The quote card and a new watchlist MACD column show whether MACD is above or
+below its signal line and the latest bullish / bearish crossover; the chart has a MACD panel with crossover triangles,
+softer styling and an instant hover box.
