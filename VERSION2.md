@@ -132,3 +132,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - IBKR / E*TRADE tabs: Buy and Sell buttons on every position; the "added up across accounts" table is collapsed and only shown when two or more accounts hold stocks.
 
 - IBKR / E*TRADE tabs: sortable positions table with every column of E*TRADE's portfolio view (change, day gain, total gain %, % of portfolio, rating).
+
+- IBKR tab: balances by currency (cash, stocks, rate to base) and each position shown in its own currency.

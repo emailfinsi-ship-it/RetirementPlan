@@ -57,11 +57,20 @@ class FakeIbkr:
             return Resp({"accounts": ["U111", "U222"], "aliases": {"U111": "Main", "U222": "IRA"}})
         if path == "/portfolio/accounts":
             return Resp([{"id": "U111"}])
+        if path.endswith("/ledger"):
+            return Resp({"USD": {"currency": "USD", "cashbalance": 1000.0, "stockmarketvalue": 2000.0, "netliquidationvalue": 3000.0,
+                                 "unrealizedpnl": 500.0, "exchangerate": 1},
+                         "EUR": {"currency": "EUR", "cashbalance": 500.0, "stockmarketvalue": 900.0, "netliquidationvalue": 1400.0,
+                                 "unrealizedpnl": 300.0, "exchangerate": 1.08},
+                         "CHF": {"currency": "CHF", "cashbalance": 0.0, "stockmarketvalue": 0.0, "netliquidationvalue": 0.0, "exchangerate": 1.1},
+                         "BASE": {"currency": "BASE", "cashbalance": 1540.0, "netliquidationvalue": 4512.0}})
         if path.endswith("/summary"):
             return Resp({"netliquidation": {"amount": 51000.5}, "totalcashvalue": {"amount": 1000.0}, "buyingpower": {"amount": 2000.0}})
         if "/positions/" in path:
             return Resp([{"ticker": "AAPL", "contractDesc": "AAPL", "position": 10, "mktPrice": 200, "mktValue": 2000, "avgCost": 150,
-                          "unrealizedPnl": 500, "assetClass": "STK", "conid": 265598},
+                          "unrealizedPnl": 500, "assetClass": "STK", "conid": 265598, "currency": "USD"},
+                         {"ticker": "SAP", "contractDesc": "SAP", "position": 5, "mktPrice": 180, "mktValue": 900, "avgCost": 120,
+                          "unrealizedPnl": 300, "assetClass": "STK", "conid": 14094, "currency": "EUR"},
                          {"ticker": "ESZ6", "position": 1, "assetClass": "FUT", "mktValue": 99999}]) if path.endswith("/0") else Resp([])
         if path.startswith("/trsrv/stocks"):
             return Resp({"AAPL": [{"name": "APPLE", "contracts": [{"conid": 1, "isUS": False}, {"conid": 265598, "isUS": True}]}]})
@@ -197,6 +206,13 @@ class TestIbkr(unittest.TestCase):
         self.assertFalse(out["connected"])
         self.assertIn("Start the Client Portal Gateway", out["message"])
 
+    def test_the_ledger_lists_each_currency_and_skips_empty_ones(self):
+        rows = ibkr.ledger(ibkr.Gateway(opener=FakeIbkr()), "U111")
+        self.assertEqual([r["currency"] for r in rows], ["USD", "EUR"])               # CHF is empty; BASE is only the sum
+        eur = rows[1]
+        self.assertEqual((eur["cash"], eur["stock_value"], eur["total"], eur["rate"]), (500.0, 900.0, 1400.0, 1.08))
+        self.assertAlmostEqual(eur["base_value"], 1512.0)
+
     def test_a_gateway_on_another_port_is_found_and_remembered(self):
         fake = FakeIbkr()
 
@@ -218,7 +234,7 @@ class TestIbkr(unittest.TestCase):
         self.assertEqual([a["id"] for a in ibkr.list_accounts(gw)], ["U111", "U222"])
         self.assertEqual(ibkr.summary(gw, "U111"), {"value": 51000.5, "cash": 1000.0, "buying_power": 2000.0, "currency": "USD"})
         pos = ibkr.positions(gw, "U111")
-        self.assertEqual([(p["symbol"], p["qty"], p["market_value"]) for p in pos], [("AAPL", 10.0, 2000.0)])   # futures skipped
+        self.assertEqual([(p["symbol"], p["qty"], p["market_value"]) for p in pos], [("AAPL", 10.0, 2000.0), ("SAP", 5.0, 900.0)])   # futures skipped
         orders = ibkr.open_orders(gw, "U111")
         self.assertEqual([(o["symbol"], o["side"], o["open"]) for o in orders], [("AAPL", "buy", True), ("MSFT", "sell", False)])
 
@@ -476,6 +492,13 @@ class TestBrokerRoutes(BrokerApiCase):
         with self.assertRaises(ValueError) as cm:
             self.post("/api/broker/lots", {"broker": "ibkr"})
         self.assertIn("average cost", str(cm.exception))
+
+    def test_ibkr_data_includes_currency_balances_and_each_position_in_its_own_currency(self):
+        out = self.post("/api/broker/data", {"broker": "ibkr"})
+        self.assertEqual([r["currency"] for r in out["currencies"]], ["USD", "EUR"])
+        sap = [p for p in out["positions"] if p["symbol"] == "SAP"][0]
+        self.assertEqual(sap["currency"], "EUR")
+        self.assertAlmostEqual(sap["base_value"], 972.0)
 
     def test_with_several_accounts_the_data_includes_every_account_and_the_totals(self):
         out = self.post("/api/broker/data", {"broker": "ibkr"})
@@ -859,7 +882,7 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
         self.assertIn("/api/broker/ibkr/start", page)
-        self.assertIn("<th>Rating</th>", page)                       # each position gets a rating and a hover analysis
+        self.assertIn("{k: 'rating', t: 'Rating'", page)                       # each position gets a rating and a hover analysis
         self.assertIn("/api/ratings", page)
 
     def test_etrade_page_explains_keys_and_the_daily_sign_in(self):
