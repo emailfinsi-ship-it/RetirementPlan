@@ -20,7 +20,7 @@ from source.common.db.meta import get_meta, set_meta
 ROUTES = (
     "/api/broker/data", "/api/broker/preview", "/api/broker/order", "/api/broker/cancel",
     "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/stop", "/api/broker/ibkr/autostart", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
-    "/api/broker/etrade/disconnect", "/api/broker/diagnose",
+    "/api/broker/etrade/disconnect", "/api/broker/diagnose", "/api/broker/lots",
 )
 
 BROKERS = ("ibkr", "etrade")
@@ -187,6 +187,32 @@ def _overview(mod, client, accounts: list[dict]) -> dict:
     return {"accounts": rows, "total": total, "holdings": holdings}
 
 
+def _all_lots(mod, client) -> dict:
+    """Every tax lot in every account this login can see, with totals per account and overall. An account that
+    fails is reported by name instead of hiding the others."""
+    rows, per_account, problems = [], [], []
+    keys = ("cost_basis", "market_value", "gain")
+    for acct in mod.list_accounts(client):
+        try:
+            got = mod.lots(client, acct["id"])
+        except BrokerError as exc:
+            problems.append(f"{acct['name']}: {exc}")
+            continue
+        for r in got:
+            rows.append({**r, "account": acct["name"]})
+        per_account.append({"account": acct["name"], "lots": len(got), **{k: sum(r[k] or 0.0 for r in got) for k in keys}})
+    by = {}
+    for r in rows:
+        t = by.setdefault(r["symbol"], {"symbol": r["symbol"], "qty": 0.0, "cost_basis": 0.0, "market_value": 0.0, "gain": 0.0, "lots": 0})
+        t["qty"] += r["qty"] or 0.0
+        t["cost_basis"] += r["cost_basis"] or 0.0
+        t["market_value"] += r["market_value"] or 0.0
+        t["gain"] += r["gain"] or 0.0
+        t["lots"] += 1
+    return {"lots": rows, "by_account": per_account, "by_symbol": sorted(by.values(), key=lambda t: -t["market_value"]),
+            "total": {k: sum(r[k] or 0.0 for r in rows) for k in keys}, "problems": problems}
+
+
 def _shape(obj, depth: int = 4):
     """The structure of a reply with every value left out (names, types and list lengths only), so it can be shown and
     shared without exposing balances, account numbers or tokens."""
@@ -271,7 +297,7 @@ def _handle(path: str, payload: dict) -> dict:
         if not sec.get("consumer_key") or not sec.get("consumer_secret"):
             raise BrokerError("Save your E*TRADE consumer key and secret first.")
         got = etrade.start_login(sec["consumer_key"], sec["consumer_secret"], opener=OPENERS["etrade"])
-        secrets_store.set_broker_secret("etrade", {**sec, "token": "", "token_secret": "",
+        secrets_store.set_broker_secret("etrade", {**sec,   # the current session is kept until the new one is confirmed
                                                    "request_token": got["request_token"], "request_secret": got["request_secret"]})
         return {"authorize_url": got["authorize_url"]}
     if path == "/api/broker/etrade/finish":
@@ -293,6 +319,11 @@ def _handle(path: str, payload: dict) -> dict:
 
     broker = _broker(payload)
     mod, client = _module(broker), _client(broker)
+    if path == "/api/broker/lots":
+        if not hasattr(mod, "lots"):
+            raise BrokerError("IBKR's gateway reports one average cost per position, not individual lots (IBKR gives lots only in its "
+                              "Flex reports). The Positions table shows that average cost.")
+        return _all_lots(mod, client)
     account = _account(broker, client, payload)
     if path == "/api/broker/cancel":
         _require_armed()

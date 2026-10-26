@@ -94,6 +94,9 @@ _JS = r"""
             '</td><td class="num">' + usd(p.price, true) + '</td><td class="num">' + usd(p.market_value, true) + '</td><td class="num ' + cls + '">' + (g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true)) + '</td><td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + sell + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
+    if (BROKER === 'etrade' && d.positions.length) {
+      h += '<p><button type="button" data-act="lots">Show tax lots and cost basis</button> <span id="bk-lots-note" class="muted small"></span></p><div id="bk-lots"></div>';
+    }
     h += '<h3>Orders</h3>';
     if (!d.orders.length) { h += '<p class="muted">No recent orders.</p>'; }
     else {
@@ -135,6 +138,37 @@ _JS = r"""
       '<div class="bk-warn">' + r.messages.map(esc).join('<br>') + '</div>' +
       '<p><button type="button" class="primary" style="background:#c94a4a;" data-act="ack">Send anyway</button> <button type="button" data-act="discard">Cancel this order</button></p></div>';
   }
+  var LOTS = null;
+  function showLots() {
+    say('bk-lots-note', 'Loading every lot in every account (one request per stock)\u2026');
+    postJSON('/api/broker/lots', {broker: BROKER, account: ACCOUNT}).then(function (r) {
+      LOTS = r; say('bk-lots-note', '');
+      var gl = function (g) { return g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true); };
+      var h = (r.problems || []).map(function (m) { return '<p class="status-line status-warn">' + esc(m) + '</p>'; }).join('') + '<h3>Tax lots, all accounts</h3><p class="muted small">Each row is one purchase. Cost basis is what you paid for those shares; gain is value now minus cost basis.</p>' +
+        '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Account</th><th>Symbol</th><th>Bought</th><th class="num">Shares</th><th class="num">Cost / share</th><th class="num">Cost basis</th><th class="num">Value now</th><th class="num">Gain / loss</th><th>Term</th></tr></thead><tbody>' +
+        r.lots.map(function (l) {
+          return '<tr><td>' + esc(l.account) + '</td><td><strong>' + esc(l.symbol) + '</strong></td><td>' + esc(l.acquired || '--') + '</td><td class="num">' + num(l.qty) + '</td><td class="num">' + usd(l.cost_per_share, true) + '</td><td class="num">' + usd(l.cost_basis, true) +
+            '</td><td class="num">' + usd(l.market_value, true) + '</td><td class="num ' + (l.gain == null ? '' : l.gain >= 0 ? 'qp-up' : 'qp-down') + '">' + gl(l.gain) + '</td><td>' + esc(l.term || '--') + '</td></tr>';
+        }).join('') +
+        r.by_account.map(function (a) {
+          return '<tr><td colspan="5">' + esc(a.account) + ' (' + a.lots + ' lots)</td><td class="num">' + usd(a.cost_basis, true) + '</td><td class="num">' + usd(a.market_value, true) + '</td><td class="num">' + gl(a.gain) + '</td><td></td></tr>';
+        }).join('') +
+        '<tr><td colspan="5"><strong>Total, all accounts</strong></td><td class="num"><strong>' + usd(r.total.cost_basis, true) + '</strong></td><td class="num"><strong>' + usd(r.total.market_value, true) + '</strong></td><td class="num"><strong>' + gl(r.total.gain) + '</strong></td><td></td></tr></tbody></table></div>' +
+        '<p><button type="button" data-act="lotscsv">Download as a spreadsheet (CSV)</button></p>';
+      $('bk-lots').innerHTML = h;
+    }).catch(function (e) { say('bk-lots-note', e.message, true); });
+  }
+  function downloadLots() {
+    if (!LOTS) { return; }
+    var nl = String.fromCharCode(10);
+    var rows = [['Account', 'Symbol', 'Bought', 'Shares', 'Cost per share', 'Cost basis', 'Value now', 'Gain', 'Term']].concat(LOTS.lots.map(function (l) {
+      return [l.account, l.symbol, l.acquired, l.qty, l.cost_per_share, l.cost_basis, l.market_value, l.gain, l.term];
+    }));
+    var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join(nl);
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+    a.download = 'tax-lots-' + BROKER + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
   function sent(r) {
     $('bk-preview').innerHTML = '<p class="status-line status-ok">Order sent: ' + esc(r.side) + ' ' + r.qty + ' ' + esc(r.symbol) + ' (' + esc(r.status) + '). Order id ' + esc(r.id) + '.</p>';
     LAST = null; load();
@@ -158,6 +192,8 @@ _JS = r"""
       postJSON('/api/broker/order', {broker: BROKER, account: ACCOUNT, token: LAST.token, confirm_symbol: LAST.order.symbol}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
     }
     else if (act === 'refresh') { load(); }
+    else if (act === 'lots') { showLots(); }
+    else if (act === 'lotscsv') { downloadLots(); }
     else if (act === 'diagnose') {
       var box = $('bk-diag'); box.hidden = false; box.textContent = 'Checking\u2026';
       postJSON('/api/broker/diagnose', {broker: BROKER}).then(function (r) {
@@ -264,7 +300,10 @@ def _etrade_connect_html(state: dict) -> str:
         saved = ('<p class="status-line status-warn">Only the consumer key (ending <strong>' + html.escape(state["key_hint"])
                  + '</strong>) is saved. The consumer secret is missing, so paste both again.</p>')
     if state.get("has_keys"):
-        steps = """
+        if state.get("has_session"):
+            steps = """
+<p class="status-line status-ok">Signed in to E*TRADE. This stays signed in while you move around the app; E*TRADE ends it at midnight US Eastern.</p>"""
+        steps += """
 <div class="bk-step"><p class="muted">Each day you trade, press <strong>Connect</strong>: E*TRADE opens a sign-in page, you approve it, and E*TRADE shows a short code to paste back here. (E*TRADE ends the session every night.)</p>
 <p><button type="button" class="primary" id="et-start">Connect</button> <span id="et-note" class="muted small"></span><br>
 <button type="button" id="et-off">Sign out</button> <button type="button" id="et-forget">Forget my keys</button></p>

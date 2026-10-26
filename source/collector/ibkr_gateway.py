@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from source.collector.broker_common import BrokerError
@@ -167,6 +168,27 @@ def _autostart_now(*, starter=None) -> str:
     return out.get("message", "")
 
 
+KEEPALIVE_SECONDS = 60
+
+
+def keepalive_once() -> bool:
+    """One keep-alive ping ("/tickle") to the gateway, if it is up. IBKR drops an idle gateway session after a few minutes;
+    pinging keeps a session you already signed in to alive. It never signs in, and it cannot extend IBKR's own daily reset."""
+    from source.collector import ibkr
+    try:
+        url = ibkr.clean_gateway_url(get_meta("ibkr_gateway_url", ibkr.DEFAULT_URL))
+        ibkr.Gateway(url, timeout=5.0).call("POST", "/tickle")
+        return True
+    except Exception:  # noqa: BLE001 -- the gateway being down or signed out is normal; try again next minute
+        return False
+
+
+def _keepalive_loop() -> None:
+    while True:
+        time.sleep(KEEPALIVE_SECONDS)
+        keepalive_once()
+
+
 def start_with_app() -> None:
     """Called once when the dashboard starts (run_dashboard.sh, the other run scripts and the Mac app all end up here).
     Runs on a background thread so a slow or missing Java never delays the dashboard; stops the gateway when the app quits."""
@@ -178,3 +200,4 @@ def start_with_app() -> None:
         print(_autostart_now())
 
     threading.Thread(target=work, daemon=True).start()
+    threading.Thread(target=_keepalive_loop, daemon=True).start()

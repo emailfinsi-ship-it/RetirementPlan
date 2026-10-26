@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 from source.collector import broker_common as bc
 from source.collector.broker_common import BrokerError
@@ -57,6 +58,7 @@ class Client:
         self.base = SANDBOX_BASE if sandbox else LIVE_BASE
         self.opener = opener or urllib.request.urlopen
         self.timeout, self.clock = timeout, clock
+        self.renewed = False
 
     # -- OAuth 1.0a signing (HMAC-SHA1) --
     def _auth_header(self, method: str, url: str, query: dict, extra: dict | None = None) -> str:
@@ -85,14 +87,19 @@ class Client:
             with self.opener(req, timeout=self.timeout) as resp:
                 return resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            message = ""
+            message, problem = "", ""
             try:
-                payload = json.loads(exc.read().decode("utf-8"))
-                message = str((payload.get("Error") or {}).get("message") or "") if isinstance(payload, dict) else ""
+                body = exc.read().decode("utf-8")
+                try:
+                    payload = json.loads(body)
+                    message = str((payload.get("Error") or {}).get("message") or "") if isinstance(payload, dict) else ""
+                except ValueError:
+                    problem = re.sub(r"[^A-Za-z0-9_ ,.-]", "", str(_form(body).get("oauth_problem") or ""))[:60]
             except Exception:  # noqa: BLE001 -- no readable detail is fine
                 pass
             if exc.code == 401:
-                raise BrokerError("E*TRADE says the session is not valid (it ends every night). Press Connect to sign in again.") from exc
+                why = f" E*TRADE's reason: {problem or message}." if (problem or message) else ""
+                raise BrokerError("E*TRADE says the session is not valid (it ends every night). Press Connect to sign in again." + why) from exc
             if exc.code == 429:
                 raise BrokerError("E*TRADE's request limit was reached. Try again in a minute.") from exc
             raise BrokerError(f"E*TRADE returned an error (HTTP {exc.code}). {message}".strip()) from exc
@@ -100,7 +107,19 @@ class Client:
             raise BrokerError("Couldn't reach E*TRADE. Check the internet connection.") from exc
 
     def json(self, method: str, path: str, *, query: dict | None = None, body=None):
-        text = self.raw(method, path + ".json", query=query, body=body)
+        try:
+            text = self.raw(method, path + ".json", query=query, body=body)
+        except BrokerError as exc:
+            # After two idle hours E*TRADE parks a session; renewing wakes it without asking you to sign in again.
+            # (A session that has passed midnight US Eastern cannot be renewed, so that still asks you to Connect.)
+            if "session is not valid" not in str(exc) or not self.token or self.renewed:
+                raise
+            self.renewed = True
+            try:
+                self.raw("GET", "/oauth/renew_access_token")
+            except BrokerError:
+                raise exc from None
+            text = self.raw(method, path + ".json", query=query, body=body)
         if not text.strip():
             return {}
         try:
@@ -210,10 +229,40 @@ def positions(c: Client, account: str) -> list[dict]:
             if str(p.get("positionType") or "LONG").upper() == "SHORT":
                 qty = -abs(qty)
             paid = _f(p.get("pricePaid"))
-            out.append({"symbol": str(prod.get("symbol") or "").upper(), "name": str(p.get("symbolDescription") or ""), "qty": qty,
+            out.append({"position_id": str(p.get("positionId") or ""), "symbol": str(prod.get("symbol") or "").upper(), "name": str(p.get("symbolDescription") or ""), "qty": qty,
                         "avg_cost": paid, "price": _f((p.get("Quick") or {}).get("lastTrade")), "market_value": _f(p.get("marketValue")),
                         "gain": _f(p.get("totalGain"))})
     return sorted(out, key=lambda r: -(r["market_value"] or 0))
+
+
+def _day(ms) -> str:
+    """E*TRADE gives dates as milliseconds since 1970; shown as YYYY-MM-DD."""
+    n = _f(ms)
+    if not n:
+        return ""
+    try:
+        return datetime.fromtimestamp(n / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def lots(c: Client, account: str) -> list[dict]:
+    """Every tax lot of every stock position in the account: when it was bought, how many shares remain, the price paid
+    per share, the total cost basis, today's value and the gain, and whether it is short or long term."""
+    out = []
+    for pos in positions(c, account):
+        if not pos.get("position_id"):
+            continue
+        data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/portfolio/{urllib.parse.quote(pos['position_id'])}")
+        for lot in _as_list((data.get("PositionLotsResponse") or {}).get("PositionLot")):
+            qty = _first(lot.get("remainingQty"), lot.get("availableQty"), lot.get("originalQty"))
+            price = _f(lot.get("price"))
+            cost = _first(lot.get("totalCost"), (qty * price) if (qty is not None and price is not None) else None)
+            term = str(lot.get("termCode") or "").upper()
+            out.append({"symbol": pos["symbol"], "acquired": _day(lot.get("acquiredDate")), "qty": qty, "cost_per_share": price,
+                        "cost_basis": cost, "market_value": _f(lot.get("marketValue")), "gain": _f(lot.get("totalGain")),
+                        "term": "long" if term in ("LONG", "LONG_TERM", "2") or "LONG" in term else "short" if term else ""})
+    return sorted(out, key=lambda r: (r["symbol"], r["acquired"]))
 
 
 def _order_row(o: dict) -> dict:
