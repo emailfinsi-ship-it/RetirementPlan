@@ -134,3 +134,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - IBKR / E*TRADE tabs: sortable positions table with every column of E*TRADE's portfolio view (change, day gain, total gain %, % of portfolio, rating).
 
 - IBKR tab: balances by currency (cash, stocks, rate to base) and each position shown in its own currency.
+
+- Quitting stops the IBKR gateway reliably (handles macOS quit signals; a gateway left by a crashed run is taken over and stopped).

@@ -82,6 +82,38 @@ def java_env() -> dict:
     return env
 
 
+_PIDFILE = "finsi-gateway.pid"
+_orphan_pid: int | None = None      # a gateway an earlier run of this app left behind and this run has taken over
+
+
+def _pidfile() -> Path:
+    return run_dir() / _PIDFILE
+
+
+def _is_our_gateway(pid: int) -> bool:
+    """True only if the process is alive AND is the gateway this app launches (its command line names root/conf.yaml), so a
+    reused process number can never make the app stop something else."""
+    try:
+        os.kill(pid, 0)
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return "root/conf.yaml" in out
+
+
+def adopt_orphan() -> bool:
+    """If an earlier run of the app was killed without stopping its gateway, take that gateway over so quitting stops it."""
+    global _orphan_pid
+    try:
+        pid = int(_pidfile().read_text().strip())
+    except (OSError, ValueError):
+        return False
+    if running() or not _is_our_gateway(pid):
+        return False
+    _orphan_pid = pid
+    return True
+
+
 def running() -> bool:
     return _proc is not None and _proc.poll() is None
 
@@ -99,14 +131,29 @@ def start(*, src: Path | None = None, dest: Path | None = None, env: dict | None
                       stdin=subprocess.DEVNULL, start_new_session=True)
     finally:
         log.close()
+    try:
+        _pidfile().write_text(str(_proc.pid))
+    except (OSError, AttributeError, TypeError):
+        pass
     return {"started": True, "message": "Starting the IBKR gateway. It takes about 10 seconds. Then sign in to IBKR in your browser."}
 
 
 def stop() -> bool:
     """Stops a gateway this app started. Returns whether there was one."""
-    global _proc
+    global _proc, _orphan_pid
     if not running():
         _proc = None
+        if _orphan_pid is not None and _is_our_gateway(_orphan_pid):
+            pid, _orphan_pid = _orphan_pid, None
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except (OSError, ProcessLookupError):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    return False
+            return True
+        _orphan_pid = None
         return False
     try:
         os.killpg(os.getpgid(_proc.pid), signal.SIGTERM)
@@ -195,6 +242,7 @@ def start_with_app() -> None:
     if config.DEMO or os.environ.get("FINSI_NO_GATEWAY") == "1" or "unittest" in sys.modules:
         return
     atexit.register(stop)
+    adopt_orphan()
 
     def work():
         print(_autostart_now())
