@@ -157,6 +157,55 @@ def run_build(feed, range_key="3M", now=datetime(2026, 10, 2, 21, 0, tzinfo=time
         return quote_chart.build_quote("VTI", KEYS, range_key, now=now)
 
 
+def wave(n=160):
+    """A price that swings up and down, so MACD crosses its signal line several times."""
+    import math
+    return make_bars([100 + 12 * math.sin(i / 7.0) + i * 0.05 for i in range(n)])
+
+
+class TestMacdCrossover(unittest.TestCase):
+    def test_status_reports_the_side_and_the_latest_crossover(self):
+        bars = wave()
+        st = ta.macd_status(bars)
+        self.assertIn(st["state"], ("above", "below"))
+        self.assertIn(st["cross"], ("bullish", "bearish"))
+        self.assertGreaterEqual(st["bars_ago"], 0)
+        # the crossover really is where the histogram changes sign
+        m, sig, hist = ta.macd([b["c"] for b in bars])
+        i = len(bars) - 1 - st["bars_ago"]
+        if st["cross"] == "bullish":
+            self.assertGreater(hist[i], 0)
+            self.assertLessEqual(hist[i - 1], 0)
+        else:
+            self.assertLess(hist[i], 0)
+            self.assertGreaterEqual(hist[i - 1], 0)
+
+    def test_a_steady_climb_has_no_crossover_after_it_starts_and_short_history_has_none(self):
+        self.assertEqual(ta.macd_status(make_bars([10.0 + i for i in range(10)])), {"state": None, "cross": None, "bars_ago": None})
+
+    def test_the_quote_carries_the_status_and_the_chart_marks_crossovers_in_a_macd_panel(self):
+        out = run_build(FakeFeed(wave(300)), "6M")
+        self.assertEqual(out["macd"], ta.macd_status(wave(300)))
+        self.assertIn("MACD (12, 26, 9)", out["chart"])
+        self.assertIn("qc-mline", out["chart"])
+        self.assertIn("Signal line", out["chart"])
+        self.assertIn('qc-endlbl qc-endlbl-s', out["chart"])   # each line is named on the panel itself
+        self.assertIn("Bullish crossover", out["chart"])
+        self.assertIn('class="nw-tip qc-tip"', out["chart"])
+        for row in out["rows"]:
+            self.assertIn("ms", row)
+        marks = quote_chart.macd_crosses([dict(r) for r in out["rows"]])
+        self.assertTrue(marks)
+        self.assertEqual(out["chart"].count("MACD crossover,"), len(marks))
+
+    def test_one_day_chart_has_a_macd_panel_too(self):
+        ny_open = datetime(2026, 10, 2, 13, 30, tzinfo=timezone.utc)
+        intraday = [{"t": (ny_open + timedelta(minutes=5 * i)).strftime("%Y-%m-%dT%H:%M:%SZ"), "o": 50 + i * 0.01, "h": 51, "l": 49,
+                     "c": 50 + i * 0.01, "v": 1000.0} for i in range(78)]
+        out = run_build(FakeFeed(wave(300), intraday=intraday), "1D")
+        self.assertIn("MACD (12, 26, 9)", out["chart"])
+
+
 class TestBuildQuote(unittest.TestCase):
     def setUp(self):
         closes = [100 + i * 0.3 + (2 if i % 7 == 0 else 0) for i in range(300)]

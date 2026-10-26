@@ -197,6 +197,9 @@ class TestRows(unittest.TestCase):
         self.assertIn("Sell", down["rating"])
         self.assertTrue(0 <= up["week_position"] <= 1 and 0 <= up["day_position"] <= 1)
         self.assertTrue(0 <= up["rsi"] <= 100)
+        self.assertIn(up["macd_state"], ("above", "below"))
+        self.assertIn(up["macd_sort"], (1, -1))
+        self.assertIn("macd_cross", up)
         self.assertIn("No price history", none["error"])
         self.assertEqual(len(fake.calls), 2)                    # one for bars, one for quotes: not one per ticker
 

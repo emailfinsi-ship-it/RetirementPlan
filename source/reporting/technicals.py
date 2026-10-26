@@ -91,6 +91,26 @@ def macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9):
     return line, sig, hist
 
 
+def macd_status(bars: list[dict]) -> dict:
+    """Where MACD sits against its signal line now, and the most recent crossover:
+    {"state": "above" | "below" | None, "cross": "bullish" | "bearish" | None, "bars_ago": int | None}.
+    A bullish cross is the MACD line moving up through the signal line, a bearish one down through it."""
+    m, sig, _ = macd([b["c"] for b in bars])
+    last_cross, last_i = None, None
+    for i in range(1, len(m)):
+        if None in (m[i], sig[i], m[i - 1], sig[i - 1]):
+            continue
+        before, now = m[i - 1] - sig[i - 1], m[i] - sig[i]
+        if before <= 0 < now:
+            last_cross, last_i = "bullish", i
+        elif before >= 0 > now:
+            last_cross, last_i = "bearish", i
+    state = None
+    if m and m[-1] is not None and sig[-1] is not None:
+        state = "above" if m[-1] > sig[-1] else "below"
+    return {"state": state, "cross": last_cross, "bars_ago": (len(m) - 1 - last_i) if last_i is not None else None}
+
+
 def vwap(bars: list[dict]) -> list[float | None]:
     """Running volume-weighted average price from the first bar (used for one-day charts)."""
     out: list[float | None] = []
