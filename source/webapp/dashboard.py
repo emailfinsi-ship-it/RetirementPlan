@@ -78,6 +78,7 @@ from source.webapp.pages.legacy_planning import _render_legacy_planning_page
 from source.webapp.pages.linked_accounts import _render_linked_accounts_page
 from source.webapp.pages.rebalance_page import _render_rebalance_page
 from source.webapp.pages.trading import _render_trading_page
+from source.collector import ibkr_gateway
 from source.webapp.pages.broker_page import _render_broker_page
 from source.webapp.pages.stock_analysis import _render_stock_analysis_page
 from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
@@ -1444,6 +1445,8 @@ def run(*, open_browser: bool = True) -> None:
         bind_host = "127.0.0.1"
 
     server = ThreadingHTTPServer((bind_host, PORT), Handler)
+    # IBKR's Client Portal Gateway (bundled, runs on this computer only) starts with the app and stops when it quits.
+    ibkr_gateway.start_with_app()
     warm.enable(not config.DEMO)
     warm.schedule(delay=1.0)
     url = f"http://127.0.0.1:{PORT}/" if bind_host == "127.0.0.1" else f"http://{bind_host}:{PORT}/ (and http://127.0.0.1:{PORT}/)"
@@ -1460,6 +1463,7 @@ def run(*, open_browser: bool = True) -> None:
         server.shutdown()
     finally:
         server.server_close()
+        ibkr_gateway.stop()
 
 
 if __name__ == "__main__":

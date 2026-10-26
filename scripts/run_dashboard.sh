@@ -39,5 +39,5 @@ echo "Installing dependencies..."
 # a module of the interpreter sidesteps that entirely.
 venv/bin/python -m pip install --no-compile -q -r requirements.txt
 
-echo "Starting dashboard..."
+echo "Starting dashboard... (it also starts the bundled IBKR gateway on a private local port when Java is installed; FINSI_NO_GATEWAY=1 skips that)"
 venv/bin/python -m source.webapp.dashboard

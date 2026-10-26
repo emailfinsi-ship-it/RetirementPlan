@@ -168,13 +168,32 @@ def list_accounts(c: Client) -> list[dict]:
     return out
 
 
+def _first(*values):
+    """The first value that parses as a number (a real 0 counts; a missing field does not)."""
+    for v in values:
+        n = _f(v)
+        if n is not None:
+            return n
+    return None
+
+
 def summary(c: Client, account: str) -> dict:
     data = c.json("GET", f"/v1/accounts/{urllib.parse.quote(account)}/balance", query={"instType": "BROKERAGE", "realTimeNAV": "true"})
     bal = data.get("BalanceResponse") or {}
     comp = bal.get("Computed") or {}
     rt = comp.get("RealTimeValues") or {}
-    return {"value": _f(rt.get("totalAccountValue")), "cash": _f(comp.get("cashAvailableForInvestment")),
-            "buying_power": _f(comp.get("cashBuyingPower")), "currency": "USD"}
+    cash_block = bal.get("Cash") or {}
+    margin = "MARGIN" in str(bal.get("accountType") or "").upper()
+    # Field names differ between cash and margin accounts, and the real-time block is sometimes missing.
+    value = _first(rt.get("totalAccountValue"), comp.get("accountBalance"), bal.get("accountValue"))
+    if value is None:
+        net_mv, net_cash = _f(rt.get("netMv")), _f(comp.get("netCash"))
+        value = (net_mv or 0.0) + (net_cash or 0.0) if (net_mv is not None or net_cash is not None) else None
+    cash = _first(comp.get("cashAvailableForInvestment"), comp.get("settledCashForInvestment"), comp.get("cashBalance"),
+                  comp.get("netCash"), cash_block.get("moneyMktBalance"))
+    power = _first(*( (comp.get("marginBuyingPower"), comp.get("cashBuyingPower")) if margin else (comp.get("cashBuyingPower"), comp.get("marginBuyingPower")) ),
+                   cash)
+    return {"value": value, "cash": cash, "buying_power": power, "currency": "USD"}
 
 
 def positions(c: Client, account: str) -> list[dict]:

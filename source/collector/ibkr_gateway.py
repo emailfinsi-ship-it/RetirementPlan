@@ -9,17 +9,23 @@ argument from the web page is used. Java is not bundled: it has to be installed 
 
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
+import socket
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from source.collector.broker_common import BrokerError
 from source.common import config
+from source.common.db.meta import get_meta, set_meta
 
 RUN_FOLDER = "ibkr-gateway"
+PRIVATE_PORT = 5757            # the port the bundled gateway's conf.yaml uses: this app's own, on this computer only
+_AUTOSTART = "ibkr_gateway_autostart"
 _proc: subprocess.Popen | None = None      # only a gateway this program started
 
 
@@ -121,3 +127,54 @@ def listen_port(folder: Path | None = None) -> int | None:
     except (OSError, ValueError, IndexError):
         pass
     return None
+
+
+# ---- start with the app ----
+
+def port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def autostart_enabled() -> bool:
+    return str(get_meta(_AUTOSTART, "1")) != "0"
+
+
+def set_autostart(on: bool) -> None:
+    set_meta(_AUTOSTART, "1" if on else "0")
+
+
+def _autostart_now(*, starter=None) -> str:
+    """Starts the gateway unless one already answers on its port. Returns a short note (also printed)."""
+    if not autostart_enabled():
+        return "IBKR gateway auto-start is off."
+    port = listen_port() or PRIVATE_PORT
+    if port_open(port):
+        return f"An IBKR gateway is already running on port {port}."
+    try:
+        out = (starter or start)()
+    except BrokerError as exc:
+        return f"IBKR gateway not started: {exc}"
+    except Exception as exc:        # never let this get in the way of the dashboard
+        return f"IBKR gateway not started ({exc.__class__.__name__}: {exc})"
+    if out.get("started"):
+        # Point the IBKR tab at it unless the person chose a different address themselves.
+        if not get_meta("ibkr_gateway_url", ""):
+            set_meta("ibkr_gateway_url", f"https://localhost:{port}")
+    return out.get("message", "")
+
+
+def start_with_app() -> None:
+    """Called once when the dashboard starts (run_dashboard.sh, the other run scripts and the Mac app all end up here).
+    Runs on a background thread so a slow or missing Java never delays the dashboard; stops the gateway when the app quits."""
+    if config.DEMO or os.environ.get("FINSI_NO_GATEWAY") == "1" or "unittest" in sys.modules:
+        return
+    atexit.register(stop)
+
+    def work():
+        print(_autostart_now())
+
+    threading.Thread(target=work, daemon=True).start()
