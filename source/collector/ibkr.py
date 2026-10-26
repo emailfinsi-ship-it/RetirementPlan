@@ -164,8 +164,29 @@ def summary(gw: Gateway, account: str) -> dict:
                 return value
         return None
 
+    base = raw.get("netliquidation")
+    code = str(base.get("currency") or "") if isinstance(base, dict) else ""
     return {"value": amount("netliquidation"), "cash": amount("totalcashvalue", "settledcash"),
-            "buying_power": amount("buyingpower", "availablefunds"), "currency": "USD"}
+            "buying_power": amount("buyingpower", "availablefunds"), "currency": code or "USD"}
+
+
+def ledger(gw: Gateway, account: str) -> list[dict]:
+    """The account's balance in each currency it holds (cash, stocks, total, today's unrealized gain, and the rate to the base
+    currency). Currencies with nothing in them are left out. The "BASE" line IBKR adds is the sum, so it is not repeated."""
+    gw.call("GET", "/portfolio/accounts")
+    raw = gw.call("GET", f"/portfolio/{urllib.parse.quote(account)}/ledger")
+    out = []
+    for key, row in (raw.items() if isinstance(raw, dict) else []):
+        if not isinstance(row, dict) or str(key).upper() == "BASE":
+            continue
+        code = str(row.get("currency") or key).upper()
+        cash, stocks, total = _f(row.get("cashbalance")), _f(row.get("stockmarketvalue")), _f(row.get("netliquidationvalue"))
+        if not any(abs(v or 0.0) > 0.004 for v in (cash, stocks, total)):
+            continue
+        rate = _f(row.get("exchangerate"))
+        out.append({"currency": code, "cash": cash, "stock_value": stocks, "total": total, "unrealized": _f(row.get("unrealizedpnl")),
+                    "rate": rate, "base_value": (total * rate) if (total is not None and rate) else None})
+    return sorted(out, key=lambda r: -abs(r["base_value"] if r["base_value"] is not None else (r["total"] or 0.0)))
 
 
 def positions(gw: Gateway, account: str) -> list[dict]:
@@ -183,7 +204,7 @@ def positions(gw: Gateway, account: str) -> list[dict]:
             symbol = str(p.get("ticker") or p.get("contractDesc") or "").split()[0].upper()
             price, value, cost = _f(p.get("mktPrice")), _f(p.get("mktValue")), _f(p.get("avgCost"))
             out.append({"symbol": symbol, "name": str(p.get("name") or p.get("contractDesc") or ""), "qty": qty, "avg_cost": cost,
-                        "price": price, "market_value": value,
+                        "currency": str(p.get("currency") or "").upper(), "price": price, "market_value": value,
                         "gain": _f(p.get("unrealizedPnl")), "conid": p.get("conid")})
         if len(raw) < 100:
             break
