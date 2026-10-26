@@ -24,6 +24,9 @@ def _migrate_schema(conn) -> None:
         conn.execute("ALTER TABLE real_estate ADD COLUMN linked_account_id TEXT")
     if "annual_income" not in existing_re:
         conn.execute("ALTER TABLE real_estate ADD COLUMN annual_income REAL NOT NULL DEFAULT 0")
+    existing_lo = {row["name"] for row in conn.execute("PRAGMA table_info(live_order_log)").fetchall()}
+    if existing_lo and "broker" not in existing_lo:
+        conn.execute("ALTER TABLE live_order_log ADD COLUMN broker TEXT NOT NULL DEFAULT 'alpaca'")
     existing_pa = {row["name"] for row in conn.execute("PRAGMA table_info(plaid_accounts)").fetchall()}
     if "account_number" not in existing_pa:
         conn.execute("ALTER TABLE plaid_accounts ADD COLUMN account_number TEXT")

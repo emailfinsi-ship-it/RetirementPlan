@@ -1,0 +1,578 @@
+"""The IBKR and E*TRADE tabs: source.collector.ibkr / etrade / broker_common, the /api/broker/* routes
+(source.webapp.broker_api) and the pages. Nothing here touches a real broker: every network call goes to a fake."""
+
+import base64
+import hashlib
+import hmac
+import io
+import json
+import re
+import unittest
+import urllib.error
+import urllib.parse
+from unittest.mock import patch
+
+import keyring
+
+from source.collector import broker_common as bc, etrade, ibkr
+from source.collector.broker_common import BrokerError
+from source.common import db, secrets_store
+from source.webapp import broker_api, trading_api
+from tests.test_dashboard import DashboardTestCase
+from tests.testing_utils import FakeKeyring, TempConfigTestCase
+
+
+class Resp:
+    def __init__(self, body):
+        self.body = body if isinstance(body, str) else json.dumps(body)
+
+    def read(self):
+        return self.body.encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def http_error(code, body=None):
+    return urllib.error.HTTPError("http://x", code, "err", {}, io.BytesIO(json.dumps(body or {}).encode()))
+
+
+class FakeIbkr:
+    """A stand-in IBKR Client Portal Gateway: routes by method and path."""
+
+    def __init__(self, ask=False, authenticated=True):
+        self.calls, self.ask, self.authenticated, self.orders_posted = [], ask, authenticated, []
+
+    def __call__(self, req, timeout=None):
+        path = req.full_url.split("/v1/api", 1)[1]
+        method = req.get_method()
+        body = json.loads(req.data) if req.data else None
+        self.calls.append((method, path))
+        if path == "/iserver/auth/status":
+            return Resp({"authenticated": self.authenticated, "connected": True})
+        if path == "/iserver/accounts":
+            return Resp({"accounts": ["U111", "U222"], "aliases": {"U111": "Main", "U222": "IRA"}})
+        if path == "/portfolio/accounts":
+            return Resp([{"id": "U111"}])
+        if path.endswith("/summary"):
+            return Resp({"netliquidation": {"amount": 51000.5}, "totalcashvalue": {"amount": 1000.0}, "buyingpower": {"amount": 2000.0}})
+        if "/positions/" in path:
+            return Resp([{"ticker": "AAPL", "contractDesc": "AAPL", "position": 10, "mktPrice": 200, "mktValue": 2000, "avgCost": 150,
+                          "unrealizedPnl": 500, "assetClass": "STK", "conid": 265598},
+                         {"ticker": "ESZ6", "position": 1, "assetClass": "FUT", "mktValue": 99999}]) if path.endswith("/0") else Resp([])
+        if path.startswith("/trsrv/stocks"):
+            return Resp({"AAPL": [{"name": "APPLE", "contracts": [{"conid": 1, "isUS": False}, {"conid": 265598, "isUS": True}]}]})
+        if path.startswith("/iserver/marketdata/snapshot"):
+            return Resp([{"31": "C200.50"}])
+        if path == "/iserver/account/orders":
+            return Resp({"orders": [{"acct": "U111", "orderId": 77, "ticker": "AAPL", "side": "BUY", "totalSize": 5, "filledQuantity": 0,
+                                     "status": "Submitted", "orderType": "Limit", "price": "150"},
+                                    {"acct": "U111", "orderId": 78, "ticker": "MSFT", "side": "SELL", "totalSize": 1, "filledQuantity": 1,
+                                     "status": "Filled", "orderType": "Market"}]})
+        if method == "POST" and path.endswith("/orders"):
+            self.orders_posted.append(body)
+            if self.ask:
+                return Resp([{"id": "reply-1", "message": ["Price exceeds the 3% constraint."], "isSuppressed": False}])
+            return Resp([{"order_id": "9001", "order_status": "Submitted"}])
+        if path.startswith("/iserver/reply/"):
+            assert body == {"confirmed": True}
+            return Resp([{"order_id": "9002", "order_status": "Submitted"}])
+        if method == "DELETE":
+            return Resp({"msg": "Request was submitted"})
+        raise AssertionError(f"unexpected {method} {path}")
+
+
+class FakeEtrade:
+    def __init__(self, expired=False):
+        self.calls, self.expired, self.placed = [], expired, []
+
+    def __call__(self, req, timeout=None):
+        url = req.full_url
+        path = urllib.parse.urlsplit(url).path
+        method = req.get_method()
+        auth = req.get_header("Authorization")
+        self.calls.append((method, path, auth))
+        body = json.loads(req.data) if req.data else None
+        if path == "/oauth/request_token":
+            return Resp("oauth_token=REQ&oauth_token_secret=REQSECRET&oauth_callback_confirmed=true")
+        if path == "/oauth/access_token":
+            assert "oauth_verifier=\"CODE123\"" in auth
+            return Resp("oauth_token=ACC&oauth_token_secret=ACCSECRET")
+        if self.expired:
+            raise http_error(401, {"Error": {"message": "expired"}})
+        if path == "/v1/accounts/list.json":
+            return Resp({"AccountListResponse": {"Accounts": {"Account": [
+                {"accountId": "8301", "accountIdKey": "KEY1", "accountDesc": "INDIVIDUAL", "institutionType": "BROKERAGE", "accountStatus": "ACTIVE"},
+                {"accountId": "8302", "accountIdKey": "KEY2", "accountDesc": "CLOSED", "institutionType": "BROKERAGE", "accountStatus": "CLOSED"}]}}})
+        if path == "/v1/accounts/KEY1/balance.json":
+            return Resp({"BalanceResponse": {"Computed": {"cashBuyingPower": 3000, "cashAvailableForInvestment": 1500,
+                                                          "RealTimeValues": {"totalAccountValue": 25000}}}})
+        if path == "/v1/accounts/KEY1/portfolio.json":
+            return Resp({"PortfolioResponse": {"AccountPortfolio": [{"Position": [
+                {"Product": {"securityType": "EQ", "symbol": "KO"}, "symbolDescription": "COCA COLA", "quantity": 20, "pricePaid": 55,
+                 "marketValue": 1300, "totalGain": 200, "positionType": "LONG", "Quick": {"lastTrade": 65}},
+                {"Product": {"securityType": "OPTN", "symbol": "KO"}, "quantity": 1}]}]}})
+        if path == "/v1/accounts/KEY1/orders.json":
+            if "EXECUTED" in req.full_url:
+                return Resp({})
+            return Resp({"OrdersResponse": {"Order": [{"orderId": 555, "OrderDetail": [{"status": "OPEN", "priceType": "LIMIT", "limitPrice": 60,
+                         "Instrument": [{"Product": {"symbol": "KO"}, "orderAction": "BUY", "orderedQuantity": 3, "filledQuantity": 0}]}]}]}})
+        if path.startswith("/v1/market/quote/"):
+            return Resp({"QuoteResponse": {"QuoteData": [{"All": {"lastTrade": 65.25}}]}})
+        if path == "/v1/accounts/KEY1/orders/preview.json":
+            assert method == "POST" and req.get_header("Content-type") == "application/json"
+            return Resp({"PreviewOrderResponse": {"PreviewIds": [{"previewId": 424242}],
+                                                   "Order": [{"estimatedCommission": 0, "estimatedTotalAmount": 195.75}]}})
+        if path == "/v1/accounts/KEY1/orders/place.json":
+            self.placed.append(body)
+            return Resp({"PlaceOrderResponse": {"OrderIds": [{"orderId": 888}]}})
+        if path == "/v1/accounts/KEY1/orders/cancel.json":
+            assert method == "PUT" and body == {"CancelOrderRequest": {"orderId": 555}}
+            return Resp({})
+        raise AssertionError(f"unexpected {method} {url}")
+
+
+class TestCommon(unittest.TestCase):
+    def test_a_preview_token_is_single_use_and_tied_to_its_account(self):
+        book = bc.PreviewBook()
+        t = book.issue({"broker": "x", "account": "A", "n": 1}, now=100)
+        with self.assertRaises(BrokerError):
+            book.claim(t, broker="x", account="B", now=101)          # wrong account (and it is used up)
+        with self.assertRaises(BrokerError):
+            book.claim(t, broker="x", account="A", now=101)
+        t = book.issue({"broker": "x", "account": "A"}, now=100)
+        self.assertEqual(book.claim(t, broker="x", account="A", now=101)["account"], "A")
+        t = book.issue({"broker": "x", "account": "A"}, now=100)
+        with self.assertRaises(BrokerError):
+            book.claim(t, broker="x", account="A", now=100 + bc.PREVIEW_SECONDS + 1)
+
+    def test_size_limits_only_tighten(self):
+        bc.check_size(500, max_notional=2000, daily_remaining=900)
+        with self.assertRaises(BrokerError):
+            bc.check_size(2500, max_notional=2000, daily_remaining=None)
+        with self.assertRaises(BrokerError):
+            bc.check_size(500, max_notional=2000, daily_remaining=100)
+        with self.assertRaises(BrokerError):
+            bc.check_size(30_000, max_notional=None, daily_remaining=None)
+
+
+class TestIbkr(unittest.TestCase):
+    def setUp(self):
+        ibkr.book._items.clear()
+
+    def test_gateway_address_must_be_this_computer(self):
+        self.assertEqual(ibkr.clean_gateway_url(""), "https://localhost:5000")
+        self.assertEqual(ibkr.clean_gateway_url("localhost:5001"), "https://localhost:5001")
+        self.assertEqual(ibkr.clean_gateway_url("https://127.0.0.1:5000/"), "https://127.0.0.1:5000")
+        for bad in ("https://evil.example.com:5000", "http://192.168.1.5:5000", "ftp://localhost"):
+            with self.assertRaises(BrokerError):
+                ibkr.clean_gateway_url(bad)
+
+    def test_status_reads_and_signed_out_is_explained(self):
+        self.assertTrue(ibkr.status(ibkr.Gateway(opener=FakeIbkr()))["connected"])
+        out = ibkr.status(ibkr.Gateway(opener=FakeIbkr(authenticated=False)))
+        self.assertFalse(out["connected"])
+        self.assertIn("sign in", out["message"])
+
+    def test_an_unreachable_gateway_says_to_start_it(self):
+        def boom(req, timeout=None):
+            raise urllib.error.URLError("refused")
+        out = ibkr.status(ibkr.Gateway(opener=boom))
+        self.assertFalse(out["connected"])
+        self.assertIn("Start the Client Portal Gateway", out["message"])
+
+    def test_accounts_summary_positions_orders(self):
+        gw = ibkr.Gateway(opener=FakeIbkr())
+        self.assertEqual([a["id"] for a in ibkr.list_accounts(gw)], ["U111", "U222"])
+        self.assertEqual(ibkr.summary(gw, "U111"), {"value": 51000.5, "cash": 1000.0, "buying_power": 2000.0, "currency": "USD"})
+        pos = ibkr.positions(gw, "U111")
+        self.assertEqual([(p["symbol"], p["qty"], p["market_value"]) for p in pos], [("AAPL", 10.0, 2000.0)])   # futures skipped
+        orders = ibkr.open_orders(gw, "U111")
+        self.assertEqual([(o["symbol"], o["side"], o["open"]) for o in orders], [("AAPL", "buy", True), ("MSFT", "sell", False)])
+
+    def test_preview_prices_the_order_and_place_sends_exactly_it(self):
+        fake = FakeIbkr()
+        gw = ibkr.Gateway(opener=fake)
+        p = ibkr.preview(gw, "U111", {"symbol": "aapl", "side": "buy", "qty": 2, "type": "market"})
+        self.assertEqual((p["price"], p["estimate"]), (200.5, 401.0))
+        out = ibkr.place(gw, "U111", p["token"])
+        self.assertEqual((out["id"], out["symbol"], out["qty"], out["estimate"]), ("9001", "AAPL", 2, 401.0))
+        sent = fake.orders_posted[0]["orders"][0]
+        self.assertEqual((sent["conid"], sent["side"], sent["quantity"], sent["orderType"], sent["tif"]), (265598, "BUY", 2, "MKT", "DAY"))
+        with self.assertRaises(BrokerError):
+            ibkr.place(gw, "U111", p["token"])                          # a token works once
+
+    def test_limit_order_carries_its_price_and_a_token_cannot_move_to_another_account(self):
+        fake = FakeIbkr()
+        gw = ibkr.Gateway(opener=fake)
+        p = ibkr.preview(gw, "U111", {"symbol": "AAPL", "side": "sell", "qty": 1, "type": "limit", "limit_price": 210})
+        with self.assertRaises(BrokerError):
+            ibkr.place(gw, "U222", p["token"])
+        self.assertEqual(fake.orders_posted, [])
+        p = ibkr.preview(gw, "U111", {"symbol": "AAPL", "side": "sell", "qty": 1, "type": "limit", "limit_price": 210, "time_in_force": "gtc"})
+        ibkr.place(gw, "U111", p["token"])
+        sent = fake.orders_posted[0]["orders"][0]
+        self.assertEqual((sent["orderType"], sent["price"], sent["side"], sent["tif"]), ("LMT", 210.0, "SELL", "GTC"))
+
+    def test_ibkr_questions_are_never_answered_for_you(self):
+        fake = FakeIbkr(ask=True)
+        gw = ibkr.Gateway(opener=fake)
+        p = ibkr.preview(gw, "U111", {"symbol": "AAPL", "side": "buy", "qty": 1, "type": "market"})
+        out = ibkr.place(gw, "U111", p["token"])
+        self.assertTrue(out["ack_required"])
+        self.assertEqual(out["messages"], ["Price exceeds the 3% constraint."])
+        self.assertFalse([c for c in fake.calls if c[1].startswith("/iserver/reply/")])      # nothing confirmed yet
+        done = ibkr.place(gw, "U111", out["token"])                                           # the person chose "send anyway"
+        self.assertEqual(done["id"], "9002")
+        self.assertTrue([c for c in fake.calls if c[1] == "/iserver/reply/reply-1"])
+
+    def test_market_order_without_a_price_asks_for_a_limit(self):
+        class NoPrice(FakeIbkr):
+            def __call__(self, req, timeout=None):
+                if "/marketdata/snapshot" in req.full_url:
+                    return Resp([{}])
+                return super().__call__(req, timeout)
+        with self.assertRaises(BrokerError):
+            ibkr.preview(ibkr.Gateway(opener=NoPrice()), "U111", {"symbol": "AAPL", "side": "buy", "qty": 1, "type": "market"})
+
+    def test_cancel_checks_the_id(self):
+        fake = FakeIbkr()
+        ibkr.cancel(ibkr.Gateway(opener=fake), "U111", "77")
+        self.assertIn(("DELETE", "/iserver/account/U111/order/77"), fake.calls)
+        with self.assertRaises(BrokerError):
+            ibkr.cancel(ibkr.Gateway(opener=fake), "U111", "../../x")
+
+
+class TestEtrade(unittest.TestCase):
+    def setUp(self):
+        etrade.book._items.clear()
+
+    def client(self, fake=None, **kw):
+        return etrade.Client("CK", "CS", "TOK", "TSEC", opener=fake or FakeEtrade(), **kw)
+
+    def test_oauth_signature_is_hmac_sha1_over_the_sorted_request(self):
+        c = etrade.Client("CK", "CS", "TOK", "TSEC", clock=lambda: 1700000000)
+        header = c._auth_header("GET", "https://api.etrade.com/v1/x", {"b": "2 3", "a": "1"})
+        params = dict(re.findall(r'(\w+)="([^"]*)"', header))
+        sig = urllib.parse.unquote(params.pop("oauth_signature"))
+        pairs = sorted((etrade._enc(k), etrade._enc(urllib.parse.unquote(v))) for k, v in {**params, "b": "2 3", "a": "1"}.items())
+        base = "&".join(["GET", etrade._enc("https://api.etrade.com/v1/x"), etrade._enc("&".join(f"{k}={v}" for k, v in pairs))])
+        expect = base64.b64encode(hmac.new(b"CS&TSEC", base.encode(), hashlib.sha1).digest()).decode()
+        self.assertEqual(sig, expect)
+        self.assertEqual(params["oauth_signature_method"], "HMAC-SHA1")
+        self.assertEqual(params["oauth_token"], "TOK")
+
+    def test_login_is_two_steps_and_gives_a_session(self):
+        fake = FakeEtrade()
+        start = etrade.start_login("CK", "CS", opener=fake)
+        self.assertEqual(start["request_token"], "REQ")
+        self.assertIn("key=CK", start["authorize_url"])
+        self.assertIn("token=REQ", start["authorize_url"])
+        self.assertIn('oauth_callback="oob"', fake.calls[0][2])
+        got = etrade.finish_login("CK", "CS", "REQ", "REQSECRET", " CODE123 ", opener=fake)
+        self.assertEqual(got, {"token": "ACC", "token_secret": "ACCSECRET"})
+        with self.assertRaises(BrokerError):
+            etrade.finish_login("CK", "CS", "REQ", "REQSECRET", "", opener=fake)
+
+    def test_accounts_skip_closed_ones_and_summary_positions_orders_read(self):
+        c = self.client()
+        self.assertEqual([a["id"] for a in etrade.list_accounts(c)], ["KEY1"])
+        self.assertEqual(etrade.summary(c, "KEY1"), {"value": 25000.0, "cash": 1500.0, "buying_power": 3000.0, "currency": "USD"})
+        self.assertEqual([(p["symbol"], p["qty"], p["market_value"]) for p in etrade.positions(c, "KEY1")], [("KO", 20.0, 1300.0)])
+        o = etrade.open_orders(c, "KEY1")
+        self.assertEqual([(x["id"], x["symbol"], x["side"], x["type"], x["open"]) for x in o], [("555", "KO", "buy", "limit", True)])
+
+    def test_preview_uses_etrades_own_preview_and_place_sends_that_preview_id(self):
+        fake = FakeEtrade()
+        c = self.client(fake)
+        p = etrade.preview(c, "KEY1", {"symbol": "ko", "side": "buy", "qty": 3, "type": "market"})
+        self.assertEqual(p["estimate"], 195.75)
+        out = etrade.place(c, "KEY1", p["token"])
+        self.assertEqual((out["id"], out["symbol"], out["estimate"]), ("888", "KO", 195.75))
+        req = fake.placed[0]["PlaceOrderRequest"]
+        self.assertEqual(req["PreviewIds"], [{"previewId": 424242}])
+        order = req["Order"][0]
+        self.assertEqual((order["priceType"], order["orderTerm"], order["Instrument"][0]["orderAction"], order["Instrument"][0]["quantity"]),
+                         ("MARKET", "GOOD_FOR_DAY", "BUY", 3))
+        with self.assertRaises(BrokerError):
+            etrade.place(c, "KEY1", p["token"])
+
+    def test_order_over_the_limit_is_refused_before_anything_is_sent(self):
+        fake = FakeEtrade()
+        with self.assertRaises(BrokerError):
+            etrade.preview(self.client(fake), "KEY1", {"symbol": "KO", "side": "buy", "qty": 3, "type": "market"}, max_notional=100)
+        self.assertEqual(fake.placed, [])
+
+    def test_an_expired_session_says_to_connect_again(self):
+        with self.assertRaises(BrokerError) as ctx:
+            etrade.list_accounts(self.client(FakeEtrade(expired=True)))
+        self.assertIn("Connect", str(ctx.exception))
+
+    def test_cancel_checks_the_id(self):
+        etrade.cancel(self.client(), "KEY1", "555")
+        with self.assertRaises(BrokerError):
+            etrade.cancel(self.client(), "KEY1", "abc")
+
+
+class BrokerApiCase(TempConfigTestCase):
+    def setUp(self):
+        super().setUp()
+        self.kr = FakeKeyring()
+        self._kp = [patch.object(keyring, "get_password", self.kr.get_password), patch.object(keyring, "set_password", self.kr.set_password),
+                    patch.object(keyring, "delete_password", self.kr.delete_password)]
+        for p in self._kp:
+            p.start()
+        secrets_store.clear_vault_cache()
+        ibkr.book._items.clear()
+        etrade.book._items.clear()
+        self.ib, self.et = FakeIbkr(), FakeEtrade()
+        self._op = patch.dict(broker_api.OPENERS, {"ibkr": self.ib, "etrade": self.et})
+        self._op.start()
+
+    def tearDown(self):
+        self._op.stop()
+        for p in self._kp:
+            p.stop()
+        secrets_store.clear_vault_cache()
+        super().tearDown()
+
+    def post(self, path, payload):
+        return trading_api.handle(path, payload)
+
+    def arm(self):
+        db.live_trading.arm(db.live_trading.CONFIRM_PHRASE)
+
+    def connect_etrade(self):
+        self.post("/api/broker/etrade/keys", {"consumer_key": "CK", "consumer_secret": "CS"})
+        self.post("/api/broker/etrade/start", {})
+        self.post("/api/broker/etrade/finish", {"verifier": "CODE123"})
+
+
+class TestBrokerRoutes(BrokerApiCase):
+    def test_routes_are_owner_routes(self):
+        for path in broker_api.ROUTES:
+            self.assertIn(path, trading_api.ROUTES)
+
+    def test_ibkr_data_when_connected_lists_everything(self):
+        out = self.post("/api/broker/data", {"broker": "ibkr"})
+        self.assertTrue(out["connected"])
+        self.assertEqual((out["account"], len(out["accounts"])), ("U111", 2))
+        self.assertEqual(out["positions"][0]["symbol"], "AAPL")
+        self.assertFalse(out["armed"])
+        self.assertEqual(self.post("/api/broker/data", {"broker": "ibkr", "account": "U222"})["account"], "U222")
+
+    def test_ibkr_data_when_signed_out_says_so(self):
+        self.ib.authenticated = False
+        out = self.post("/api/broker/data", {"broker": "ibkr"})
+        self.assertFalse(out["connected"])
+        self.assertIn("sign in", out["message"])
+
+    def test_gateway_address_is_saved_only_when_local(self):
+        self.assertEqual(self.post("/api/broker/ibkr/gateway", {"url": "localhost:5001"})["url"], "https://localhost:5001")
+        self.assertEqual(broker_api.gateway_url(), "https://localhost:5001")
+        with self.assertRaises(ValueError):
+            self.post("/api/broker/ibkr/gateway", {"url": "https://example.com"})
+
+    def test_etrade_full_connection_flow_stores_keys_in_the_keychain_only(self):
+        d = self.post("/api/broker/data", {"broker": "etrade"})
+        self.assertFalse(d["connected"])
+        self.assertIn("keys", d["message"])
+        self.connect_etrade()
+        d = self.post("/api/broker/data", {"broker": "etrade"})
+        self.assertTrue(d["connected"])
+        self.assertEqual((d["accounts"][0]["id"], d["summary"]["value"], d["positions"][0]["symbol"]), ("KEY1", 25000.0, "KO"))
+        sec = secrets_store.get_broker_secret("etrade")
+        self.assertEqual((sec["token"], sec["consumer_key"]), ("ACC", "CK"))
+        self.assertNotIn("request_token", sec)                                    # the one-time token is gone
+        self.post("/api/broker/etrade/disconnect", {})
+        self.assertFalse(self.post("/api/broker/data", {"broker": "etrade"})["connected"])
+        self.assertTrue(secrets_store.has_broker_secret("etrade"))                # keys kept
+        self.post("/api/broker/etrade/disconnect", {"forget_keys": True})
+        self.assertFalse(secrets_store.has_broker_secret("etrade"))
+
+    def test_etrade_expired_session_reports_not_connected(self):
+        self.connect_etrade()
+        self.et.expired = True
+        out = self.post("/api/broker/data", {"broker": "etrade"})
+        self.assertFalse(out["connected"])
+        self.assertIn("Connect", out["message"])
+
+    def test_etrade_finish_without_start_is_refused(self):
+        self.post("/api/broker/etrade/keys", {"consumer_key": "CK", "consumer_secret": "CS"})
+        with self.assertRaises(ValueError):
+            self.post("/api/broker/etrade/finish", {"verifier": "X"})
+
+
+class TestBrokerOrders(BrokerApiCase):
+    def order(self, **kw):
+        return {"symbol": "AAPL", "side": "buy", "qty": 2, "type": "market", **kw}
+
+    def test_nothing_can_be_previewed_sent_or_cancelled_while_live_trading_is_off(self):
+        for path, payload in (("/api/broker/preview", {"order": self.order()}), ("/api/broker/order", {"token": "t"}),
+                              ("/api/broker/cancel", {"order_id": "77"})):
+            with self.assertRaises(ValueError) as ctx:
+                self.post(path, {"broker": "ibkr", "account": "U111", **payload})
+            self.assertIn("switched off", str(ctx.exception))
+        self.assertEqual(self.ib.orders_posted, [])
+
+    def test_the_account_must_be_one_the_broker_lists(self):
+        self.arm()
+        with self.assertRaises(ValueError):
+            self.post("/api/broker/preview", {"broker": "ibkr", "account": "U999", "order": self.order()})
+
+    def test_ibkr_order_needs_the_symbol_typed_then_is_sent_and_logged(self):
+        self.arm()
+        p = self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order()})
+        with self.assertRaises(ValueError) as ctx:
+            self.post("/api/broker/order", {"broker": "ibkr", "account": "U111", "token": p["token"], "confirm_symbol": "MSFT"})
+        self.assertIn("type its symbol", str(ctx.exception))
+        self.assertEqual(self.ib.orders_posted, [])
+        out = self.post("/api/broker/order", {"broker": "ibkr", "account": "U111", "token": p["token"], "confirm_symbol": "aapl"})
+        self.assertEqual(out["id"], "9001")
+        log = db.live_trading.list_live_orders()
+        self.assertEqual([(r["symbol"], r["broker"], r["order_id"], r["estimate"]) for r in log], [("AAPL", "ibkr", "9001", 401.0)])
+        self.assertEqual(db.live_trading.spent_today(), 401.0)                    # the daily limit counts every broker together
+        self.assertEqual(db.live_trading.list_live_orders(broker="alpaca"), [])
+
+    def test_a_token_from_one_broker_cannot_be_used_at_another(self):
+        self.arm()
+        self.connect_etrade()
+        p = self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order()})
+        with self.assertRaises(ValueError):
+            self.post("/api/broker/order", {"broker": "etrade", "account": "KEY1", "token": p["token"], "confirm_symbol": "AAPL"})
+
+    def test_etrade_order_is_previewed_sent_and_logged(self):
+        self.arm()
+        self.connect_etrade()
+        p = self.post("/api/broker/preview", {"broker": "etrade", "account": "KEY1", "order": {"symbol": "KO", "side": "buy", "qty": 3, "type": "market"}})
+        self.assertEqual(p["estimate"], 195.75)
+        out = self.post("/api/broker/order", {"broker": "etrade", "account": "KEY1", "token": p["token"], "confirm_symbol": "KO"})
+        self.assertEqual(out["id"], "888")
+        self.assertEqual([(r["broker"], r["symbol"]) for r in db.live_trading.list_live_orders()], [("etrade", "KO")])
+
+    def test_ibkr_question_is_returned_not_logged_then_send_anyway_logs_it(self):
+        self.arm()
+        self.ib.ask = True
+        p = self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order(qty=1)})
+        asked = self.post("/api/broker/order", {"broker": "ibkr", "account": "U111", "token": p["token"], "confirm_symbol": "AAPL"})
+        self.assertTrue(asked["ack_required"])
+        self.assertEqual(db.live_trading.list_live_orders(), [])
+        done = self.post("/api/broker/order", {"broker": "ibkr", "account": "U111", "token": asked["token"], "confirm_symbol": "AAPL"})
+        self.assertEqual(done["id"], "9002")
+        self.assertEqual(len(db.live_trading.list_live_orders()), 1)
+
+    def test_per_order_and_daily_limits_apply(self):
+        self.arm()
+        db.live_trading.set_limits(300, 500)
+        with self.assertRaises(ValueError):
+            self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order(qty=2)})     # $401 > $300
+        db.live_trading.log_live_order(symbol="X", side="buy", qty=1, order_type="market", estimate=400.0, order_id="z", status="ok", broker="etrade")
+        with self.assertRaises(ValueError) as ctx:
+            self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order(qty=1)})     # $200 > $100 left today
+        self.assertIn("left of today", str(ctx.exception))
+
+    def test_cancel_goes_to_the_broker_when_armed(self):
+        self.arm()
+        self.post("/api/broker/cancel", {"broker": "ibkr", "account": "U111", "order_id": "77"})
+        self.assertIn(("DELETE", "/iserver/account/U111/order/77"), self.ib.calls)
+
+    def test_arming_works_for_a_broker_page_without_alpaca_keys(self):
+        out = self.post("/api/alpaca/live/arm", {"phrase": "TRADE REAL MONEY", "broker": "ibkr"})
+        self.assertTrue(out["armed_until"])
+        self.post("/api/alpaca/live/disarm", {})
+        with self.assertRaises(ValueError):
+            self.post("/api/alpaca/live/arm", {"phrase": "TRADE REAL MONEY"})          # the Alpaca page still wants its live keys
+
+
+class TestRatingsRoute(BrokerApiCase):
+    def test_ratings_come_back_for_the_symbols_asked_with_the_numbers_behind_them(self):
+        from source.webapp.pages import watchlist
+        seen = {}
+
+        def fake_rows(items, keys, **kw):
+            seen["symbols"] = [i["symbol"] for i in items]
+            return [{"symbol": i["symbol"], "rating": "Buy", "buy_votes": 5, "sell_votes": 1, "signal_count": 7, "rsi": 61.0} for i in items]
+
+        with patch.object(watchlist, "build_rows", fake_rows), \
+                patch("source.webapp.pages.quote_chart.market_data_source", return_value=(("K", "S"), "live")):
+            out = self.post("/api/ratings", {"symbols": ["aapl", "$$$", "AAPL", "ko"]})
+        self.assertEqual(seen["symbols"], ["AAPL", "KO"])                  # cleaned, de-duplicated
+        self.assertEqual(out["items"][0]["buy_votes"], 5)
+
+    def test_no_symbols_is_empty_and_the_route_is_an_owner_route(self):
+        self.assertEqual(self.post("/api/ratings", {"symbols": []}), {"items": []})
+        self.assertIn("/api/ratings", trading_api.ROUTES)
+
+    def test_watchlist_rows_carry_the_vote_counts(self):
+        from source.webapp.pages import watchlist
+        bars = [{"t": f"2026-01-{i % 28 + 1:02d}", "o": 10 + i * 0.1, "h": 11 + i * 0.1, "l": 9 + i * 0.1, "c": 10 + i * 0.1, "v": 1000 + i}
+                for i in range(260)]
+        row = watchlist._row({"symbol": "ABC", "note": ""}, None, bars)
+        self.assertGreater(row["signal_count"], 3)
+        self.assertEqual(row["buy_votes"] + row["sell_votes"] <= row["signal_count"], True)
+
+
+class TestBrokerSecretsAndAudit(TempConfigTestCase):
+    def test_audit_log_defaults_to_alpaca_and_sync_leaves_other_brokers_alone(self):
+        LT = db.live_trading
+        LT.log_live_order(symbol="VTI", side="buy", qty=1, order_type="market", estimate=1.0, order_id="same", status="pending_new")
+        LT.log_live_order(symbol="KO", side="buy", qty=1, order_type="market", estimate=1.0, order_id="same", status="submitted", broker="etrade")
+        LT.sync_statuses([{"id": "same", "status": "filled"}])
+        by = {r["broker"]: r["status"] for r in LT.list_live_orders()}
+        self.assertEqual(by, {"alpaca": "filled", "etrade": "submitted"})
+
+
+class TestBrokerPages(DashboardTestCase):
+    def test_nav_lists_alpaca_ibkr_etrade_and_stock_analysis_but_no_practice_account(self):
+        page = self._get("/ibkr.html").read().decode("utf-8")
+        row = page[page.index('<div class="subnav">'):]
+        row = row[:row.index("</div>")]
+        order = [row.index(x) for x in (">Alpaca<", ">IBKR<", ">E*TRADE<", ">Stock Analysis<")]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn("Practice Account", row)
+        self.assertIn('<a href="/ibkr.html" class="active">IBKR</a>', row)
+        self.assertIn('<a href="/trading-live.html" class="active">', page)           # the Trading tab stays lit
+
+    def test_the_practice_page_still_opens_with_the_trading_tab_lit(self):
+        page = self._get("/trading.html").read().decode("utf-8")
+        self.assertIn('<a href="/trading-live.html" class="active">', page)
+
+    def test_ibkr_page_explains_the_gateway_and_holds_the_ticket(self):
+        page = self._get("/ibkr.html").read().decode("utf-8")
+        self.assertIn("Client Portal Gateway", page)
+        self.assertIn("REAL MONEY", page)
+        self.assertIn('id="bk-form"', page)
+        self.assertIn("/api/broker/data", page)
+        self.assertIn("var BROKER = 'ibkr'", page)
+        self.assertIn("<th>Rating</th>", page)                       # each position gets a rating and a hover analysis
+        self.assertIn("/api/ratings", page)
+
+    def test_etrade_page_explains_keys_and_the_daily_sign_in(self):
+        page = self._get("/etrade.html").read().decode("utf-8")
+        self.assertIn("consumer key", page)
+        self.assertIn("Customer Protection Guarantee", page)
+        self.assertIn("var BROKER = 'etrade'", page)
+        self.assertNotIn('id="et-start"', page)                     # no keys saved yet, so no Connect button
+
+    def test_etrade_page_shows_connect_once_keys_are_saved(self):
+        self._post("/api/broker/etrade/keys", {"consumer_key": "CK", "consumer_secret": "CS"})
+        page = self._get("/etrade.html").read().decode("utf-8")
+        self.assertIn('id="et-start"', page)
+        self.assertNotIn("CS", page.replace("CSS", "").replace("CSV", ""))      # the secret is never written into the page
+
+    def test_the_quote_cards_trade_button_offers_each_real_money_account(self):
+        body = self._get("/stock-analysis.html").read().decode("utf-8") if False else None
+        from source.webapp.pages import quote_panel
+        targets = quote_panel.trade_targets()
+        self.assertIn(["IBKR", "/ibkr.html"], targets)
+        html_page = quote_panel.quote_panel_html()
+        self.assertIn("var TRADE_TARGETS = ", html_page)
+        self.assertIn("Trade with", html_page)
+        self.assertNotIn("Practice order", html_page)
+
+
+if __name__ == "__main__":
+    unittest.main()

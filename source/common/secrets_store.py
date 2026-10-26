@@ -117,6 +117,7 @@ def _empty_vault() -> dict:
         "smtp_password": "",
         "alpaca_keys": {"key_id": "", "secret": ""},
         "alpaca_live_keys": {"key_id": "", "secret": ""},
+        "brokers": {},
     }
 
 
@@ -130,6 +131,9 @@ def _vault_has_any_secret(vault: dict) -> bool:
         return True
     for slot in ("alpaca_keys", "alpaca_live_keys"):
         if any(str(v).strip() for v in (vault.get(slot) or {}).values()):
+            return True
+    for fields in (vault.get("brokers") or {}).values():
+        if any(str(v).strip() for v in (fields or {}).values()):
             return True
     return any(str(v).strip() for v in (vault.get("access_tokens") or {}).values())
 
@@ -160,6 +164,7 @@ def _normalize_vault(raw: dict) -> dict:
     for slot in ("alpaca_keys", "alpaca_live_keys"):
         pair = raw.get(slot) or {}
         vault[slot] = {"key_id": str(pair.get("key_id") or ""), "secret": str(pair.get("secret") or "")}
+    vault["brokers"] = {str(k): {str(a): str(b) for a, b in (v or {}).items()} for k, v in (raw.get("brokers") or {}).items()}
     return vault
 
 
@@ -396,6 +401,42 @@ def delete_item_access_token(item_key: str) -> None:
     with _lock:
         vault = _load_vault_unlocked()
         vault["access_tokens"].pop(item_key, None)
+        if _vault_has_any_secret(vault):
+            _save_vault_unlocked(vault)
+        else:
+            _delete_vault_item()
+            clear_vault_cache()
+
+
+# ---- other brokers (E*TRADE tokens, ...): a small named dict per broker, in the same Keychain vault ----
+
+def set_broker_secret(broker: str, fields: dict) -> None:
+    """Saves (replaces) the named broker's secret fields, e.g. E*TRADE's consumer key and access token."""
+    name = str(broker or "").strip().lower()
+    if not name:
+        raise ValueError("Which broker?")
+    clean = {str(k): str(v) for k, v in (fields or {}).items() if str(v or "").strip()}
+    with _lock:
+        vault = _load_vault_unlocked()
+        vault.setdefault("brokers", {})[name] = clean
+        _save_vault_unlocked(vault)
+
+
+def get_broker_secret(broker: str) -> dict:
+    name = str(broker or "").strip().lower()
+    with _lock:
+        return dict((_load_vault_unlocked().get("brokers") or {}).get(name) or {})
+
+
+def has_broker_secret(broker: str) -> bool:
+    return bool(get_broker_secret(broker))
+
+
+def delete_broker_secret(broker: str) -> None:
+    name = str(broker or "").strip().lower()
+    with _lock:
+        vault = _load_vault_unlocked()
+        (vault.setdefault("brokers", {})).pop(name, None)
         if _vault_has_any_secret(vault):
             _save_vault_unlocked(vault)
         else:

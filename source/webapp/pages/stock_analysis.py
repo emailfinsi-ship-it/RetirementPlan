@@ -27,6 +27,6 @@ def _render_stock_analysis_page() -> str:
             '<div class="card"><h3 style="margin-top:0;">Connect Alpaca to see prices</h3>'
             '<p class="muted">Prices come from Alpaca&rsquo;s free market data. Save a free practice (paper) account&rsquo;s keys, '
             'or your live keys, on the Trading tab and this page fills in. Your saved watchlist is kept below meanwhile.</p>'
-            '<p><a href="/trading.html" class="pill-link"><button type="button" class="primary">Connect on the Trading tab</button></a></p></div>'
+            '<p><a href="/trading-live.html" class="pill-link"><button type="button" class="primary">Connect on the Trading tab</button></a></p></div>'
         ) + watchlist_card_html() + earnings_week_card_html())
     return _shell(title="Stock Analysis", active="stock-analysis.html", body=intro + watchlist_card_html() + earnings_week_card_html() + quote_panel_html())

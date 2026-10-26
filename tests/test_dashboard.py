@@ -6334,13 +6334,14 @@ class TestTradingTab(DashboardTestCase):
         for url in ("/trading.html", "/trading-live.html"):          # and stays lit on either page
             page = self._get(url).read().decode("utf-8")
             self.assertIn('<a href="/trading-live.html" class="active">', page)
-        # the section row under the tab bar lists Live account, then Stock Analysis, then Practice account
+        # the section row under the tab bar lists Alpaca, IBKR, E*TRADE, then Stock Analysis (the practice account is hidden for now)
         row = page[page.index('<div class="subnav">'):]
         row = row[:row.index("</div>")]
-        self.assertLess(row.index("Live Account"), row.index("Stock Analysis"))
-        self.assertLess(row.index("Stock Analysis"), row.index("Practice Account"))
-        self.assertIn('<a href="/trading-live.html" class="active">Live Account</a>', self._get("/trading-live.html").read().decode("utf-8"))
-        self.assertIn('<a href="/trading.html" class="active">Practice Account</a>', self._get("/trading.html").read().decode("utf-8"))
+        self.assertLess(row.index(">Alpaca<"), row.index(">IBKR<"))
+        self.assertLess(row.index(">IBKR<"), row.index(">E*TRADE<"))
+        self.assertLess(row.index(">E*TRADE<"), row.index(">Stock Analysis<"))
+        self.assertNotIn("Practice Account", row)
+        self.assertIn('<a href="/trading-live.html" class="active">Alpaca</a>', self._get("/trading-live.html").read().decode("utf-8"))
         stock = self._get("/stock-analysis.html").read().decode("utf-8")
         self.assertIn('<a href="/trading-live.html" class="active">', stock)           # Trading stays lit on Stock Analysis
         self.assertIn('<a href="/stock-analysis.html" class="active">Stock Analysis</a>', stock)

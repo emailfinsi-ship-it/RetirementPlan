@@ -118,3 +118,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Quote card: "Add to watchlist" button next to Trade (toggles to "On your watchlist"); the watchlist's separate "Add tickers" box was removed.
 
 - Stock Analysis: the Watchlist and Earnings cards start collapsed (click the title to expand) and show a short count.
+
+- IBKR and E*TRADE trading tabs (real money, preview-then-confirm, shared limits and audit log), Trade button menu on the quote card, Rating and hover analysis beside each position, Practice Account tab hidden. See VERSION3.md items 35-37 for the details.
