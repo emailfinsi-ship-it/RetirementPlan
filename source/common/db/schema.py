@@ -491,7 +491,8 @@ CREATE TABLE IF NOT EXISTS live_order_log (
     order_type TEXT NOT NULL,
     estimate REAL NOT NULL,
     order_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT ''
+    status TEXT NOT NULL DEFAULT '',
+    broker TEXT NOT NULL DEFAULT 'alpaca'   -- alpaca | ibkr | etrade
 );
 
 -- Stock Analysis tab: the tickers the owner is keeping an eye on. Prices are

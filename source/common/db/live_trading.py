@@ -86,14 +86,14 @@ def set_limits(per_order: float, daily: float) -> None:
 
 
 def log_live_order(*, symbol: str, side: str, qty: int, order_type: str, estimate: float, order_id: str, status: str,
-                   placed_at: datetime | None = None) -> None:
+                   placed_at: datetime | None = None, broker: str = "alpaca") -> None:
     when = placed_at or datetime.now()
     with connect() as conn:
         conn.execute(
-            "INSERT INTO live_order_log (placed_at, day, symbol, side, qty, order_type, estimate, order_id, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO live_order_log (placed_at, day, symbol, side, qty, order_type, estimate, order_id, status, broker) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (when.isoformat(timespec="seconds"), when.date().isoformat(), symbol, side, int(qty), order_type,
-             float(estimate), order_id, status),
+             float(estimate), order_id, status, broker),
         )
 
 
@@ -108,9 +108,12 @@ def daily_remaining(*, today: date | None = None) -> float:
     return max(0.0, daily_limit() - spent_today(today=today))
 
 
-def list_live_orders(limit: int = 20) -> list[dict]:
+def list_live_orders(limit: int = 20, broker: str | None = None) -> list[dict]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM live_order_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+        if broker:
+            rows = conn.execute("SELECT * FROM live_order_log WHERE broker = ? ORDER BY id DESC LIMIT ?", (broker, int(limit))).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM live_order_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -124,6 +127,6 @@ def sync_statuses(orders: list[dict]) -> int:
             oid, status = str(o.get("id") or ""), str(o.get("status") or "")
             if not oid or not status:
                 continue
-            cur = conn.execute("UPDATE live_order_log SET status = ? WHERE order_id = ? AND status != ?", (status, oid, status))
+            cur = conn.execute("UPDATE live_order_log SET status = ? WHERE order_id = ? AND status != ? AND broker = 'alpaca'", (status, oid, status))
             changed += cur.rowcount
     return changed
