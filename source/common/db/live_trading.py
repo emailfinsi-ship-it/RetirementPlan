@@ -112,3 +112,18 @@ def list_live_orders(limit: int = 20) -> list[dict]:
     with connect() as conn:
         rows = conn.execute("SELECT * FROM live_order_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
         return [dict(r) for r in rows]
+
+
+def sync_statuses(orders: list[dict]) -> int:
+    """Brings the saved status of each real-money order up to date from Alpaca's own list
+    (``orders`` as returned by alpaca.list_orders). The status saved when an order is sent is
+    only what Alpaca said at that instant ("pending_new"); a fill happens later. Returns how many changed."""
+    changed = 0
+    with connect() as conn:
+        for o in orders or []:
+            oid, status = str(o.get("id") or ""), str(o.get("status") or "")
+            if not oid or not status:
+                continue
+            cur = conn.execute("UPDATE live_order_log SET status = ? WHERE order_id = ? AND status != ?", (status, oid, status))
+            changed += cur.rowcount
+    return changed

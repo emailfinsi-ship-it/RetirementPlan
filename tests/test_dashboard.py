@@ -6191,6 +6191,17 @@ class TestStockAnalysisTab(DashboardTestCase):
         self.assertIn("never places an order", body)
         self.assertNotIn("S3", body)
 
+    def test_the_table_is_compact_with_the_company_name_on_hover_and_the_note_last(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn("function symLink(", body)
+        self.assertIn('data-ctip="\' + esc(r.name)', body)             # name shown in the shared hover box
+        self.assertNotIn('class="wl-name"', body)                       # no second line under the symbol
+        self.assertLess(body.index("['rating_score', 'Rating', true]"), body.index("'<th></th><th>Note</th>'"))
+        self.assertIn("['earn_date', 'Next earnings', true]", body)
+        self.assertIn('id="earnings-week"', body)
+
     def test_live_keys_alone_are_enough_and_the_tab_is_lit(self):
         from source.common import secrets_store
         secrets_store.set_alpaca_keys("AKX", "L1", mode="live")

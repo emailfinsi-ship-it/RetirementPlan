@@ -285,6 +285,53 @@ class TestLivePage(TradingApiCase):
         self.assertIn("Real-money orders sent from this app", body)
         self.assertIn("$1,000.00", body)
 
+    def test_a_sent_order_that_has_since_filled_shows_filled_not_pending_new(self):
+        self.connect_live()
+        LT.log_live_order(symbol="AAPL", side="buy", qty=1, order_type="market", estimate=343.59, order_id="o-1", status="pending_new")
+        LT.log_live_order(symbol="VTI", side="buy", qty=1, order_type="limit", estimate=300.0, order_id="o-2", status="pending_new")
+        self.fake.routes[("GET", "api.alpaca.markets/v2/orders")] = [
+            {"id": "o-1", "symbol": "AAPL", "side": "buy", "qty": "1", "type": "market", "status": "filled",
+             "filled_qty": "1", "filled_avg_price": "343.62"},
+            {"id": "o-2", "symbol": "VTI", "side": "buy", "qty": "1", "type": "limit", "status": "new"},
+        ]
+        body = _render_trading_page("live")
+        log = body.split("Real-money orders sent from this app")[1]
+        self.assertIn("filled: 1 at $343.62", log)
+        self.assertNotIn("pending new", log)
+        statuses = {r["order_id"]: r["status"] for r in LT.list_live_orders()}
+        self.assertEqual(statuses, {"o-1": "filled", "o-2": "new"})            # saved, so it stays right offline too
+
+    def test_sync_statuses_only_touches_orders_it_knows(self):
+        LT.log_live_order(symbol="VTI", side="buy", qty=1, order_type="market", estimate=1.0, order_id="a", status="pending_new")
+        self.assertEqual(LT.sync_statuses([{"id": "a", "status": "filled"}, {"id": "zzz", "status": "filled"}, {"id": "", "status": "x"}]), 1)
+        self.assertEqual(LT.sync_statuses([{"id": "a", "status": "filled"}]), 0)
+        self.assertEqual(LT.list_live_orders()[0]["status"], "filled")
+
+    def test_each_position_has_a_sell_button_that_fills_the_order_form(self):
+        self.connect_live()
+        self.arm()
+        self.fake.routes[("GET", "api.alpaca.markets/v2/positions")] = [
+            {"symbol": "AAPL", "qty": "3", "avg_entry_price": "300", "current_price": "344.5", "market_value": "1033.5",
+             "unrealized_pl": "133.5", "unrealized_plpc": "0.148"},
+            {"symbol": "TINY", "qty": "0.4", "avg_entry_price": "10", "current_price": "11", "market_value": "4.4",
+             "unrealized_pl": "0.4", "unrealized_plpc": "0.1"},
+        ]
+        body = _render_trading_page("live")
+        self.assertIn("onclick=\"sellPosition('AAPL', 3)\"", body)
+        self.assertNotIn("sellPosition('TINY'", body)                # under one whole share: nothing the form can sell
+        self.assertIn("function sellPosition(", body)
+        self.assertIn('id="ticket-note"', body)
+
+    def test_the_sell_button_on_a_switched_off_live_page_points_to_the_switch(self):
+        self.connect_live()
+        self.fake.routes[("GET", "api.alpaca.markets/v2/positions")] = [
+            {"symbol": "AAPL", "qty": "1", "avg_entry_price": "300", "current_price": "344.5", "market_value": "344.5",
+             "unrealized_pl": "44.5", "unrealized_plpc": "0.148"}]
+        body = _render_trading_page("live")
+        self.assertIn("sellPosition('AAPL', 1)", body)
+        self.assertIn("turn live trading on above", body)
+        self.assertNotIn('id="ticket"', body)
+
     def test_the_practice_page_says_it_is_play_money_and_links_to_live(self):
         body = _render_trading_page("paper")
         self.assertIn("Practice only", body)

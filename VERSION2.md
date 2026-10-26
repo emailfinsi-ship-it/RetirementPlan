@@ -126,3 +126,8 @@ before any Alpaca keys are saved.
 **MACD crossover and a prettier stock chart.** The quote card and a new watchlist MACD column show whether MACD is above or
 below its signal line and the latest bullish / bearish crossover; the chart has a MACD panel with crossover triangles,
 softer styling and an instant hover box.
+
+**Earnings, compact watchlist, order status, Sell buttons.** The watchlist has a Next earnings column and the Stock Analysis tab an
+"Earnings this week" card (dates from Yahoo Finance via yfinance, cached); the watchlist table is compact (company name on hover,
+Note last); the real-money orders table now refreshes each order's status from Alpaca (filled orders no longer read "pending new");
+every position has a Sell button that fills the order form (Market or Limit).
