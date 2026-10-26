@@ -287,3 +287,14 @@ are not touched.
     log apply to every order, and **Turn live trading OFF now** works at any time. Code: `db/live_trading.py` (`arm(stay_on=)`, `is_persistent`).
 42. **E*TRADE is production only.** The sandbox-keys option is gone; the tab shows the last four characters of the saved consumer key
     (and says if the secret is missing) so saved keys can be checked without showing them.
+43. **Tax lots and cost basis, all accounts (E*TRADE).** **Show tax lots and cost basis** on the E*TRADE tab lists every purchase (lot) in
+    every account the login can see: account, symbol, date bought, shares left, cost per share, cost basis, value now, gain, short/long
+    term, with a subtotal per account, a grand total, and a CSV download. IBKR's gateway only reports one average cost per position
+    (lots come from IBKR's Flex reports), and Alpaca reports average entry price, so those tabs keep showing the average cost.
+    Code: `collector/etrade.py` (`lots`), `webapp/broker_api.py` (`_all_lots`, `/api/broker/lots`).
+44. **Fewer sign-ins.** An E*TRADE session that went idle for two hours is renewed automatically instead of asking you to Connect
+    (E*TRADE still ends every session at midnight US Eastern, which no program can extend). While the app runs it pings the IBKR
+    gateway once a minute so a session you signed in to is not dropped for being idle (IBKR's own daily reset still applies).
+    Code: `etrade.Client.json`, `ibkr_gateway.keepalive_once`.
+45. **E*TRADE sign-in is easier to read.** The tab says "Signed in" while a session is valid; pressing Connect again no longer drops the
+    current session until the new one is confirmed; and when E*TRADE rejects a session the message includes E*TRADE's own reason.

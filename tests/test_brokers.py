@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import keyring
 
-from source.collector import broker_common as bc, etrade, ibkr
+from source.collector import broker_common as bc, etrade, ibkr, ibkr_gateway
 from source.collector.broker_common import BrokerError
 from source.common import db, secrets_store
 from source.webapp import broker_api, trading_api
@@ -87,7 +87,7 @@ class FakeIbkr:
 
 class FakeEtrade:
     def __init__(self, expired=False):
-        self.calls, self.expired, self.placed = [], expired, []
+        self.calls, self.expired, self.placed, self.idle = [], expired, [], False
 
     def __call__(self, req, timeout=None):
         url = req.full_url
@@ -101,7 +101,12 @@ class FakeEtrade:
         if path == "/oauth/access_token":
             assert "oauth_verifier=\"CODE123\"" in auth
             return Resp("oauth_token=ACC&oauth_token_secret=ACCSECRET")
-        if self.expired:
+        if path == "/oauth/renew_access_token":
+            self.renews = getattr(self, "renews", 0) + 1
+            if self.idle:
+                self.idle = False
+            return Resp("Renewed Access Token for " + "x")
+        if self.idle or self.expired:
             raise http_error(401, {"Error": {"message": "expired"}})
         if path == "/v1/accounts/list.json":
             return Resp({"AccountListResponse": {"Accounts": {"Account": [
@@ -110,9 +115,15 @@ class FakeEtrade:
         if path == "/v1/accounts/KEY1/balance.json":
             return Resp({"BalanceResponse": {"Computed": {"cashBuyingPower": 3000, "cashAvailableForInvestment": 1500,
                                                           "RealTimeValues": {"totalAccountValue": 25000}}}})
+        if path == "/v1/accounts/KEY1/portfolio/9001.json":
+            return Resp({"PositionLotsResponse": {"PositionLot": [
+                {"positionLotId": 1, "price": 50, "remainingQty": 12, "totalCost": 600, "marketValue": 780, "totalGain": 180,
+                 "termCode": "LONG_TERM", "acquiredDate": 1609459200000},
+                {"positionLotId": 2, "price": 62.5, "remainingQty": 8, "marketValue": 520, "totalGain": 20,
+                 "termCode": "SHORT_TERM", "acquiredDate": 1740787200000}]}})
         if path == "/v1/accounts/KEY1/portfolio.json":
             return Resp({"PortfolioResponse": {"AccountPortfolio": [{"Position": [
-                {"Product": {"securityType": "EQ", "symbol": "KO"}, "symbolDescription": "COCA COLA", "quantity": 20, "pricePaid": 55,
+                {"positionId": 9001, "Product": {"securityType": "EQ", "symbol": "KO"}, "symbolDescription": "COCA COLA", "quantity": 20, "pricePaid": 55,
                  "marketValue": 1300, "totalGain": 200, "positionType": "LONG", "Quick": {"lastTrade": 65}},
                 {"Product": {"securityType": "OPTN", "symbol": "KO"}, "quantity": 1}]}]}})
         if path == "/v1/accounts/KEY1/orders.json":
@@ -293,6 +304,32 @@ class TestEtrade(unittest.TestCase):
         with self.assertRaises(BrokerError):
             etrade.finish_login("CK", "CS", "REQ", "REQSECRET", "", opener=fake)
 
+    def test_an_idle_session_is_renewed_instead_of_asking_you_to_sign_in_again(self):
+        fake = FakeEtrade()
+        fake.idle = True
+        self.assertEqual([a["id"] for a in etrade.list_accounts(self.client(fake))], ["KEY1"])
+        self.assertEqual(fake.renews, 1)
+        gone = FakeEtrade(expired=True)           # past midnight: renewing does not help, so it still asks to Connect
+        with self.assertRaises(BrokerError) as cm:
+            etrade.list_accounts(self.client(gone))
+        self.assertIn("Connect", str(cm.exception))
+
+    def test_a_rejected_session_says_why(self):
+        class Rejects(FakeEtrade):
+            def __call__(self, req, timeout=None):
+                if urllib.parse.urlparse(req.full_url).path.startswith("/v1/"):
+                    raise urllib.error.HTTPError(req.full_url, 401, "no", {}, io.BytesIO(b"oauth_problem=token_rejected"))
+                return super().__call__(req, timeout=timeout)
+        with self.assertRaises(BrokerError) as cm:
+            etrade.list_accounts(self.client(Rejects()))
+        self.assertIn("token_rejected", str(cm.exception))
+
+    def test_lots_list_every_purchase_with_its_cost_basis(self):
+        rows = etrade.lots(self.client(), "KEY1")
+        self.assertEqual([(r["acquired"], r["qty"], r["cost_per_share"], r["cost_basis"], r["term"]) for r in rows],
+                         [("2021-01-01", 12.0, 50.0, 600.0, "long"), ("2025-03-01", 8.0, 62.5, 500.0, "short")])
+        self.assertEqual(rows[1]["gain"], 20.0)
+
     def test_balances_fall_back_when_the_usual_fields_are_missing(self):
         class Fake(FakeEtrade):
             def __init__(self, body):
@@ -408,6 +445,27 @@ class TestBrokerRoutes(BrokerApiCase):
         self.assertEqual(out["positions"][0]["symbol"], "AAPL")
         self.assertFalse(out["armed"])
         self.assertEqual(self.post("/api/broker/data", {"broker": "ibkr", "account": "U222"})["account"], "U222")
+
+    def test_pressing_connect_again_keeps_the_current_session_until_the_new_one_is_confirmed(self):
+        self.connect_etrade()
+        self.assertTrue(broker_api.etrade_state()["has_session"])
+        self.post("/api/broker/etrade/start", {})
+        st = broker_api.etrade_state()
+        self.assertTrue(st["has_session"] and st["pending"])
+
+    def test_lots_route_totals_for_etrade_and_explains_ibkr(self):
+        self.arm()
+        self.connect_etrade()
+        out = self.post("/api/broker/lots", {"broker": "etrade"})
+        self.assertEqual(len(out["lots"]), 2)
+        self.assertEqual(out["lots"][0]["account"], "INDIVIDUAL (8301)")
+        self.assertEqual(out["by_account"][0]["lots"], 2)
+        self.assertEqual(out["problems"], [])
+        self.assertEqual(out["total"]["cost_basis"], 1100.0)
+        self.assertEqual(out["by_symbol"][0]["lots"], 2)
+        with self.assertRaises(ValueError) as cm:
+            self.post("/api/broker/lots", {"broker": "ibkr"})
+        self.assertIn("average cost", str(cm.exception))
 
     def test_with_several_accounts_the_data_includes_every_account_and_the_totals(self):
         out = self.post("/api/broker/data", {"broker": "ibkr"})
@@ -811,6 +869,29 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("var TRADE_TARGETS = ", html_page)
         self.assertIn("Trade with", html_page)
         self.assertNotIn("Practice order", html_page)
+
+
+
+
+class TestIbkrKeepAlive(unittest.TestCase):
+    def test_keepalive_pings_tickle_and_never_raises(self):
+        seen = []
+
+        class Gw:
+            def __init__(self, *a, **k):
+                pass
+
+            def call(self, method, path, body=None):
+                seen.append((method, path))
+        with patch("source.collector.ibkr.Gateway", Gw):
+            self.assertTrue(ibkr_gateway.keepalive_once())
+        self.assertEqual(seen, [("POST", "/tickle")])
+
+        class Down(Gw):
+            def call(self, *a, **k):
+                raise BrokerError("down")
+        with patch("source.collector.ibkr.Gateway", Down):
+            self.assertFalse(ibkr_gateway.keepalive_once())
 
 
 if __name__ == "__main__":
