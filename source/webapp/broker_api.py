@@ -19,8 +19,8 @@ from source.common.db.meta import get_meta, set_meta
 
 ROUTES = (
     "/api/broker/data", "/api/broker/preview", "/api/broker/order", "/api/broker/cancel",
-    "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/stop", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
-    "/api/broker/etrade/disconnect",
+    "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/stop", "/api/broker/ibkr/autostart", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
+    "/api/broker/etrade/disconnect", "/api/broker/diagnose",
 )
 
 BROKERS = ("ibkr", "etrade")
@@ -63,7 +63,9 @@ def _gateway() -> ibkr.Gateway:
 def etrade_state() -> dict:
     sec = secrets_store.get_broker_secret("etrade")
     return {"has_keys": bool(sec.get("consumer_key") and sec.get("consumer_secret")), "has_session": bool(sec.get("token")),
-            "pending": bool(sec.get("request_token")), "sandbox": sec.get("sandbox") == "1"}
+            "pending": bool(sec.get("request_token")),
+            "key_hint": ("\u2026" + sec["consumer_key"][-4:]) if sec.get("consumer_key") else "",
+            "has_secret": bool(sec.get("consumer_secret"))}
 
 
 def _etrade_client(*, need_session: bool = True) -> etrade.Client:
@@ -73,7 +75,7 @@ def _etrade_client(*, need_session: bool = True) -> etrade.Client:
     if need_session and not sec.get("token"):
         raise BrokerError("E*TRADE is not signed in. Press Connect.")
     return etrade.Client(sec["consumer_key"], sec["consumer_secret"], sec.get("token", ""), sec.get("token_secret", ""),
-                         sandbox=sec.get("sandbox") == "1", opener=OPENERS["etrade"])
+                         opener=OPENERS["etrade"])
 
 
 def _client(broker: str):
@@ -96,7 +98,7 @@ def _account(broker: str, client, payload: dict) -> str:
 def _limits() -> dict:
     lt = db.live_trading
     until = lt.armed_until()
-    return {"armed": until is not None, "armed_until": until, "per_order": lt.per_order_limit(),
+    return {"armed": until is not None, "armed_until": until, "persistent": lt.is_persistent(), "per_order": lt.per_order_limit(),
             "daily_remaining": lt.daily_remaining()}
 
 
@@ -108,6 +110,7 @@ def _data(payload: dict) -> dict:
         out["gateway_url"] = gateway_url()
         out["gateway_files"] = ibkr_gateway.bundled_dir() is not None or (ibkr_gateway.run_dir() / "bin").is_dir()
         out["gateway_started_here"] = ibkr_gateway.running()
+        out["gateway_autostart"] = ibkr_gateway.autostart_enabled()
         gw = _gateway()
         st = ibkr.status(gw)
         if st.get("down"):
@@ -149,11 +152,97 @@ def _data(payload: dict) -> dict:
             out[key] = fn(client, out["account"])
         except BrokerError as exc:
             out["errors"].append(str(exc))
+    if len(out["accounts"]) > 1:
+        out["overview"] = _overview(mod, client, out["accounts"])
     return out
+
+
+def _overview(mod, client, accounts: list[dict]) -> dict:
+    """Every account's balances and holdings, plus the totals and the holdings added up across accounts."""
+    rows, held = [], {}
+    total = {"value": 0.0, "cash": 0.0, "buying_power": 0.0}
+    for acct in accounts:
+        row = {"id": acct["id"], "name": acct["name"], "summary": None, "positions": [], "error": ""}
+        for key, fn in (("summary", mod.summary), ("positions", mod.positions)):
+            try:
+                row[key] = fn(client, acct["id"])
+            except BrokerError as exc:
+                row["error"] = str(exc)
+        for k in total:
+            total[k] += float((row["summary"] or {}).get(k) or 0.0)
+        for p in row["positions"]:
+            h = held.setdefault(p["symbol"], {"symbol": p["symbol"], "name": p.get("name", ""), "qty": 0.0, "market_value": 0.0,
+                                              "gain": 0.0, "has_gain": False, "accounts": 0})
+            h["qty"] += float(p.get("qty") or 0.0)
+            h["market_value"] += float(p.get("market_value") or 0.0)
+            if p.get("gain") is not None:
+                h["gain"] += float(p["gain"])
+                h["has_gain"] = True
+            h["accounts"] += 1
+        row["positions"] = [{"symbol": p["symbol"], "qty": p["qty"], "market_value": p.get("market_value")} for p in row["positions"]]
+        rows.append(row)
+    holdings = sorted(({**h, "gain": h["gain"] if h["has_gain"] else None} for h in held.values()), key=lambda r: -r["market_value"])
+    for h in holdings:
+        h.pop("has_gain", None)
+    return {"accounts": rows, "total": total, "holdings": holdings}
+
+
+def _shape(obj, depth: int = 4):
+    """The structure of a reply with every value left out (names, types and list lengths only), so it can be shown and
+    shared without exposing balances, account numbers or tokens."""
+    if depth <= 0:
+        return "..."
+    if isinstance(obj, dict):
+        # a name containing a digit is data (for example an account id used as a key), not structure, so it is hidden
+        return {("<id>" if any(ch.isdigit() for ch in str(k)) else str(k)): _shape(v, depth - 1) for k, v in list(obj.items())[:25]}
+    if isinstance(obj, list):
+        return [f"{len(obj)} item(s)"] + ([_shape(obj[0], depth - 1)] if obj else [])
+    return type(obj).__name__ if obj is not None else "null"
+
+
+def _diagnose(payload: dict) -> dict:
+    """Runs each read call the tab makes, one by one, and reports what happened to each (never values)."""
+    broker = _broker(payload)
+    steps: list[dict] = []
+
+    def run(name, fn):
+        try:
+            steps.append({"step": name, "ok": True, "shape": _shape(fn())})
+        except BrokerError as exc:
+            steps.append({"step": name, "ok": False, "error": str(exc)})
+        except Exception as exc:        # a diagnostic must never fail with a stack trace
+            steps.append({"step": name, "ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
+
+    if broker == "ibkr":
+        gw = _gateway()
+        run("Gateway sign-in status", lambda: gw.call("GET", "/iserver/auth/status"))
+        run("Accounts", lambda: gw.call("GET", "/iserver/accounts"))
+        run("Portfolio accounts", lambda: gw.call("GET", "/portfolio/accounts"))
+    else:
+        state = etrade_state()
+        steps.append({"step": "Saved keys / session", "ok": state["has_keys"] and state["has_session"],
+                      "shape": {"keys_saved": state["has_keys"], "signed_in": state["has_session"]}})
+        if state["has_keys"] and state["has_session"]:
+            c = _etrade_client()
+            run("Account list", lambda: c.json("GET", "/v1/accounts/list"))
+            accounts = []
+            try:
+                accounts = etrade.list_accounts(c)
+            except BrokerError:
+                pass
+            steps.append({"step": "Accounts the app would show", "ok": bool(accounts), "shape": f"{len(accounts)} account(s)"})
+            if accounts:
+                key = accounts[0]["id"]
+                run("Balance", lambda: c.json("GET", f"/v1/accounts/{key}/balance", query={"instType": "BROKERAGE", "realTimeNAV": "true"}))
+                run("Portfolio", lambda: c.json("GET", f"/v1/accounts/{key}/portfolio", query={"count": 250}))
+                run("Open orders", lambda: c.json("GET", f"/v1/accounts/{key}/orders", query={"status": "OPEN", "count": 25}))
+    return {"broker": broker, "steps": steps}
 
 
 def _handle(path: str, payload: dict) -> dict:
     lt = db.live_trading
+    if path == "/api/broker/diagnose":
+        return _diagnose(payload)
     if path == "/api/broker/data":
         return _data(payload)
     if path == "/api/broker/ibkr/gateway":
@@ -166,20 +255,22 @@ def _handle(path: str, payload: dict) -> dict:
         if port:                                   # sign in at the port the gateway really uses
             set_meta(_GATEWAY_META, f"https://localhost:{port}")
         return {**out, "url": gateway_url()}
+    if path == "/api/broker/ibkr/autostart":
+        ibkr_gateway.set_autostart(bool(payload.get("on")))
+        return {"on": ibkr_gateway.autostart_enabled()}
     if path == "/api/broker/ibkr/stop":
         return {"stopped": ibkr_gateway.stop()}
     if path == "/api/broker/etrade/keys":
         key, secret = str(payload.get("consumer_key") or "").strip(), str(payload.get("consumer_secret") or "").strip()
         if not key or not secret:
             raise BrokerError("Both the consumer key and the consumer secret are needed.")
-        secrets_store.set_broker_secret("etrade", {"consumer_key": key, "consumer_secret": secret,
-                                                   "sandbox": "1" if payload.get("sandbox") else ""})
+        secrets_store.set_broker_secret("etrade", {"consumer_key": key, "consumer_secret": secret})
         return {}
     if path == "/api/broker/etrade/start":
         sec = secrets_store.get_broker_secret("etrade")
         if not sec.get("consumer_key") or not sec.get("consumer_secret"):
             raise BrokerError("Save your E*TRADE consumer key and secret first.")
-        got = etrade.start_login(sec["consumer_key"], sec["consumer_secret"], sandbox=sec.get("sandbox") == "1", opener=OPENERS["etrade"])
+        got = etrade.start_login(sec["consumer_key"], sec["consumer_secret"], opener=OPENERS["etrade"])
         secrets_store.set_broker_secret("etrade", {**sec, "token": "", "token_secret": "",
                                                    "request_token": got["request_token"], "request_secret": got["request_secret"]})
         return {"authorize_url": got["authorize_url"]}
@@ -188,8 +279,8 @@ def _handle(path: str, payload: dict) -> dict:
         if not sec.get("request_token"):
             raise BrokerError("Press Connect first to get a sign-in link.")
         got = etrade.finish_login(sec["consumer_key"], sec["consumer_secret"], sec["request_token"], sec.get("request_secret", ""),
-                                  payload.get("verifier"), sandbox=sec.get("sandbox") == "1", opener=OPENERS["etrade"])
-        keep = {k: v for k, v in sec.items() if k in ("consumer_key", "consumer_secret", "sandbox")}
+                                  payload.get("verifier"), opener=OPENERS["etrade"])
+        keep = {k: v for k, v in sec.items() if k in ("consumer_key", "consumer_secret")}
         secrets_store.set_broker_secret("etrade", {**keep, "token": got["token"], "token_secret": got["token_secret"]})
         return {}
     if path == "/api/broker/etrade/disconnect":
@@ -197,7 +288,7 @@ def _handle(path: str, payload: dict) -> dict:
             secrets_store.delete_broker_secret("etrade")
         else:
             sec = secrets_store.get_broker_secret("etrade")
-            secrets_store.set_broker_secret("etrade", {k: v for k, v in sec.items() if k in ("consumer_key", "consumer_secret", "sandbox")})
+            secrets_store.set_broker_secret("etrade", {k: v for k, v in sec.items() if k in ("consumer_key", "consumer_secret")})
         return {}
 
     broker = _broker(payload)

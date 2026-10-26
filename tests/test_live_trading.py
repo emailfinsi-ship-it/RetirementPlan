@@ -30,6 +30,19 @@ class TestArmingAndLimits(TempConfigTestCase):
         LT.arm(" TRADE REAL MONEY ")
         self.assertTrue(LT.is_armed())
 
+    def test_stay_on_keeps_live_trading_on_until_switched_off(self):
+        LT.arm(LT.CONFIRM_PHRASE, now=1_000.0)
+        self.assertFalse(LT.is_persistent(now=1_000.0))
+        LT.arm(LT.CONFIRM_PHRASE, now=1_000.0, stay_on=True)
+        later = 1_000.0 + 400 * 86400
+        self.assertTrue(LT.is_armed(now=later))
+        self.assertTrue(LT.is_persistent(now=later))
+        with self.assertRaises(ValueError):
+            LT.arm("nope", stay_on=True)
+        LT.disarm()
+        self.assertFalse(LT.is_armed())
+        self.assertFalse(LT.is_persistent())
+
     def test_arming_expires_by_itself_and_can_be_switched_off(self):
         LT.arm(LT.CONFIRM_PHRASE, now=1_000.0)
         self.assertTrue(LT.is_armed(now=1_000.0 + LT.ARM_HOURS * 3600 - 1))

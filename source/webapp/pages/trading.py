@@ -158,17 +158,22 @@ def _live_controls_html() -> str:
     until = lt.armed_until()
     spent, daily, per_order = lt.spent_today(), lt.daily_limit(), lt.per_order_limit()
     if until is not None:
-        when = datetime.fromtimestamp(until).strftime("%I:%M %p").lstrip("0")
+        if lt.is_persistent():
+            how = "LIVE TRADING IS ON until you turn it off."
+        else:
+            when = datetime.fromtimestamp(until).strftime("%I:%M %p").lstrip("0")
+            how = f"LIVE TRADING IS ON until about {html.escape(when)} (it switches itself off)."
         state = f"""
-<p class="status-line" style="color:#c94a4a; font-weight:700;">LIVE TRADING IS ON until about {html.escape(when)} (it switches itself off).</p>
+<p class="status-line" style="color:#c94a4a; font-weight:700;">{how}</p>
 <p><button type="button" class="primary" style="background:#c94a4a;" onclick="postJSON('/api/alpaca/live/disarm', {{}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">Turn live trading OFF now</button></p>"""
     else:
         state = f"""
 <p class="status-line">Live trading is <strong>off</strong>. You can look at your account, but no real-money order can be previewed or sent.</p>
 <form class="inline" onsubmit="event.preventDefault();
-  postJSON('/api/alpaca/live/arm', {{phrase: this.phrase.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
-  <label>To turn it on for {lt.ARM_HOURS} hours, type <strong>{html.escape(lt.CONFIRM_PHRASE)}</strong>
+  postJSON('/api/alpaca/live/arm', {{phrase: this.phrase.value, stay_on: this.stay.checked}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>To turn it on, type <strong>{html.escape(lt.CONFIRM_PHRASE)}</strong>
     <input name="phrase" autocomplete="off" style="width:200px" required></label>
+  <label style="flex-direction:row; align-items:center; gap:6px;"><input name="stay" type="checkbox" checked style="width:auto"> Keep it on until I turn it off (otherwise it switches off after {lt.ARM_HOURS} hours)</label>
   <button type="submit">Turn live trading on</button>
 </form>"""
     return f"""

@@ -276,3 +276,14 @@ are not touched.
     app's data folder (so the app itself is never written to) and runs IBKR's own `bin/run.sh root/conf.yaml` there; **Sign in to IBKR**
     opens the gateway's page; **Stop gateway** stops a gateway this app started. Only that one fixed command is ever run. Java is not
     bundled: it must be installed on the Mac (the tab says so if it is not). Code: `collector/ibkr_gateway.py`.
+40. **Broker tabs: run a check, clear messages, all accounts.** The IBKR and E*TRADE tabs have a **Run a check** button that runs each read
+    call in turn and shows what each returned as structure only (field names, types, list lengths: never balances, account numbers or
+    tokens), so a tab that shows nothing can be diagnosed. Connect shows its progress inline. With more than one account the tab adds an
+    **All accounts** card: each account's value, cash and buying power, the total, and every stock held added up across accounts.
+    E*TRADE balances fall back through the other fields E*TRADE uses (cash vs margin accounts, missing real-time block) instead of
+    showing $0. Code: `webapp/broker_api.py` (`_diagnose`, `_overview`), `collector/etrade.py` (`summary`).
+41. **Live trading can stay on.** The turn-on form has **Keep it on until I turn it off** (ticked by default); without it live trading
+    still switches itself off after 8 hours. Either way the phrase, the per-order and daily limits, the typed-symbol check and the audit
+    log apply to every order, and **Turn live trading OFF now** works at any time. Code: `db/live_trading.py` (`arm(stay_on=)`, `is_persistent`).
+42. **E*TRADE is production only.** The sandbox-keys option is gone; the tab shows the last four characters of the saved consumer key
+    (and says if the secret is missing) so saved keys can be checked without showing them.

@@ -71,8 +71,8 @@ def _handle(path: str, payload: dict) -> dict:
     if path == "/api/alpaca/live/arm":
         if str(payload.get("broker") or "") not in broker_api.BROKERS and not secrets_store.has_alpaca_keys(mode="live"):
             raise ValueError("Save your live Alpaca keys first.")
-        until = lt.arm(str(payload.get("phrase") or ""))
-        return {"armed_until": until}
+        until = lt.arm(str(payload.get("phrase") or ""), stay_on=bool(payload.get("stay_on")))
+        return {"armed_until": until, "persistent": lt.is_persistent()}
     if path == "/api/alpaca/live/disarm":
         lt.disarm()
         return {}
