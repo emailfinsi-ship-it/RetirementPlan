@@ -233,3 +233,12 @@ are not touched.
     smallest holdings can ever be skipped, and the card says how many). Within a day the biggest holding is listed
     first and each chip shows its share of the stocks in your linked accounts (e.g. AAPL 55%); the summary line names
     your biggest holding that reports. Code: `earnings_panel.week_universe/build_week`, `earnings.week_bounds(weeks)`.
+
+33. **Add to watchlist now sits beside Trade on the quote card.** Look up a stock and the header shows **Add KLAC to watchlist**
+    next to **Trade KLAC** (and again under the chart). Once saved it reads "On your watchlist (click to remove)" and
+    removes it if pressed again. The separate "Add tickers" box on the watchlist was removed; an empty watchlist tells you
+    to look a stock up below (or pick one of the examples). Code: `quote_panel.watchButton/quoteWatch`, `watchlist.watchHas`.
+
+34. **Watchlist and Earnings cards start collapsed.** On Stock Analysis both cards show just their title (with a short count such as
+    "5 stocks" or "3 tickers report in the next 2 weeks") and open when you click the title; they still load in the background so
+    the counts are ready. Code: `<details class="card fold">` in `watchlist.py` and `earnings_panel.py`.

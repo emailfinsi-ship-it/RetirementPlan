@@ -25,6 +25,7 @@ _PANEL_CSS = """
 .qp-track { position:relative; height:8px; border-radius:4px; background:color-mix(in srgb, var(--ink-muted) 30%, transparent); margin:6px 0 2px; }
 .qp-track i { position:absolute; top:-4px; width:4px; height:16px; border-radius:2px; background:var(--brand); }
 .qp-trackl { display:flex; justify-content:space-between; font-size:12px; color:var(--ink-muted); }
+.qp-watch.on { border-color:var(--success); color:var(--success); }
 .qp-pills { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
 .qp-rate { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:10px 0 4px; }
 .qp-badge { display:inline-block; padding:5px 14px; border-radius:999px; font-weight:700; font-size:15px; border:2px solid; }
@@ -75,6 +76,18 @@ _PANEL_JS = """
         (n.summary ? '<p>' + esc(n.summary) + '</p>' : '') + '</li>';
     }).join('') + '</ul><p class="muted small">Headlines come from Alpaca\u2019s news feed and open the publisher\u2019s page. They are not recommendations.</p>';
   }
+  // "Add to watchlist" and "Trade" sit side by side in the header and again under the chart; the watchlist
+  // button reads the saved list, so it turns into "On watchlist" (click again to remove) as soon as it is saved.
+  function watchButton() {
+    return window.watchHas ? '<button type="button" class="qp-watch" onclick="quoteWatch()"></button> ' : '';
+  }
+  window.quoteWatchSync = function () {
+    var on = !!(cur.symbol && window.watchHas && window.watchHas(cur.symbol));
+    Array.prototype.forEach.call(document.querySelectorAll('.qp-watch'), function (b) {
+      b.disabled = false; b.className = 'qp-watch' + (on ? ' on' : '');
+      b.textContent = on ? '\\u2605 On your watchlist (click to remove)' : '\\u2606 Add ' + cur.symbol + ' to watchlist';
+    });
+  };
   function tradeButton(sym) {
     return '<a href="/trading-live.html?symbol=' + encodeURIComponent(sym) + '" class="pill-link" title="Opens the live account\\u2019s order form with ' + esc(sym) + ' filled in. Nothing is sent until you preview and confirm there.">' +
       '<button type="button" class="primary">Trade ' + esc(sym) + '</button></a> ';
@@ -110,7 +123,7 @@ _PANEL_JS = """
     var arrow = up ? '\\u25B2' : '\\u25BC';
     var h = '<div class="qp-head"><span class="qp-sym">' + esc(d.symbol) + '</span>' + (d.name ? '<span class="qp-name">' + esc(d.name) + '</span>' : '') + '<span class="qp-price">' + usd(q.price) + '</span>' +
       '<span class="' + (up ? 'qp-up' : 'qp-down') + '">' + arrow + ' ' + signed(q.change) + ' (' + signed(q.change_pct, '%') + ') today</span>' +
-      '<span style="margin-left:auto;">' + tradeButton(d.symbol) + '</span></div>';
+      '<span style="margin-left:auto;">' + watchButton() + tradeButton(d.symbol) + '</span></div>';
     h += '<div class="qp-stats">' +
       '<div><span>Open</span>' + usd(q.open) + '</div><div><span>Day high</span>' + usd(q.high) + '</div><div><span>Day low</span>' + usd(q.low) + '</div>' +
       '<div><span>Previous close</span>' + usd(q.prev_close) + '</div><div><span>Volume today</span>' + vol(q.volume) + '</div>' +
@@ -133,9 +146,10 @@ _PANEL_JS = """
     h += '<p class="muted small">Technical signals only: moving averages, RSI, MACD and volume, counted on daily prices. It is not advice and this app never places an order from it. ' +
       'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
       newsHtml(d) +
-      '<p class="qp-actions">' + tradeButton(d.symbol) + '<button type="button" id="qp-watch" onclick="quoteWatch()">\\u2606 Add ' + esc(d.symbol) + ' to watchlist</button> ' +
+      '<p class="qp-actions">' + watchButton() + tradeButton(d.symbol) +
       '<a href="/trading.html?symbol=' + encodeURIComponent(d.symbol) + '" class="pill-link"><button type="button">Practice order for ' + esc(d.symbol) + '</button></a></p>';
     document.getElementById('qp-out').innerHTML = h;
+    window.quoteWatchSync();
     loadEarn(d.symbol, 0);
     var hit = document.getElementById('qc-hit'); if (hit) { hit.addEventListener('mousemove', hover); hit.addEventListener('mouseleave', leave); }
   }
@@ -180,10 +194,10 @@ _PANEL_JS = """
     if (box && !range) { box.scrollIntoView({behavior: 'smooth', block: 'start'}); }
   };
   window.quoteWatch = function () {
-    var btn = document.getElementById('qp-watch');
-    if (!window.watchAdd) { return; }
-    btn.disabled = true;
-    window.watchAdd(cur.symbol).then(function () { btn.textContent = '\\u2605 ' + cur.symbol + ' is on your watchlist'; });
+    if (!window.watchAdd || !cur.symbol) { return; }
+    var sym = cur.symbol, on = window.watchHas(sym);
+    Array.prototype.forEach.call(document.querySelectorAll('.qp-watch'), function (b) { b.disabled = true; });
+    (on ? window.watchRemove(sym) : window.watchAdd(sym)).then(window.quoteWatchSync, window.quoteWatchSync);
   };
   var params = new URLSearchParams(location.search);
   if (params.get('symbol')) {   // postJSON is defined further down the page, so wait until the page has loaded

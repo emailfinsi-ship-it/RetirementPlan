@@ -6229,6 +6229,28 @@ class TestStockAnalysisTab(DashboardTestCase):
         self.assertIn("Latest news about", body)
         self.assertIn('rel="noopener noreferrer"', body)                                      # headline links leave the app safely
 
+    def test_quote_header_has_add_to_watchlist_beside_trade_and_the_watchlist_has_no_add_form(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertNotIn('id="wl-form"', body)                                               # tickers are added from the quote card
+        self.assertNotIn(">Add tickers<", body)
+        head = body[body.index("'<span style=\"margin-left:auto;\">'"):]
+        self.assertLess(head.index("watchButton()"), head.index("tradeButton(d.symbol)"))     # watchlist button first, Trade beside it
+        self.assertIn("window.watchHas", body)                                               # the button knows if it is saved already
+        self.assertIn("window.quoteWatchSync", body)
+        self.assertIn("Add ' + cur.symbol + ' to watchlist", body)
+
+    def test_watchlist_and_earnings_cards_are_collapsed_until_clicked(self):
+        from source.common import secrets_store
+        secrets_store.set_alpaca_keys("PKX", "S3")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        for card_id in ("watchlist", "earnings-week"):
+            tag = body[body.index(f'<details class="card fold" id="{card_id}"'):].split(">", 1)[0]
+            self.assertNotIn(" open", tag)                       # closed by default; the summary line is the click target
+        self.assertIn("click to expand", body)
+        self.assertIn('id="quote"', body)                         # the quote card stays open
+
     def test_the_live_page_pre_fills_the_ticket_or_explains_why_it_cannot(self):
         from source.common import secrets_store
         secrets_store.set_alpaca_keys("AKX", "L1", mode="live")

@@ -78,6 +78,15 @@ def build_rows(items: list[dict], keys: tuple[str, str], *, mode: str | None = N
 
 
 _CSS = """
+details.fold > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+details.fold > summary::-webkit-details-marker { display:none; }
+details.fold > summary h3 { margin:0; display:inline; }
+details.fold > summary::before { content:'\\25B8'; color:var(--ink-muted); font-size:14px; }
+details.fold[open] > summary::before { content:'\\25BE'; }
+details.fold > summary .fold-hint { color:var(--ink-muted); font-size:12px; }
+details.fold[open] > summary { margin-bottom:8px; }
+details.fold[open] > summary .fold-closed { display:none; }
+
 .wl-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:8px 0; }
 .wl-bar .grow { flex:1 1 auto; }
 .wl-wrap { overflow-x:auto; }
@@ -143,10 +152,15 @@ _JS = """
     return '<a href="#quote" class="wl-sym" ' + (r.name ? 'data-ctip="' + esc(r.name) + '" data-ctip-note="Click to open the chart and rating"' : 'title="Open the chart and rating"') +
       ' onclick="lookupQuote(\\'' + s + '\\'); return false;">' + s + '</a>';
   }
-  function render() {
+  function count() {
+    var el = document.getElementById('wl-count'); if (!el) { return; }
+    el.textContent = rows.length ? rows.length + (rows.length === 1 ? ' stock' : ' stocks') : '';
+  }
+  function render() { draw(); count(); syncQuote(); }
+  function draw() {
     var out = document.getElementById('wl-out');
     if (!rows.length) {
-      out.innerHTML = '<p class="muted wl-empty">Your watchlist is empty. Type a ticker above, or start with one of these: ' +
+      out.innerHTML = '<p class="muted wl-empty">Your watchlist is empty. Look up a stock in Quote and chart below and press Add to watchlist, or start with one of these: ' +
         '<span class="wl-chips">' + __EXAMPLES__.map(function (s) { return '<button type="button" onclick="watchAdd(\\'' + s + '\\')">' + s + '</button>'; }).join('') + '</span></p>';
       return;
     }
@@ -195,6 +209,7 @@ _JS = """
     }).join('');
     out.innerHTML = '<div class="wl-wrap"><table id="wl-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
+  function syncQuote() { if (window.quoteWatchSync) { window.quoteWatchSync(); } }
   function status(text, warn) {
     var el = document.getElementById('wl-status');
     el.textContent = text; el.className = warn ? 'status-line status-warn' : 'muted small';
@@ -229,20 +244,16 @@ _JS = """
       .catch(function (e) { status(e.message, true); });
   };
   window.watchRemove = function (sym) {
-    postJSON('/api/watchlist/remove', {symbol: sym}).then(function () { rows = rows.filter(function (r) { return r.symbol !== sym; }); render(); if (!rows.length) { status(''); } })
+    return postJSON('/api/watchlist/remove', {symbol: sym}).then(function () { rows = rows.filter(function (r) { return r.symbol !== sym; }); render(); if (!rows.length) { status(''); } })
       .catch(function (e) { status(e.message, true); });
   };
+  window.watchHas = function (sym) { sym = String(sym || '').toUpperCase(); return rows.some(function (r) { return r.symbol === sym; }); };
   window.watchNote = function (sym, text) {
     postJSON('/api/watchlist/note', {symbol: sym, note: text}).then(function () {
       rows.forEach(function (r) { if (r.symbol === sym) { r.note = text; } });
     }).catch(function (e) { status(e.message, true); });
   };
   window.watchRefresh = load;
-  document.getElementById('wl-form').addEventListener('submit', function (ev) {
-    ev.preventDefault(); var box = this.symbol, text = box.value;
-    if (!text.trim()) { return; }
-    window.watchAdd(text).then(function () { box.value = ''; });
-  });
   render();   // the saved list shows at once; prices fill in when they arrive
   // postJSON is defined further down the page, so wait until the page has loaded
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', load); } else { load(); }
@@ -256,18 +267,14 @@ def watchlist_card_html() -> str:
     js = _JS.replace("__INITIAL__", initial).replace("__EXAMPLES__", "[" + ",".join(f"'{s}'" for s in _EXAMPLES) + "]")
     return f"""
 <style>{_CSS}</style>
-<div class="card" id="watchlist">
-<h3 style="margin-top:0;">Watchlist</h3>
-<p class="muted">Tickers you want to keep an eye on. Click a symbol to open its chart and rating below; click a column heading to sort.
+<details class="card fold" id="watchlist">
+<summary><h3>Watchlist</h3><span class="fold-hint" id="wl-count"></span><span class="fold-hint fold-closed">click to expand</span></summary>
+<p class="muted">Tickers you want to keep an eye on. To add a ticker, look it up in Quote and chart below and press Add to watchlist. Click a symbol to open its chart and rating; click a column heading to sort.
 Reading prices never places an order.</p>
-<form id="wl-form" class="inline wl-bar">
-  <label>Add tickers<input name="symbol" autocomplete="off" style="width:200px; text-transform:uppercase;" placeholder="AAPL, MSFT, VTI"></label>
-  <button type="submit" class="primary">Add to watchlist</button>
-  <button type="button" onclick="watchRefresh()">Refresh prices</button>
-</form>
+<div class="wl-bar"><button type="button" onclick="watchRefresh()">Refresh prices</button></div>
 <p id="wl-status" class="muted small"></p>
 <div id="wl-out"></div>
 <p class="muted small">Rating counts moving-average, RSI, MACD and volume signals on daily prices. The MACD column shows whether it is above or below its signal line and flags a crossover from the last 5 trading days. Trend arrows are short (about a month), medium (about 3 months) and long (about a year). Technical signals only, not advice.</p>
-</div>
+</details>
 {js}
 """
