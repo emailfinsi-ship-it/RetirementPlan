@@ -6181,7 +6181,15 @@ class TestStockAnalysisTab(DashboardTestCase):
         body = resp.read().decode("utf-8")
         self.assertIn("Stock Analysis", body)
         self.assertIn("Connect on the Trading tab", body)
-        self.assertNotIn("lookupQuote", body)
+        self.assertNotIn('id="quote"', body)                 # no quote panel without keys
+
+    def test_without_keys_the_saved_watchlist_is_still_shown(self):
+        db.watchlist.add("AAPL, VTI")
+        body = self._get("/stock-analysis.html").read().decode("utf-8")
+        self.assertIn('id="watchlist"', body)
+        self.assertIn('"symbol": "AAPL"', body)              # drawn from the database, no prices needed
+        self.assertIn('"symbol": "VTI"', body)
+        db.watchlist.remove("AAPL"); db.watchlist.remove("VTI")
 
     def test_with_keys_it_shows_the_watchlist_table_then_quote_and_chart(self):
         from source.common import secrets_store

@@ -217,6 +217,23 @@ class TestRows(unittest.TestCase):
         self.assertIsNone(row["rating_score"])
 
 
+class TestPersistence(TempConfigTestCase):
+    def test_the_list_and_notes_survive_a_restart_and_show_on_the_page_at_once(self):
+        trading_api.handle("/api/watchlist/add", {"symbol": "aapl, vti"})
+        trading_api.handle("/api/watchlist/note", {"symbol": "VTI", "note": "core"})
+        db.init_db()                                   # what every start of the program runs
+        self.assertEqual(db.watchlist.list_symbols(), ["AAPL", "VTI"])
+        self.assertEqual(db.watchlist.list_items()[1]["note"], "core")
+        with db.connect() as conn:                     # really in the database file
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM watchlist").fetchone()[0], 2)
+        page = wl.watchlist_card_html()                # drawn from the database before any price call
+        self.assertIn('"symbol": "AAPL"', page)
+        self.assertIn('"note": "core"', page)
+
+    def test_an_empty_list_page_has_an_empty_initial_list(self):
+        self.assertIn("var rows = [], sortKey", wl.watchlist_card_html())
+
+
 class TestRoutes(TempConfigTestCase):
     def test_add_remove_note_need_no_keys_and_never_order(self):
         out = trading_api.handle("/api/watchlist/add", {"symbol": "aapl, vti"})
@@ -248,10 +265,21 @@ class TestRoutes(TempConfigTestCase):
             have["paper"] = False
             trading_api.handle("/api/watchlist/data", {})
             have["live"] = False
-            with self.assertRaises(ValueError) as ctx:
-                trading_api.handle("/api/watchlist/data", {})
+            out = trading_api.handle("/api/watchlist/data", {})
         self.assertEqual(seen, [("P", "p"), ("L", "l")])
-        self.assertIn("Trading tab", str(ctx.exception))
+        # No keys: the saved tickers still come back, with the reason, instead of an error.
+        self.assertEqual([r["symbol"] for r in out["rows"]], ["UP"])
+        self.assertIn("Trading tab", out["warning"])
+
+    def test_a_price_feed_failure_still_returns_the_saved_list(self):
+        db.watchlist.add("AAPL, VTI")
+        db.watchlist.remember_name("AAPL", "Apple Inc.")
+        with patch.object(wl, "build_rows", side_effect=alpaca.AlpacaError("Alpaca is down")), \
+                patch.object(trading_api.quote_chart, "market_data_source", return_value=(("k", "s"), "paper")):
+            out = trading_api.handle("/api/watchlist/data", {})
+        self.assertEqual([r["symbol"] for r in out["rows"]], ["AAPL", "VTI"])
+        self.assertEqual(out["rows"][0]["name"], "Apple Inc.")
+        self.assertIn("Alpaca is down", out["warning"])
 
     def test_an_empty_list_needs_no_keys(self):
         self.assertEqual(trading_api.handle("/api/watchlist/data", {}), {"rows": []})

@@ -10,13 +10,27 @@ source.common.db.watchlist; prices are never stored."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from source.collector import alpaca
+from source.common import db
 from source.reporting import technicals as ta
 from source.webapp.pages.quote_chart import HISTORY_DAYS, _iso, _quote_block, company_names
 
 _EXAMPLES = ("SPY", "VTI", "QQQ", "AAPL", "MSFT")
+
+
+def stored_rows(items: list[dict], message: str = "") -> list[dict]:
+    """The saved tickers with no prices (company names only if looked up before).
+    Shown as soon as the page opens, and used when prices cannot be read, so a
+    price-feed problem never makes the saved list look lost."""
+    names = db.watchlist.cached_names([i["symbol"] for i in items]) if items else {}
+    return [
+        {"symbol": i["symbol"], "note": i.get("note") or "", "name": names.get(i["symbol"], ""),
+         "pending": True, "error": message}
+        for i in items
+    ]
 
 
 def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
@@ -85,7 +99,7 @@ _CSS = """
 _JS = """
 <script>
 (function () {
-  var rows = [], sortKey = null, sortDir = 1, timer = null;
+  var rows = __INITIAL__, sortKey = null, sortDir = 1, timer = null;
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function usd(n) { return n == null ? '--' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
   function vol(n) { return n == null ? '--' : (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n))); }
@@ -130,6 +144,9 @@ _JS = """
         '" onchange="watchNote(\\'' + s + '\\', this.value)"></td>';
       var act = '<td style="white-space:nowrap;"><a href="/trading-live.html?symbol=' + encodeURIComponent(r.symbol) + '" class="pill-link" title="Open the live order form for ' + s + '">' +
         '<button type="button" class="primary wl-trade">Trade</button></a> <button type="button" class="wl-x" title="Remove ' + s + '" onclick="watchRemove(\\'' + s + '\\')">\\u00D7</button></td>';
+      if (r.pending && !r.error) {
+        return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="9" class="muted">Loading prices\\u2026</td>' + note + act + '</tr>';
+      }
       if (r.error) {
         return '<tr><td class="wl-sym">' + s + (r.name ? '<div class="wl-name">' + esc(r.name) + '</div>' : '') + '</td><td colspan="9" class="muted">' + esc(r.error) + '</td>' + note + act + '</tr>';
       }
@@ -153,10 +170,10 @@ _JS = """
     status('Loading prices\\u2026');
     return postJSON('/api/watchlist/data', {}).then(function (d) {
       rows = d.rows; render();
-      status(rows.length ? 'Updated ' + new Date().toLocaleTimeString() + '. Prices refresh by themselves every minute.' : '');
+      status(d.warning ? 'Your saved list is shown, but prices could not be loaded: ' + d.warning : rows.length ? 'Updated ' + new Date().toLocaleTimeString() + '. Prices refresh by themselves every minute.' : '', !!d.warning);
       if (timer) { clearInterval(timer); }
       if (rows.length) { timer = setInterval(function () { if (!document.hidden) { load(); } }, 60000); }
-    }).catch(function (e) { status(e.message, true); });
+    }).catch(function (e) { render(); status('Your saved list is shown, but prices could not be loaded: ' + e.message, true); });
   }
   window.watchSort = function (key) {
     if (sortKey === key) { sortDir = -sortDir; } else { sortKey = key; sortDir = key === 'symbol' ? 1 : -1; }
@@ -181,6 +198,7 @@ _JS = """
     if (!text.trim()) { return; }
     window.watchAdd(text).then(function () { box.value = ''; });
   });
+  render();   // the saved list shows at once; prices fill in when they arrive
   // postJSON is defined further down the page, so wait until the page has loaded
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', load); } else { load(); }
 })();
@@ -189,7 +207,8 @@ _JS = """
 
 
 def watchlist_card_html() -> str:
-    js = _JS.replace("__EXAMPLES__", "[" + ",".join(f"'{s}'" for s in _EXAMPLES) + "]")
+    initial = json.dumps(stored_rows(db.watchlist.list_items())).replace("</", "<\\/")
+    js = _JS.replace("__INITIAL__", initial).replace("__EXAMPLES__", "[" + ",".join(f"'{s}'" for s in _EXAMPLES) + "]")
     return f"""
 <style>{_CSS}</style>
 <div class="card" id="watchlist">

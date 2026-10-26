@@ -184,3 +184,10 @@ are not touched.
     hover boxes were restyled to match. One shared handler (`data-ctip` attributes, `_tip_attrs` in `charts.py`)
     draws them, so any future chart gets the same behaviour. The log-scale chart also shows more gridline values
     when the balances sit within one decade.
+
+26. **Watchlist always shows what you saved.** The saved tickers (and notes) are kept in the database and now appear the
+    moment the Stock Analysis page opens, drawn from the database, with prices filling in after. If prices cannot be
+    read (Alpaca down or offline, keys missing or not yet readable after a restart) the list is still shown with
+    "Price not available right now" and the reason, instead of looking empty. The watchlist is also shown when no
+    Alpaca keys are saved yet (the connect prompt sits above it). Code: `watchlist.stored_rows`, `/api/watchlist/data`
+    returns `warning` instead of failing.
