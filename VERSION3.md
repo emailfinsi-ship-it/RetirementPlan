@@ -226,3 +226,10 @@ are not touched.
     fewer) and leaves Type on Market; switch Type to Limit and type your price to sell only at that price or better.
     Nothing is sent from the button: you still press Preview and (for real money) type the symbol to confirm. On a
     switched-off Live Account page it points you to the switch.
+
+32. **Earnings card now covers this week and next, biggest holdings first.** The card is "Earnings this week and next" (two
+    rows of Monday to Friday, weekends only when something reports). Held stocks are summed over your accounts and
+    checked from the largest position down (the watchlist is always checked in full; up to 150 tickers, so only the
+    smallest holdings can ever be skipped, and the card says how many). Within a day the biggest holding is listed
+    first and each chip shows its share of the stocks in your linked accounts (e.g. AAPL 55%); the summary line names
+    your biggest holding that reports. Code: `earnings_panel.week_universe/build_week`, `earnings.week_bounds(weeks)`.

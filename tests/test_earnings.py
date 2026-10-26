@@ -16,6 +16,11 @@ TODAY = date(2026, 10, 28)          # a Wednesday
 NOW = datetime(2026, 10, 28, 9, 0, 0)
 
 
+def _name(i):
+    """A distinct letters-only ticker per number (AA, AB, ... )."""
+    return "Q" + chr(65 + i // 26) + chr(65 + i % 26)
+
+
 class Fetcher:
     def __init__(self, table):
         self.table, self.calls = table, []
@@ -131,6 +136,48 @@ class TestPanelAndRoutes(TempConfigTestCase):
                                                            "iso_currency_code": "USD"})
         self.assertEqual(earnings_panel.week_universe(),
                          {"AAPL": ["watchlist", "holding"], "VTI": ["watchlist"], "NVDA": ["holding"]})
+
+    def _hold(self, rows):
+        db.upsert_plaid_item(item_key="k", plaid_item_id="i", institution_id="x", institution_name="Fidelity",
+                             products=["investments"], environment="production", linked_at="2026-10-01T00:00:00")
+        for acct in sorted({a for _, _, a in rows}):
+            db.upsert_plaid_account(item_key="k", account={"account_id": acct, "name": acct, "official_name": acct, "type": "investment",
+                                                             "subtype": "brokerage", "mask": "1",
+                                                             "balances": {"current": 1.0, "available": None, "iso_currency_code": "USD"}})
+        for i, (sym, value, acct) in enumerate(rows):
+            db.upsert_plaid_holding(item_key="k", holding={"account_id": acct, "security_id": f"s{i}", "ticker_symbol": sym,
+                                                           "security_name": sym, "security_type": "equity", "quantity": 1,
+                                                           "institution_price": value, "institution_value": value, "cost_basis": 1,
+                                                           "iso_currency_code": "USD"})
+
+    def test_universe_lists_watchlist_first_then_holdings_biggest_first_summed_over_accounts(self):
+        db.watchlist.add("ZZZ")
+        self._hold([("SMALL", 10, "a"), ("BIG", 500, "a"), ("MID", 100, "a"), ("MID", 150, "b")])
+        self.assertEqual(list(earnings_panel.week_universe()), ["ZZZ", "BIG", "MID", "SMALL"])
+
+    def test_universe_cap_drops_the_smallest_holdings_not_the_biggest(self):
+        self._hold([(_name(i), 1000 - i, "a") for i in range(earnings.MAX_SYMBOLS + 5)])
+        universe = earnings_panel.week_universe()
+        self.assertEqual(len(universe), earnings.MAX_SYMBOLS)
+        self.assertIn(_name(0), universe)
+        self.assertNotIn(_name(earnings.MAX_SYMBOLS + 4), universe)
+
+    def test_next_week_is_included_and_biggest_holding_comes_first_with_its_share(self):
+        self._hold([("AAPL", 550, "a"), ("MSFT", 300, "a"), ("KO", 150, "a")])
+        f = Fetcher({"AAPL": "2026-11-02", "MSFT": "2026-10-28", "KO": "2026-11-02"})
+        out = earnings_panel.build_week(today=TODAY, now=NOW, fetch=f)
+        self.assertEqual((out["start"], out["end"], out["weeks"]), ("2026-10-26", "2026-11-08", 2))
+        self.assertEqual([(i["symbol"], i["date"], i["pct"]) for i in out["items"]],
+                         [("MSFT", "2026-10-28", 30.0), ("AAPL", "2026-11-02", 55.0), ("KO", "2026-11-02", 15.0)])
+        self.assertEqual(out["left_out"], 0)
+
+    def test_week_bounds_and_this_week_default_to_one_week(self):
+        self.assertEqual(earnings.week_bounds(TODAY), (date(2026, 10, 26), date(2026, 11, 1)))
+        self.assertEqual(earnings.week_bounds(TODAY, 2), (date(2026, 10, 26), date(2026, 11, 8)))
+        f = Fetcher({"AAA": "2026-11-02"})
+        self.assertEqual(earnings.this_week({"AAA": ["watchlist"]}, today=TODAY, now=NOW, fetch=f)["items"], [])
+        two = earnings.this_week({"AAA": ["watchlist"]}, today=TODAY, now=NOW, fetch=f, weeks=2)
+        self.assertEqual([i["symbol"] for i in two["items"]], ["AAA"])
 
     def test_week_route_lists_reporters_with_names(self):
         db.watchlist.add("AAPL")

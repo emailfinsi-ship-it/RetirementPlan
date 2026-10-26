@@ -19,7 +19,7 @@ from source.common import db
 warnings.filterwarnings("ignore", message=r"Timestamp\.utcnow is deprecated")
 
 MAX_AGE = timedelta(hours=12)
-MAX_SYMBOLS = 80
+MAX_SYMBOLS = 150
 _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="earnings")
 _inflight: dict[str, object] = {}
 
@@ -147,17 +147,18 @@ def lookup(symbols, *, today: date | None = None, now: datetime | None = None, f
     return {"items": items, "pending": pending, "error": error}
 
 
-def week_bounds(today: date | None = None) -> tuple[date, date]:
-    """Monday and Sunday of the week containing ``today``."""
+def week_bounds(today: date | None = None, weeks: int = 1) -> tuple[date, date]:
+    """Monday of the week containing ``today`` and the Sunday ``weeks`` weeks on (one week by default)."""
     today = today or date.today()
     start = today - timedelta(days=today.weekday())
-    return start, start + timedelta(days=6)
+    return start, start + timedelta(days=7 * max(1, int(weeks)) - 1)
 
 
-def this_week(universe: dict[str, list[str]], *, today: date | None = None, **kw) -> dict:
-    """Tickers from ``universe`` ({symbol: ["watchlist", "holding"]}) reporting this week, by date."""
+def this_week(universe: dict[str, list[str]], *, today: date | None = None, weeks: int = 1, **kw) -> dict:
+    """Tickers from ``universe`` ({symbol: ["watchlist", "holding"]}) reporting this week (or in the next
+    ``weeks`` calendar weeks, counting this one), by date."""
     today = today or date.today()
-    start, end = week_bounds(today)
+    start, end = week_bounds(today, weeks)
     found = lookup(list(universe), today=today, **kw)
     items = []
     for sym, info in found["items"].items():
