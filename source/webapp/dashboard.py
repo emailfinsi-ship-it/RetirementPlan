@@ -1364,6 +1364,22 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
             print(f"Daily alerts check failed (will retry): {exc}")
 
 
+def _quit_cleanly() -> None:
+    """Turns the "quit" signals a Mac sends an app (Quit, logout, shutdown) into a normal exit, so the shutdown code runs and the
+    IBKR gateway started with the app is stopped too. (Without this the process just ends and the gateway is left running.)"""
+    import signal as _signal
+    if threading.current_thread() is not threading.main_thread() or "unittest" in sys.modules:
+        return
+
+    def _exit(signum, frame):
+        raise SystemExit(0)
+    for name in ("SIGTERM", "SIGHUP"):
+        try:
+            _signal.signal(getattr(_signal, name), _exit)
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def run(*, open_browser: bool = True) -> None:
     # Real launches (Mac app or from source) ask for an admin password and
     # database setup first; tests and the throwaway demo never do.
@@ -1447,6 +1463,7 @@ def run(*, open_browser: bool = True) -> None:
     server = ThreadingHTTPServer((bind_host, PORT), Handler)
     # IBKR's Client Portal Gateway (bundled, runs on this computer only) starts with the app and stops when it quits.
     ibkr_gateway.start_with_app()
+    _quit_cleanly()
     warm.enable(not config.DEMO)
     warm.schedule(delay=1.0)
     url = f"http://127.0.0.1:{PORT}/" if bind_host == "127.0.0.1" else f"http://{bind_host}:{PORT}/ (and http://127.0.0.1:{PORT}/)"
