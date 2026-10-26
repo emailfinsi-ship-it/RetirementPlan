@@ -128,3 +128,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - IBKR / E*TRADE tabs: Run a check button, inline Connect messages, an All accounts overview (values, cash, totals, combined holdings), E*TRADE balance fallbacks, production-only E*TRADE keys with a last-four check, and a "keep live trading on until I turn it off" option on the turn-on forms.
 
 - E*TRADE tax lots and cost basis for all accounts (with CSV), automatic renewal of an idle E*TRADE session, and a keep-alive for the IBKR gateway session.
+
+- IBKR / E*TRADE tabs: Buy and Sell buttons on every position; the "added up across accounts" table is collapsed and only shown when two or more accounts hold stocks.
