@@ -84,8 +84,13 @@ def _handle(path: str, payload: dict) -> dict:
         items = db.watchlist.list_items()
         if not items:
             return {"rows": []}
-        keys, data_mode = quote_chart.market_data_source()
-        return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
+        # The saved list is what matters: if prices cannot be read (feed down, no keys, offline),
+        # still return every saved ticker, with a message, rather than failing the whole call.
+        try:
+            keys, data_mode = quote_chart.market_data_source()
+            return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
+        except (alpaca.AlpacaError, secrets_store.SecretNotFoundError, OSError, ValueError) as exc:
+            return {"rows": watchlist.stored_rows(items, "Price not available right now."), "warning": str(exc) or exc.__class__.__name__}
     if path == "/api/watchlist/add":
         return {"added": db.watchlist.add(payload.get("symbol") if "symbol" in payload else payload.get("symbols"))}
     if path == "/api/watchlist/remove":
