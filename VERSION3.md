@@ -265,3 +265,7 @@ are not touched.
     (Strong Buy to Strong Sell, the same technical rating as Stock Analysis) next to Sell, and hovering the symbol or the rating shows
     the signals behind it (bullish and bearish count, RSI, MACD crossover, trends). Needs Alpaca market-data keys saved (practice or
     live); without them the cell shows a dash. Code: `pages/position_ratings.py`, route `/api/ratings`.
+
+38. **IBKR gateway port is found for you.** If the saved gateway address does not answer, the IBKR tab tries the usual ports on this
+    computer (5000, 5001, 5500, 5555, 8888, 8443) and, when one answers, saves it and says so. The connect card now shows the
+    Terminal command to start the gateway and where its port is set (`listenPort` in `root/conf.yaml`). Code: `ibkr.find_gateway`.
