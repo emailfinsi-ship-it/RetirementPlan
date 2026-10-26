@@ -46,12 +46,13 @@ _JS = r"""
         return '<tr><td>' + esc(a.name) + (a.error ? '<br><span class="status-warn small">' + esc(a.error) + '</span>' : '') + '</td><td class="num">' + usd(s.value) + '</td><td class="num">' + usd(s.cash) + '</td><td class="num">' + usd(s.buying_power) + '</td><td class="num">' + a.positions.length + '</td></tr>';
       }).join('') +
       '<tr><td><strong>Total</strong></td><td class="num"><strong>' + usd(o.total.value) + '</strong></td><td class="num"><strong>' + usd(o.total.cash) + '</strong></td><td class="num"><strong>' + usd(o.total.buying_power) + '</strong></td><td></td></tr></tbody></table></div>';
-    if (o.holdings.length) {
-      h += '<h4>Everything held, added up across accounts</h4><div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Value</th><th class="num">Gain / loss</th><th class="num">In accounts</th></tr></thead><tbody>' +
+    var withStocks = o.accounts.filter(function (a) { return a.positions.length; }).length;
+    if (o.holdings.length && withStocks > 1) {   // with stocks in only one account the table would repeat that account's own list
+      h += '<details class="fold"><summary><strong>Everything held, added up across accounts</strong> <span class="muted small">(' + o.holdings.length + ' stocks)</span></summary><div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Value</th><th class="num">Gain / loss</th><th class="num">In accounts</th></tr></thead><tbody>' +
         o.holdings.map(function (p) {
           var g = p.gain, cls = g == null ? '' : g >= 0 ? 'qp-up' : 'qp-down';
           return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '"><strong>' + esc(p.symbol) + '</strong></a></td><td class="num">' + num(p.qty) + '</td><td class="num">' + usd(p.market_value, true) + '</td><td class="num ' + cls + '">' + (g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true)) + '</td><td class="num">' + p.accounts + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+        }).join('') + '</tbody></table></div></details>';
     }
     return h + '</div>';
   }
@@ -89,7 +90,8 @@ _JS = r"""
       h += '<div style="overflow-x:auto"><table class="bk-pos"><thead><tr><th>Symbol</th><th class="num">Shares</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Value</th><th class="num">Gain / loss</th><th>Rating</th><th></th></tr></thead><tbody>' +
         d.positions.map(function (p) {
           var g = p.gain, cls = g == null ? '' : g >= 0 ? 'qp-up' : 'qp-down';
-          var sell = p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '';
+          var sell = '<button type="button" data-act="buy" data-sym="' + esc(p.symbol) + '">Buy</button> ' +
+            (p.qty >= 1 ? '<button type="button" data-act="sell" data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
           return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="Open in Stock Analysis"><strong>' + esc(p.symbol) + '</strong></a></td><td class="num">' + num(p.qty) + '</td><td class="num">' + usd(p.avg_cost, true) +
             '</td><td class="num">' + usd(p.price, true) + '</td><td class="num">' + usd(p.market_value, true) + '</td><td class="num ' + cls + '">' + (g == null ? '--' : (g >= 0 ? '+' : '-') + usd(Math.abs(g), true)) + '</td><td data-rate-sym="' + esc(p.symbol) + '"><span class="muted">&hellip;</span></td><td>' + sell + '</td></tr>';
         }).join('') + '</tbody></table></div>';
@@ -182,6 +184,11 @@ _JS = r"""
       var f = $('bk-form'); f.symbol.value = b.dataset.sym; f.side.value = 'sell'; f.qty.value = b.dataset.qty;
       $('bk-ticket-card').scrollIntoView({behavior: 'smooth', block: 'start'});
       say('bk-ticket-note', 'Selling ' + b.dataset.qty + ' ' + b.dataset.sym + '. Change the number to sell fewer; pick Limit and a price to sell only at that price or better. Nothing is sent until you preview and confirm.');
+    }
+    else if (act === 'buy') {
+      var fb = $('bk-form'); fb.symbol.value = b.dataset.sym; fb.side.value = 'buy'; fb.qty.value = '1';
+      $('bk-ticket-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+      say('bk-ticket-note', 'Buying ' + b.dataset.sym + ' in this account. Set the number of shares; pick Limit and a price to buy only at that price or lower. Nothing is sent until you preview and confirm.');
     }
     else if (act === 'cancel') {
       if (!confirm('Cancel this order?')) { return; }

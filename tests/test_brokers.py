@@ -841,6 +841,9 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("/api/broker/data", page)
         self.assertIn("var BROKER = 'ibkr'", page)
         self.assertIn("Run a check", page)
+        self.assertIn("data-act=\"buy\"", page)                                   # Buy as well as Sell on each position
+        self.assertIn("Everything held, added up across accounts", page)
+        self.assertIn("withStocks > 1", page)                                      # shown only when 2+ accounts hold stocks
         self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
         self.assertIn("/api/broker/ibkr/start", page)
