@@ -683,7 +683,7 @@ class TestGatewayLauncher(BrokerApiCase):
         self.tmp.cleanup()
         super().tearDown()
 
-    def test_quitting_stops_a_gateway_left_behind_by_an_earlier_run_but_never_another_process(self):
+    def test_the_stop_button_can_stop_a_gateway_an_earlier_run_left_running_but_never_another_process(self):
         import os
         import subprocess
         import time
@@ -712,6 +712,13 @@ class TestGatewayLauncher(BrokerApiCase):
                     pr.kill()
                 pr.wait()
             self.gw._orphan_pid = None
+
+    def test_quitting_the_app_leaves_the_gateway_running(self):
+        import inspect
+        from source.webapp import dashboard
+        self.assertNotIn("ibkr_gateway.stop", inspect.getsource(dashboard.run))
+        self.assertNotIn("atexit", inspect.getsource(self.gw.start_with_app))
+        self.assertNotIn("atexit", inspect.getsource(self.gw))
 
     def test_start_writes_a_pid_file_so_a_later_run_can_find_the_gateway(self):
         from pathlib import Path
