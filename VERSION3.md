@@ -304,3 +304,7 @@ are not touched.
     price, change $ and %, shares, price paid, day's gain $ and %, total gain $ and %, value, % of portfolio, rating, plus Buy/Sell. Click any
     heading to sort (click again to reverse; empty values always go last). E*TRADE supplies every column; IBKR's gateway has no day change, so
     those cells show "--" there. Total gain % and % of portfolio are worked out when the broker does not send them.
+48. **IBKR balances by currency.** The IBKR tab adds a **Balances by currency** table (cash, stocks and total in each currency the account
+    holds, the rate to the base currency, and the value in the base currency; empty currencies are hidden), and each position is shown
+    in the currency it trades in, with its % of portfolio worked out in the base currency. Code: `collector/ibkr.py` (`ledger`),
+    `webapp/broker_api.py` (`_add_currencies`).

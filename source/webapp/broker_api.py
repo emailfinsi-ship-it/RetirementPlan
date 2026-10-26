@@ -152,9 +152,27 @@ def _data(payload: dict) -> dict:
             out[key] = fn(client, out["account"])
         except BrokerError as exc:
             out["errors"].append(str(exc))
+    if broker == "ibkr":
+        _add_currencies(out, client)
     if len(out["accounts"]) > 1:
         out["overview"] = _overview(mod, client, out["accounts"])
     return out
+
+
+def _add_currencies(out: dict, client) -> None:
+    """IBKR accounts can hold several currencies: add the per-currency balances, and the base-currency value of each
+    position (so a euro holding and a dollar holding can be compared and summed)."""
+    try:
+        rows = ibkr.ledger(client, out["account"])
+    except BrokerError as exc:
+        out["errors"].append(f"Currency balances: {exc}")
+        return
+    out["currencies"] = rows
+    rate = {r["currency"]: r["rate"] for r in rows if r.get("rate")}
+    for p in out["positions"]:
+        r = rate.get(p.get("currency") or "")
+        if r and p.get("market_value") is not None:
+            p["base_value"] = p["market_value"] * r
 
 
 def _overview(mod, client, accounts: list[dict]) -> dict:
