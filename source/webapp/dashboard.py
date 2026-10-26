@@ -1365,8 +1365,7 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
 
 
 def _quit_cleanly() -> None:
-    """Turns the "quit" signals a Mac sends an app (Quit, logout, shutdown) into a normal exit, so the shutdown code runs and the
-    IBKR gateway started with the app is stopped too. (Without this the process just ends and the gateway is left running.)"""
+    """Turns the "quit" signals a Mac sends an app (Quit, logout, shutdown) into a normal exit, so the server closes cleanly."""
     import signal as _signal
     if threading.current_thread() is not threading.main_thread() or "unittest" in sys.modules:
         return
@@ -1461,7 +1460,7 @@ def run(*, open_browser: bool = True) -> None:
         bind_host = "127.0.0.1"
 
     server = ThreadingHTTPServer((bind_host, PORT), Handler)
-    # IBKR's Client Portal Gateway (bundled, runs on this computer only) starts with the app and stops when it quits.
+    # IBKR's Client Portal Gateway (bundled, runs on this computer only) starts with the app if it is not already up, and keeps running when the app quits.
     ibkr_gateway.start_with_app()
     _quit_cleanly()
     warm.enable(not config.DEMO)
@@ -1480,7 +1479,8 @@ def run(*, open_browser: bool = True) -> None:
         server.shutdown()
     finally:
         server.server_close()
-        ibkr_gateway.stop()
+        # The IBKR gateway is left running on purpose: quitting and reopening FinSi must not end your IBKR sign-in.
+        # (It is stopped only by the "Stop gateway" button.)
 
 
 if __name__ == "__main__":
