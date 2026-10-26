@@ -9,7 +9,6 @@ argument from the web page is used. Java is not bundled: it has to be installed 
 
 from __future__ import annotations
 
-import atexit
 import os
 import shutil
 import socket
@@ -238,11 +237,12 @@ def _keepalive_loop() -> None:
 
 def start_with_app() -> None:
     """Called once when the dashboard starts (run_dashboard.sh, the other run scripts and the Mac app all end up here).
-    Runs on a background thread so a slow or missing Java never delays the dashboard; stops the gateway when the app quits."""
+    Runs on a background thread so a slow or missing Java never delays the dashboard. Starts the gateway only if nothing
+    already answers on its port, and leaves it running when the app quits (only the Stop button ends it), so your IBKR sign-in
+    survives quitting and reopening the app."""
     if config.DEMO or os.environ.get("FINSI_NO_GATEWAY") == "1" or "unittest" in sys.modules:
         return
-    atexit.register(stop)
-    adopt_orphan()
+    adopt_orphan()        # a gateway an earlier run left running becomes the one the Stop button controls
 
     def work():
         print(_autostart_now())

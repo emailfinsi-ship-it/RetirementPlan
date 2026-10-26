@@ -308,8 +308,8 @@ are not touched.
     holds, the rate to the base currency, and the value in the base currency; empty currencies are hidden), and each position is shown
     in the currency it trades in, with its % of portfolio worked out in the base currency. Code: `collector/ibkr.py` (`ledger`),
     `webapp/broker_api.py` (`_add_currencies`).
-49. **Quitting stops the IBKR gateway reliably.** The gateway started with the app is stopped when the app quits, including when macOS ends
-    the app with a normal "quit" signal (the app now turns that into a clean shutdown). The gateway's process number is saved, so if an
-    earlier run was force-quit or crashed and left the gateway running, the next run takes it over and stops it when that run quits.
-    Only a process whose command line is this app's gateway (`root/conf.yaml`) is ever stopped; a gateway you started yourself elsewhere
-    is never touched. Code: `ibkr_gateway.adopt_orphan` / `stop`, `dashboard._quit_cleanly`.
+49. **The IBKR gateway keeps running when FinSi quits.** Quitting and reopening FinSi no longer ends your IBKR sign-in: the gateway is
+    started with the app only if nothing already answers on its port, and it is left running on quit. Only the **Stop gateway** button
+    ends it. The gateway's process number is saved, so after the app is reopened the Stop button can still stop a gateway an earlier run
+    started (only a process whose command line is this app's gateway, `root/conf.yaml`, is ever stopped). The app also turns macOS
+    quit signals into a clean exit. Code: `ibkr_gateway.start_with_app` / `adopt_orphan` / `stop`, `dashboard._quit_cleanly`.
