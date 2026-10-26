@@ -184,6 +184,21 @@ class TestIbkr(unittest.TestCase):
         self.assertFalse(out["connected"])
         self.assertIn("Start the Client Portal Gateway", out["message"])
 
+    def test_a_gateway_on_another_port_is_found_and_remembered(self):
+        fake = FakeIbkr()
+
+        def only_5500(req, timeout=None):
+            if ":5500/" not in req.full_url:
+                raise urllib.error.URLError("refused")
+            return fake(req, timeout)
+
+        gw = ibkr.Gateway(opener=only_5500)                       # the default address does not answer
+        st = ibkr.status(gw)
+        self.assertTrue(st["down"])
+        self.assertEqual(ibkr.find_gateway("https://localhost:5000", opener=only_5500), "https://localhost:5500")
+        self.assertIsNone(ibkr.find_gateway("", opener=lambda req, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("x"))))
+        self.assertFalse(ibkr.status(ibkr.Gateway(opener=FakeIbkr(authenticated=False)))["down"])      # signed out is not "down"
+
     def test_accounts_summary_positions_orders(self):
         gw = ibkr.Gateway(opener=FakeIbkr())
         self.assertEqual([a["id"] for a in ibkr.list_accounts(gw)], ["U111", "U222"])
@@ -363,6 +378,31 @@ class TestBrokerRoutes(BrokerApiCase):
         self.assertEqual(out["positions"][0]["symbol"], "AAPL")
         self.assertFalse(out["armed"])
         self.assertEqual(self.post("/api/broker/data", {"broker": "ibkr", "account": "U222"})["account"], "U222")
+
+    def test_ibkr_data_finds_the_gateway_on_its_real_port_and_saves_it(self):
+        fake = self.ib
+
+        def only_5500(req, timeout=None):
+            if ":5500/" not in req.full_url:
+                raise urllib.error.URLError("refused")
+            return fake(req, timeout)
+
+        with patch.dict(broker_api.OPENERS, {"ibkr": only_5500}):
+            out = self.post("/api/broker/data", {"broker": "ibkr"})
+            self.assertTrue(out["connected"])
+            self.assertEqual(out["gateway_url"], "https://localhost:5500")
+            self.assertIn("5500", out["found_note"])
+            self.assertEqual(broker_api.gateway_url(), "https://localhost:5500")           # remembered for next time
+            self.assertNotIn("found_note", self.post("/api/broker/data", {"broker": "ibkr"}))
+
+    def test_ibkr_data_when_nothing_answers_keeps_the_start_the_gateway_message(self):
+        def nothing(req, timeout=None):
+            raise urllib.error.URLError("refused")
+
+        with patch.dict(broker_api.OPENERS, {"ibkr": nothing}):
+            out = self.post("/api/broker/data", {"broker": "ibkr"})
+        self.assertFalse(out["connected"])
+        self.assertIn("Start the Client Portal Gateway", out["message"])
 
     def test_ibkr_data_when_signed_out_says_so(self):
         self.ib.authenticated = False

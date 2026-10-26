@@ -46,7 +46,8 @@ _JS = r"""
         '<p><button type="button" data-act="disarm">Turn live trading OFF now</button></p>'
       : '<p class="status-line status-warn">Live trading is OFF, so you can look but not preview or send orders.</p>' +
         '<form data-act="arm" class="inline"><label>To turn it on, type TRADE REAL MONEY<input name="phrase" autocomplete="off" style="width:200px"></label> <button type="submit" class="primary">Turn on</button></form>';
-    $('bk-live').innerHTML = live;
+    $('bk-live').innerHTML = live + (d.found_note ? '<p class="status-line status-ok">' + esc(d.found_note) + '</p>' : '');
+    var gu = document.querySelector('input[name=url]'); if (gu && d.gateway_url) { gu.value = d.gateway_url; }
     if (!d.connected) {
       $('bk-data').innerHTML = '<p class="status-line status-warn">' + esc(d.message || 'Not connected.') + '</p>';
       $('bk-ticket-card').hidden = true;
@@ -186,7 +187,8 @@ def _ibkr_connect_html(url: str) -> str:
 <div class="card">
 <h3 style="margin-top:0;">Connect Interactive Brokers</h3>
 <p class="muted">IBKR connects through its own <strong>Client Portal Gateway</strong>, a small program you run on this computer.
-Start it, open its address in your browser (usually <code>https://localhost:5000</code>) and sign in to your IBKR account there.
+Start it (in Terminal: <code>cd ~/clientportal &amp;&amp; bin/run.sh root/conf.yaml</code>, wherever you unzipped it), open its address in your browser
+(the port is the <code>listenPort</code> in its <code>root/conf.yaml</code>; IBKR's default is 5000, and this app also tries the usual alternatives) and sign in to your IBKR account there.
 Your IBKR password goes only to IBKR's gateway, never to this app. The gateway signs you out after a while, and when it does this page
 tells you to sign in again.</p>
 <form class="inline" onsubmit="event.preventDefault();
