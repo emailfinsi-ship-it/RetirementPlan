@@ -164,7 +164,7 @@ class TestIbkr(unittest.TestCase):
         ibkr.book._items.clear()
 
     def test_gateway_address_must_be_this_computer(self):
-        self.assertEqual(ibkr.clean_gateway_url(""), "https://localhost:5000")
+        self.assertEqual(ibkr.clean_gateway_url(""), "https://localhost:5500")
         self.assertEqual(ibkr.clean_gateway_url("localhost:5001"), "https://localhost:5001")
         self.assertEqual(ibkr.clean_gateway_url("https://127.0.0.1:5000/"), "https://127.0.0.1:5000")
         for bad in ("https://evil.example.com:5000", "http://192.168.1.5:5000", "ftp://localhost"):
@@ -187,15 +187,16 @@ class TestIbkr(unittest.TestCase):
     def test_a_gateway_on_another_port_is_found_and_remembered(self):
         fake = FakeIbkr()
 
-        def only_5500(req, timeout=None):
-            if ":5500/" not in req.full_url:
+        def only_5001(req, timeout=None):
+            if ":5001/" not in req.full_url:
                 raise urllib.error.URLError("refused")
             return fake(req, timeout)
 
-        gw = ibkr.Gateway(opener=only_5500)                       # the default address does not answer
+        gw = ibkr.Gateway(opener=only_5001)                       # the default address does not answer
         st = ibkr.status(gw)
         self.assertTrue(st["down"])
-        self.assertEqual(ibkr.find_gateway("https://localhost:5000", opener=only_5500), "https://localhost:5500")
+        self.assertEqual(ibkr.find_gateway("https://localhost:5500", opener=only_5001), "https://localhost:5001")
+        self.assertIsNone(ibkr.find_gateway("https://localhost:5001", opener=only_5001))
         self.assertIsNone(ibkr.find_gateway("", opener=lambda req, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("x"))))
         self.assertFalse(ibkr.status(ibkr.Gateway(opener=FakeIbkr(authenticated=False)))["down"])      # signed out is not "down"
 
@@ -382,17 +383,17 @@ class TestBrokerRoutes(BrokerApiCase):
     def test_ibkr_data_finds_the_gateway_on_its_real_port_and_saves_it(self):
         fake = self.ib
 
-        def only_5500(req, timeout=None):
-            if ":5500/" not in req.full_url:
+        def only_5001(req, timeout=None):
+            if ":5001/" not in req.full_url:
                 raise urllib.error.URLError("refused")
             return fake(req, timeout)
 
-        with patch.dict(broker_api.OPENERS, {"ibkr": only_5500}):
+        with patch.dict(broker_api.OPENERS, {"ibkr": only_5001}):
             out = self.post("/api/broker/data", {"broker": "ibkr"})
             self.assertTrue(out["connected"])
-            self.assertEqual(out["gateway_url"], "https://localhost:5500")
-            self.assertIn("5500", out["found_note"])
-            self.assertEqual(broker_api.gateway_url(), "https://localhost:5500")           # remembered for next time
+            self.assertEqual(out["gateway_url"], "https://localhost:5001")
+            self.assertIn("5001", out["found_note"])
+            self.assertEqual(broker_api.gateway_url(), "https://localhost:5001")           # remembered for next time
             self.assertNotIn("found_note", self.post("/api/broker/data", {"broker": "ibkr"}))
 
     def test_ibkr_data_when_nothing_answers_keeps_the_start_the_gateway_message(self):
@@ -527,6 +528,91 @@ class TestBrokerOrders(BrokerApiCase):
             self.post("/api/alpaca/live/arm", {"phrase": "TRADE REAL MONEY"})          # the Alpaca page still wants its live keys
 
 
+class TestGatewayLauncher(BrokerApiCase):
+    def make_gateway(self, root, port=5500):
+        for rel, text in (("bin/run.sh", "#!/bin/bash\n"), ("root/conf.yaml", f"    listenPort: {port}\n    listenSsl: true\n"),
+                          ("dist/x.jar", "j"), ("logs/old.log", "old"), (".vertx/cache", "c")):
+            f = root / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        return root
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        from pathlib import Path
+        from source.collector import ibkr_gateway
+        self.gw = ibkr_gateway
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = self.make_gateway(Path(self.tmp.name) / "src")
+        self.dest = Path(self.tmp.name) / "run"
+        self.gw._proc = None
+
+    def tearDown(self):
+        self.gw._proc = None
+        self.tmp.cleanup()
+        super().tearDown()
+
+    def test_prepare_copies_the_files_without_logs_or_cache_and_keeps_an_existing_copy(self):
+        out = self.gw.prepare(self.src, self.dest)
+        self.assertTrue((out / "bin" / "run.sh").is_file())
+        self.assertTrue((out / "dist" / "x.jar").is_file())
+        self.assertFalse((out / "logs" / "old.log").exists())
+        self.assertFalse((out / ".vertx").exists())
+        (out / "root" / "conf.yaml").write_text("    listenPort: 7777\n")             # the person's own edit
+        self.gw.prepare(self.src, self.dest)
+        self.assertEqual(self.gw.listen_port(out), 7777)
+
+    def test_a_missing_gateway_says_where_to_get_it(self):
+        with patch.object(self.gw, "bundled_dir", return_value=None):
+            with self.assertRaises(BrokerError) as ctx:
+                self.gw.prepare(None, self.dest)
+        self.assertIn("Client Portal Gateway", str(ctx.exception))
+
+    def test_start_runs_only_the_fixed_command_in_the_copy_and_once(self):
+        calls = []
+
+        class P:
+            pid = 4321
+            def poll(self): return None
+
+        def popen(cmd, **kw):
+            calls.append((cmd, kw))
+            return P()
+
+        out = self.gw.start(src=self.src, dest=self.dest, env={"JAVA_HOME": "/j"}, popen=popen)
+        self.assertTrue(out["started"])
+        cmd, kw = calls[0]
+        self.assertEqual(cmd, ["bash", "bin/run.sh", "root/conf.yaml"])
+        self.assertEqual((kw["cwd"], kw["env"]), (str(self.dest), {"JAVA_HOME": "/j"}))
+        self.assertTrue(kw["start_new_session"])
+        again = self.gw.start(src=self.src, dest=self.dest, env={}, popen=popen)
+        self.assertFalse(again["started"])
+        self.assertEqual(len(calls), 1)
+
+    def test_no_java_is_explained_and_nothing_starts(self):
+        class R:
+            returncode, stdout = 1, ""
+
+        with patch.object(self.gw.sys, "platform", "darwin"), patch.object(self.gw.subprocess, "run", return_value=R()):
+            with self.assertRaises(BrokerError) as ctx:
+                self.gw.java_env()
+        self.assertIn("Java is not installed", str(ctx.exception))
+
+    def test_the_routes_start_and_stop_and_remember_the_conf_port(self):
+        with patch.object(self.gw, "start", return_value={"started": True, "message": "Starting"}), \
+                patch.object(self.gw, "listen_port", return_value=5599):
+            out = self.post("/api/broker/ibkr/start", {})
+        self.assertEqual(out["url"], "https://localhost:5599")
+        self.assertEqual(broker_api.gateway_url(), "https://localhost:5599")
+        self.assertEqual(self.post("/api/broker/ibkr/stop", {}), {"stopped": False})            # this app started nothing
+
+    def test_start_failure_reaches_the_page_as_a_message(self):
+        with patch.object(self.gw, "start", side_effect=BrokerError("Java is not installed on this Mac.")):
+            with self.assertRaises(ValueError):
+                self.post("/api/broker/ibkr/start", {})
+
+
 class TestRatingsRoute(BrokerApiCase):
     def test_ratings_come_back_for_the_symbols_asked_with_the_numbers_behind_them(self):
         from source.webapp.pages import watchlist
@@ -587,6 +673,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn('id="bk-form"', page)
         self.assertIn("/api/broker/data", page)
         self.assertIn("var BROKER = 'ibkr'", page)
+        self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
+        self.assertIn("/api/broker/ibkr/start", page)
         self.assertIn("<th>Rating</th>", page)                       # each position gets a rating and a hover analysis
         self.assertIn("/api/ratings", page)
 

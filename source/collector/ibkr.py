@@ -28,7 +28,7 @@ from source.collector import broker_common as bc
 from source.collector.broker_common import BrokerError
 from source.common import branding
 
-DEFAULT_URL = "https://localhost:5000"
+DEFAULT_URL = "https://localhost:5500"      # the bundled gateway listens here (macOS keeps 5000 for AirPlay)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 _NAME = "Interactive Brokers"
 
@@ -36,7 +36,7 @@ book = bc.PreviewBook()
 
 # Ports a Client Portal Gateway is commonly set to listen on (its own default is 5000, but macOS uses 5000 for AirPlay,
 # so many people change it). Tried only on this computer, only when the saved address does not answer.
-COMMON_PORTS = (5000, 5001, 5500, 5555, 8888, 8443)
+COMMON_PORTS = (5500, 5000, 5001, 5555, 8888, 8443)
 
 
 class GatewayDown(BrokerError):
@@ -51,7 +51,7 @@ def clean_gateway_url(value) -> str:
     parts = urllib.parse.urlsplit(text)
     host = (parts.hostname or "").lower()
     if parts.scheme not in ("https", "http") or (host not in _LOCAL_HOSTS and f"[{host}]" not in _LOCAL_HOSTS):
-        raise BrokerError("The IBKR gateway must run on this computer (https://localhost:5000 is usual).")
+        raise BrokerError("The IBKR gateway must run on this computer (https://localhost:5500 is usual).")
     port = f":{parts.port}" if parts.port else ""
     shown = f"[{host}]" if ":" in host else host
     return f"{parts.scheme}://{shown}{port}"

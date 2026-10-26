@@ -12,14 +12,14 @@
 
 from __future__ import annotations
 
-from source.collector import etrade, ibkr
+from source.collector import etrade, ibkr, ibkr_gateway
 from source.collector.broker_common import BrokerError
 from source.common import db, secrets_store
 from source.common.db.meta import get_meta, set_meta
 
 ROUTES = (
     "/api/broker/data", "/api/broker/preview", "/api/broker/order", "/api/broker/cancel",
-    "/api/broker/ibkr/gateway", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
+    "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/stop", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
     "/api/broker/etrade/disconnect",
 )
 
@@ -106,6 +106,8 @@ def _data(payload: dict) -> dict:
                  "summary": None, "positions": [], "orders": [], "errors": [], **_limits()}
     if broker == "ibkr":
         out["gateway_url"] = gateway_url()
+        out["gateway_files"] = ibkr_gateway.bundled_dir() is not None or (ibkr_gateway.run_dir() / "bin").is_dir()
+        out["gateway_started_here"] = ibkr_gateway.running()
         gw = _gateway()
         st = ibkr.status(gw)
         if st.get("down"):
@@ -158,6 +160,14 @@ def _handle(path: str, payload: dict) -> dict:
         url = ibkr.clean_gateway_url(payload.get("url"))
         set_meta(_GATEWAY_META, url)
         return {"url": url}
+    if path == "/api/broker/ibkr/start":
+        out = ibkr_gateway.start()
+        port = ibkr_gateway.listen_port()
+        if port:                                   # sign in at the port the gateway really uses
+            set_meta(_GATEWAY_META, f"https://localhost:{port}")
+        return {**out, "url": gateway_url()}
+    if path == "/api/broker/ibkr/stop":
+        return {"stopped": ibkr_gateway.stop()}
     if path == "/api/broker/etrade/keys":
         key, secret = str(payload.get("consumer_key") or "").strip(), str(payload.get("consumer_secret") or "").strip()
         if not key or not secret:
