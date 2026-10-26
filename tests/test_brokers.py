@@ -164,7 +164,7 @@ class TestIbkr(unittest.TestCase):
         ibkr.book._items.clear()
 
     def test_gateway_address_must_be_this_computer(self):
-        self.assertEqual(ibkr.clean_gateway_url(""), "https://localhost:5500")
+        self.assertEqual(ibkr.clean_gateway_url(""), "https://localhost:5757")
         self.assertEqual(ibkr.clean_gateway_url("localhost:5001"), "https://localhost:5001")
         self.assertEqual(ibkr.clean_gateway_url("https://127.0.0.1:5000/"), "https://127.0.0.1:5000")
         for bad in ("https://evil.example.com:5000", "http://192.168.1.5:5000", "ftp://localhost"):
@@ -293,6 +293,26 @@ class TestEtrade(unittest.TestCase):
         with self.assertRaises(BrokerError):
             etrade.finish_login("CK", "CS", "REQ", "REQSECRET", "", opener=fake)
 
+    def test_balances_fall_back_when_the_usual_fields_are_missing(self):
+        class Fake(FakeEtrade):
+            def __init__(self, body):
+                super().__init__()
+                self.body = body
+
+            def __call__(self, req, timeout=None):
+                if urllib.parse.urlparse(req.full_url).path == "/v1/accounts/KEY1/balance.json":
+                    return Resp(self.body)
+                return super().__call__(req, timeout=timeout)
+        margin = {"BalanceResponse": {"accountType": "MARGIN", "Computed": {"accountBalance": 9000, "cashBalance": 400,
+                                                                           "marginBuyingPower": 18000, "cashBuyingPower": 400}}}
+        got = etrade.summary(self.client(Fake(margin)), "KEY1")
+        self.assertEqual((got["value"], got["cash"], got["buying_power"]), (9000.0, 400.0, 18000.0))
+        net = {"BalanceResponse": {"Computed": {"netCash": 100, "RealTimeValues": {"netMv": 5000}}}}
+        got = etrade.summary(self.client(Fake(net)), "KEY1")
+        self.assertEqual((got["value"], got["cash"], got["buying_power"]), (5100.0, 100.0, 100.0))
+        empty = etrade.summary(self.client(Fake({"BalanceResponse": {}})), "KEY1")
+        self.assertIsNone(empty["value"])
+
     def test_accounts_skip_closed_ones_and_summary_positions_orders_read(self):
         c = self.client()
         self.assertEqual([a["id"] for a in etrade.list_accounts(c)], ["KEY1"])
@@ -361,6 +381,15 @@ class BrokerApiCase(TempConfigTestCase):
     def arm(self):
         db.live_trading.arm(db.live_trading.CONFIRM_PHRASE)
 
+    def test_keys_are_production_only_and_show_only_their_last_four(self):
+        self.post("/api/broker/etrade/keys", {"consumer_key": "ABCDEF1234", "consumer_secret": "S", "sandbox": True})
+        st = broker_api.etrade_state()
+        self.assertEqual(st["key_hint"], "\u20261234")
+        self.assertTrue(st["has_keys"] and st["has_secret"])
+        self.assertNotIn("sandbox", st)
+        self.assertNotIn("sandbox", secrets_store.get_broker_secret("etrade"))
+        self.assertNotIn("ABCDEF", json.dumps(st))
+
     def connect_etrade(self):
         self.post("/api/broker/etrade/keys", {"consumer_key": "CK", "consumer_secret": "CS"})
         self.post("/api/broker/etrade/start", {})
@@ -379,6 +408,16 @@ class TestBrokerRoutes(BrokerApiCase):
         self.assertEqual(out["positions"][0]["symbol"], "AAPL")
         self.assertFalse(out["armed"])
         self.assertEqual(self.post("/api/broker/data", {"broker": "ibkr", "account": "U222"})["account"], "U222")
+
+    def test_with_several_accounts_the_data_includes_every_account_and_the_totals(self):
+        out = self.post("/api/broker/data", {"broker": "ibkr"})
+        ov = out["overview"]
+        self.assertEqual([a["id"] for a in ov["accounts"]], ["U111", "U222"])
+        self.assertTrue(all(a["summary"] is not None for a in ov["accounts"]))
+        self.assertAlmostEqual(ov["total"]["value"], sum(a["summary"]["value"] for a in ov["accounts"]))
+        self.assertTrue(ov["holdings"])
+        self.assertEqual(ov["holdings"][0]["symbol"], "AAPL")
+        self.assertEqual(ov["holdings"][0]["accounts"], 2)
 
     def test_ibkr_data_finds_the_gateway_on_its_real_port_and_saves_it(self):
         fake = self.ib
@@ -607,10 +646,80 @@ class TestGatewayLauncher(BrokerApiCase):
         self.assertEqual(broker_api.gateway_url(), "https://localhost:5599")
         self.assertEqual(self.post("/api/broker/ibkr/stop", {}), {"stopped": False})            # this app started nothing
 
+    def test_it_starts_with_the_app_unless_something_already_answers_or_it_is_turned_off(self):
+        starts = []
+        starter = lambda: starts.append(1) or {"started": True, "message": "Starting"}          # noqa: E731
+        with patch.object(self.gw, "port_open", return_value=True):
+            self.assertIn("already running", self.gw._autostart_now(starter=starter))
+        self.assertEqual(starts, [])
+        with patch.object(self.gw, "port_open", return_value=False), patch.object(self.gw, "listen_port", return_value=5757):
+            self.assertEqual(self.gw._autostart_now(starter=starter), "Starting")
+            self.assertEqual(starts, [1])
+            self.assertEqual(broker_api.gateway_url(), "https://localhost:5757")                # the tab now points at it
+            self.post("/api/broker/ibkr/autostart", {"on": False})
+            self.assertIn("auto-start is off", self.gw._autostart_now(starter=starter))
+            self.assertEqual(starts, [1])
+            self.assertFalse(self.post("/api/broker/data", {"broker": "ibkr"})["gateway_autostart"])
+            self.post("/api/broker/ibkr/autostart", {"on": True})
+            self.assertTrue(self.gw.autostart_enabled())
+
+    def test_autostart_never_overrides_an_address_the_person_chose_and_reports_missing_java(self):
+        self.post("/api/broker/ibkr/gateway", {"url": "https://localhost:5599"})
+        with patch.object(self.gw, "port_open", return_value=False), patch.object(self.gw, "listen_port", return_value=5757):
+            self.gw._autostart_now(starter=lambda: {"started": True, "message": "ok"})
+            self.assertEqual(broker_api.gateway_url(), "https://localhost:5599")
+            def no_java():
+                raise BrokerError("Java is not installed on this Mac.")
+            self.assertIn("Java is not installed", self.gw._autostart_now(starter=no_java))      # a note, never an exception
+
+    def test_start_with_app_does_nothing_in_tests_demo_or_when_disabled_by_environment(self):
+        with patch.object(self.gw.threading, "Thread") as t:
+            self.gw.start_with_app()
+            t.assert_not_called()                                    # unittest is loaded, so it stays quiet here
+
+    def test_the_private_port_is_the_default_and_the_bundled_conf_matches(self):
+        self.assertEqual(ibkr.clean_gateway_url(""), f"https://localhost:{self.gw.PRIVATE_PORT}")
+        self.assertIn(self.gw.PRIVATE_PORT, ibkr.COMMON_PORTS)
+
     def test_start_failure_reaches_the_page_as_a_message(self):
         with patch.object(self.gw, "start", side_effect=BrokerError("Java is not installed on this Mac.")):
             with self.assertRaises(ValueError):
                 self.post("/api/broker/ibkr/start", {})
+
+
+class TestDiagnose(BrokerApiCase):
+    def test_etrade_check_shows_structure_never_values(self):
+        self.connect_etrade()
+        out = self.post("/api/broker/diagnose", {"broker": "etrade"})
+        names = [s["step"] for s in out["steps"]]
+        self.assertEqual(names[:3], ["Saved keys / session", "Account list", "Accounts the app would show"])
+        text = json.dumps(out)
+        self.assertIn("AccountListResponse", text)                      # the shape of the reply is there ...
+        for secret in ("KEY1", "8301", "25000", "ACC", "CS"):           # ... but no ids, balances or tokens
+            self.assertNotIn(f'"{secret}"', text)
+        self.assertTrue(all(s["ok"] for s in out["steps"]))
+
+    def test_etrade_check_without_a_session_says_what_is_missing(self):
+        out = self.post("/api/broker/diagnose", {"broker": "etrade"})
+        self.assertFalse(out["steps"][0]["ok"])
+        self.assertEqual(len(out["steps"]), 1)
+
+    def test_a_failing_call_is_reported_not_raised(self):
+        self.connect_etrade()
+        self.et.expired = True
+        out = self.post("/api/broker/diagnose", {"broker": "etrade"})
+        failed = [s for s in out["steps"] if not s["ok"]]
+        self.assertTrue(failed)
+        self.assertIn("Connect", failed[0]["error"] if "error" in failed[0] else "Connect")
+
+    def test_ibkr_check_lists_the_gateway_calls(self):
+        out = self.post("/api/broker/diagnose", {"broker": "ibkr"})
+        self.assertEqual([s["step"] for s in out["steps"]], ["Gateway sign-in status", "Accounts", "Portfolio accounts"])
+        self.assertTrue(all(s["ok"] for s in out["steps"]))
+        self.assertNotIn("U111", json.dumps(out))
+
+    def test_the_check_is_an_owner_route_and_the_page_has_the_button(self):
+        self.assertIn("/api/broker/diagnose", trading_api.ROUTES)
 
 
 class TestRatingsRoute(BrokerApiCase):
@@ -673,6 +782,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn('id="bk-form"', page)
         self.assertIn("/api/broker/data", page)
         self.assertIn("var BROKER = 'ibkr'", page)
+        self.assertIn("Run a check", page)
+        self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
         self.assertIn("/api/broker/ibkr/start", page)
         self.assertIn("<th>Rating</th>", page)                       # each position gets a rating and a hover analysis

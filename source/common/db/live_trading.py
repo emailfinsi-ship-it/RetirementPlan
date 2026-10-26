@@ -1,7 +1,8 @@
 """Settings and audit log for LIVE (real-money) Alpaca trading.
 
 Live trading is off until the owner types the confirmation phrase, switches
-itself off again after ``ARM_HOURS``, and is bounded by a per-order limit and
+itself off again after ``ARM_HOURS`` (unless the owner chose "keep on until I
+turn it off"), and is bounded by a per-order limit and
 a daily limit the owner sets (each capped by a ceiling in code). Every live
 order that was sent is written to ``live_order_log``; the daily limit counts
 what that log says was already sent today. Practice (paper) trading uses none
@@ -18,6 +19,8 @@ from source.common.db.meta import get_meta, set_meta
 
 CONFIRM_PHRASE = "TRADE REAL MONEY"
 ARM_HOURS = 8
+STAY_ON_DAYS = 3650  # "keep on until I turn it off": a far-future switch-off time
+_PERSISTENT_AFTER = 30 * 86400
 DEFAULT_PER_ORDER = 2_000.0
 DEFAULT_DAILY = 5_000.0
 PER_ORDER_CEILING = 25_000.0
@@ -28,11 +31,15 @@ _PER_ORDER = "live_trading_per_order_limit"
 _DAILY = "live_trading_daily_limit"
 
 
-def arm(phrase: str, *, now: float | None = None) -> float:
-    """Turns live trading on for ARM_HOURS. The phrase must be typed exactly."""
+def arm(phrase: str, *, now: float | None = None, stay_on: bool = False) -> float:
+    """Turns live trading on for ARM_HOURS, or until switched off when ``stay_on``.
+
+    The phrase must be typed exactly. The limits, the typed-symbol check and
+    the audit log apply the same either way."""
     if (phrase or "").strip() != CONFIRM_PHRASE:
         raise ValueError(f"To turn on live trading, type {CONFIRM_PHRASE} exactly.")
-    until = (time.time() if now is None else now) + ARM_HOURS * 3600
+    hours = STAY_ON_DAYS * 24 if stay_on else ARM_HOURS
+    until = (time.time() if now is None else now) + hours * 3600
     set_meta(_ARMED_UNTIL, f"{until:.0f}")
     return until
 
@@ -48,6 +55,12 @@ def armed_until(*, now: float | None = None) -> float | None:
     except (TypeError, ValueError):
         return None
     return until if until > (time.time() if now is None else now) else None
+
+
+def is_persistent(*, now: float | None = None) -> bool:
+    """True when live trading was left on until the owner turns it off."""
+    until = armed_until(now=now)
+    return until is not None and until - (time.time() if now is None else now) > _PERSISTENT_AFTER
 
 
 def is_armed(*, now: float | None = None) -> bool:

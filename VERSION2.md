@@ -124,3 +124,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - IBKR tab finds the gateway on its usual alternative ports and remembers the one that answers.
 
 - IBKR gateway files bundled in vendor/clientportal; the IBKR tab has Start gateway / Sign in to IBKR / Stop gateway (needs Java on the Mac).
+
+- IBKR / E*TRADE tabs: Run a check button, inline Connect messages, an All accounts overview (values, cash, totals, combined holdings), E*TRADE balance fallbacks, production-only E*TRADE keys with a last-four check, and a "keep live trading on until I turn it off" option on the turn-on forms.
