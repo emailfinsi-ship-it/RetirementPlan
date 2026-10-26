@@ -200,3 +200,29 @@ are not touched.
     the latest close on the right axis, red / green tinted overbought / oversold zones on RSI, smoother candles, and an
     instant floating hover box with open / high / low / close, volume, averages, RSI and MACD for the day under the
     pointer. Code: `technicals.macd_status`, `quote_chart.chart_html` / `macd_crosses`.
+
+28. **Next earnings date, and an "Earnings this week" panel.** The watchlist has a **Next earnings** column (a report within
+    7 days is highlighted; ETFs and funds show a dash because they do not report) and the *Quote and chart* card shows
+    "Next earnings: Wed, Nov 6, 2026 (in 11 days)". A new **Earnings this week** card on the Stock Analysis tab lists, by
+    day from Monday to Sunday, which tickers on your watchlist or held as stocks in your linked accounts report that
+    week (tags say "watchlist" / "you own"; click one to open its chart; a company that already reported earlier in the
+    week stays listed, tagged "reported"). Dates come from Yahoo Finance through the yfinance library the app already
+    uses for industry names (Alpaca has no earnings calendar), are cached in the database (table `earnings_dates`) and
+    refreshed about twice a day, so the page stays quick; if Yahoo cannot be reached the page says so and keeps the last
+    known dates. Dates can change until the company confirms them. Code: `source/collector/earnings.py`,
+    `pages/earnings_panel.py`, routes `/api/earnings` and `/api/earnings/week` (owner only).
+
+29. **Compact watchlist.** The table now fits without sideways scrolling: the company name shows in the hover box over the
+    symbol (instead of a second line), change % and change $ share one cell, the MACD and next-earnings cells are two-line,
+    and the **Note** box is the last column.
+
+30. **Real-money order status stays current.** The "Real-money orders sent from this app" table used to keep the status
+    Alpaca gave at the instant the order was sent ("pending new"). It is now refreshed from Alpaca's own order list each
+    time the Live Account page opens (and saved), so a filled order reads "filled: 1 at $343.62". Orders older than
+    Alpaca's most recent 30 keep their last known status. Code: `live_trading.sync_statuses`.
+
+31. **Sell button beside each position.** On the Live Account and Practice Account pages every position has a **Sell** button.
+    It fills the order form below with a sale of that stock (all the whole shares you hold; change the number to sell
+    fewer) and leaves Type on Market; switch Type to Limit and type your price to sell only at that price or better.
+    Nothing is sent from the button: you still press Preview and (for real money) type the symbol to confirm. On a
+    switched-off Live Account page it points you to the switch.

@@ -234,7 +234,7 @@ class TestPersistence(TempConfigTestCase):
         self.assertIn('"note": "core"', page)
 
     def test_an_empty_list_page_has_an_empty_initial_list(self):
-        self.assertIn("var rows = [], sortKey", wl.watchlist_card_html())
+        self.assertIn("var rows = [], earnBy", wl.watchlist_card_html())
 
 
 class TestRoutes(TempConfigTestCase):

@@ -13,14 +13,18 @@ written to the audit log.
 
 from __future__ import annotations
 
+from datetime import date
+
 from source.collector import alpaca
 from source.common import db, secrets_store
-from source.webapp.pages import quote_chart, watchlist
+from source.collector import earnings
+from source.webapp.pages import earnings_panel, quote_chart, watchlist
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
+    "/api/earnings", "/api/earnings/week",
 )
 
 
@@ -91,6 +95,19 @@ def _handle(path: str, payload: dict) -> dict:
             return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
         except (alpaca.AlpacaError, secrets_store.SecretNotFoundError, OSError, ValueError) as exc:
             return {"rows": watchlist.stored_rows(items, "Price not available right now."), "warning": str(exc) or exc.__class__.__name__}
+    if path == "/api/earnings":
+        syms = []
+        for raw in (payload.get("symbols") or [])[:earnings.MAX_SYMBOLS]:
+            try:
+                syms.append(db.watchlist.clean_symbol(raw))
+            except ValueError:
+                continue
+        found = earnings.lookup(syms)
+        return {"items": list(found["items"].values()), "pending": found["pending"], "error": found["error"]}
+    if path == "/api/earnings/week":
+        out = earnings_panel.build_week()
+        out["today"] = date.today().isoformat()
+        return out
     if path == "/api/watchlist/add":
         return {"added": db.watchlist.add(payload.get("symbol") if "symbol" in payload else payload.get("symbols"))}
     if path == "/api/watchlist/remove":
