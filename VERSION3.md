@@ -300,3 +300,7 @@ are not touched.
     current session until the new one is confirmed; and when E*TRADE rejects a session the message includes E*TRADE's own reason.
 46. **Buy and Sell on every position** (IBKR and E*TRADE tabs): Buy fills the order ticket with that stock; Sell fills it with your shares.
     "Everything held, added up across accounts" is now collapsed, and only appears when two or more accounts hold stocks.
+47. **Full positions table, sortable.** The IBKR and E*TRADE Positions table now has the same columns as E*TRADE's own portfolio view: last
+    price, change $ and %, shares, price paid, day's gain $ and %, total gain $ and %, value, % of portfolio, rating, plus Buy/Sell. Click any
+    heading to sort (click again to reverse; empty values always go last). E*TRADE supplies every column; IBKR's gateway has no day change, so
+    those cells show "--" there. Total gain % and % of portfolio are worked out when the broker does not send them.
