@@ -958,6 +958,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn("function resort", page)
         self.assertIn('id="bk-orders-', page)                                      # Orders is a collapsed section with a count
         self.assertLess(page.index('id="bk-ticket-card"'), page.index('id="bk-data"'))    # the order ticket sits at the top
+        self.assertIn(".bk-pos .qp-up { color:var(--success)", page)                       # gains green, losses red
+        self.assertIn(".bk-pos .qp-down { color:var(--danger)", page)
         self.assertIn("ORDERS_OPEN = {}", page)
         self.assertIn("__all__", page)                                             # "All accounts" choice
         self.assertIn('name="account"', page)                                      # account picker on the order ticket

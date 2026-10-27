@@ -19,6 +19,7 @@ _CSS = """
 .bk-tile span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted); }
 .bk-tile b { font-size:20px; }
 .bk-danger { color:var(--danger); font-weight:700; }
+.bk-pos .qp-up { color:var(--success); font-weight:600; } .bk-pos .qp-down { color:var(--danger); font-weight:600; }
 .bk-ticket { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; }
 .bk-ticket label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--ink-muted); }
 .bk-ticket input, .bk-ticket select { min-width:90px; }
@@ -75,7 +76,7 @@ _JS = r"""
   }
   function sg(v, c) { return v == null ? '--' : (v >= 0 ? '+' : '-') + mf(Math.abs(v), c); }
   function pc(v) { return v == null ? '--' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
-  function cl(v) { return v == null ? '' : v >= 0 ? 'qp-up' : 'qp-down'; }
+  function cl(v) { return v == null || v === 0 ? '' : v > 0 ? 'qp-up' : 'qp-down'; }
   function K(id, sym) { return id + '|' + sym; }
   function secById(id) { return SECTIONS.filter(function (x) { return x.id === id; })[0]; }
   function posTable(sec) {
