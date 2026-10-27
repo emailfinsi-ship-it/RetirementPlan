@@ -498,7 +498,7 @@ def _render_broker_page(broker: str) -> str:
             f'{html.escape(name)} account. This app does not give investment advice and never places an order by itself.</p>'
             '<p class="muted">These balances are not added to your net worth or plan here. (Link the account with Plaid if you want it counted.)</p>')
     connect = _ibkr_connect_html(broker_api.gateway_url()) if broker == "ibkr" else _etrade_connect_html(broker_api.etrade_state())
-    body = (f"<style>{_CSS}</style><h2 style=\"margin-top:0\">{html.escape(name)}</h2>{warn}{connect}"
+    body = (f"<style>{_CSS}</style><h2 style=\"margin-top:0\">{html.escape(name)}</h2>{warn}" + _TICKET + f"{connect}"
             '<div class="card"><div id="bk-live"></div><p><button type="button" data-act="refresh">Refresh</button> <button type="button" data-act="diagnose">Run a check</button> <span id="bk-status" class="muted small"></span></p>'
-            '<div id="bk-data"></div><pre id="bk-diag" class="muted small" style="white-space:pre-wrap; max-height:340px; overflow:auto;" hidden></pre></div>' + _TICKET + _JS.replace("__BROKER__", broker) + position_ratings.block())
+            '<div id="bk-data"></div><pre id="bk-diag" class="muted small" style="white-space:pre-wrap; max-height:340px; overflow:auto;" hidden></pre></div>' + _JS.replace("__BROKER__", broker) + position_ratings.block())
     return _shell(title=name, active=page, body=body)
