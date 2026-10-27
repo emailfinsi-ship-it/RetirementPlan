@@ -343,3 +343,5 @@ are not touched.
     `pages/broker_page.py`.
 55. **Order ticket at the top.** On the IBKR and E*TRADE tabs the order ticket now sits directly under the real-money warning, above
     Connect and the account data (it still only appears once you are connected). Code: `pages/broker_page.py`.
+56. **Green and red gains.** In the broker positions table (and its tax-lot rows) every change / day's gain / total gain figure is green
+    when positive and red when negative; zero stays plain. The colours come from the theme (brighter in dark mode). Code: `pages/broker_page.py`.
