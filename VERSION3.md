@@ -341,3 +341,5 @@ are not touched.
     one, the page looks as before. The order ticket gained an **Account** menu (set by the Buy/Sell button you press, hidden when
     there is one account), and Preview/Send/Cancel act on that account. Code: `broker_api._data` (`view`, `overview.accounts`),
     `pages/broker_page.py`.
+55. **Order ticket at the top.** On the IBKR and E*TRADE tabs the order ticket now sits directly under the real-money warning, above
+    Connect and the account data (it still only appears once you are connected). Code: `pages/broker_page.py`.
