@@ -260,8 +260,11 @@ def last_price(gw: Gateway, conid: int) -> float | None:
 
 # ---- trading ----
 
+SESSIONS = ("regular", "extended", "overnight")      # extended = outsideRTH (pre-market / after-hours); overnight = tif OVT
+
+
 def preview(gw: Gateway, account: str, order: dict, *, max_notional=None, daily_remaining=None) -> dict:
-    clean = bc.clean_order(order)
+    clean = bc.clean_order(order, sessions=SESSIONS)
     conid = find_conid(gw, clean["symbol"])
     price = clean["limit_price"] or last_price(gw, conid)
     if price is None:
@@ -278,7 +281,8 @@ def preview(gw: Gateway, account: str, order: dict, *, max_notional=None, daily_
 def _order_body(account: str, clean: dict, conid: int) -> dict:
     body = {"acctId": account, "conid": conid, "secType": f"{conid}:STK", "cOID": "fs-" + secrets.token_hex(8),
             "orderType": "LMT" if clean["type"] == "limit" else "MKT", "side": clean["side"].upper(),
-            "tif": clean["time_in_force"].upper(), "quantity": clean["qty"], "outsideRTH": False}
+            "tif": "OVT" if clean.get("session") == "overnight" else clean["time_in_force"].upper(), "quantity": clean["qty"],
+            "outsideRTH": clean.get("session") == "extended"}
     if clean["limit_price"] is not None:
         body["price"] = clean["limit_price"]
     return {"orders": [body]}

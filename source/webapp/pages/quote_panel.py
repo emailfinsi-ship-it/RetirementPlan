@@ -140,6 +140,12 @@ _PANEL_JS = """
     var h = '<div class="qp-head"><span class="qp-sym">' + esc(d.symbol) + '</span>' + (d.name ? '<span class="qp-name">' + esc(d.name) + '</span>' : '') + '<span class="qp-price">' + usd(q.price) + '</span>' +
       '<span class="' + (up ? 'qp-up' : 'qp-down') + '">' + arrow + ' ' + signed(q.change) + ' (' + signed(q.change_pct, '%') + ') today</span>' +
       '<span style="margin-left:auto;">' + watchButton() + tradeButton(d.symbol) + '</span></div>';
+    if (d.extended) {
+      var xe = d.extended, xu = (xe.change || 0) >= 0;
+      h += '<div class="qp-ext" style="margin:-4px 0 8px;"><strong>' + esc(xe.label) + '</strong> ' + usd(xe.price) +
+        (xe.change == null ? '' : ' <span class="' + (xu ? 'qp-up' : 'qp-down') + '">' + (xu ? '\\u25B2 ' : '\\u25BC ') + signed(xe.change) + (xe.change_pct == null ? '' : ' (' + signed(xe.change_pct, '%') + ')') + '</span>') +
+        ' <span class="muted small">Yahoo Finance; thinly traded, so it can move a lot.</span></div>';
+    }
     h += '<div class="qp-stats">' +
       '<div><span>Open</span>' + usd(q.open) + '</div><div><span>Day high</span>' + usd(q.high) + '</div><div><span>Day low</span>' + usd(q.low) + '</div>' +
       '<div><span>Previous close</span>' + usd(q.prev_close) + '</div><div><span>Volume today</span>' + vol(q.volume) + '</div>' +
@@ -160,7 +166,7 @@ _PANEL_JS = """
       }).join('') + '</tbody></table></div></div>';
     h += '<div class="qp-pills">' + pills() + '</div><div id="qp-read" class="qp-read">Move over the chart for the numbers on any bar. Hollow candle = closed up, filled = closed down. Triangles on the MACD panel mark crossovers (green up = bullish, red down = bearish).</div>' + d.chart;
     h += '<p class="muted small">Technical signals only: moving averages, RSI, MACD and volume, counted on daily prices. It is not advice and this app never places an order from it. ' +
-      'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>' +
+      (d.data_source === 'yahoo' ? 'Prices come from Yahoo Finance because Alpaca prices were not available (Yahoo\\u2019s free data can lag by a few minutes).</p>' : 'Prices come from Alpaca\\u2019s free IEX feed, so volume is IEX\\u2019s share of the market, not the whole market\\u2019s.</p>') +
       newsHtml(d) +
       '<p class="qp-actions">' + watchButton() + tradeButton(d.symbol) +
       '</p>';

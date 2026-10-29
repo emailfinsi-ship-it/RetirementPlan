@@ -56,6 +56,7 @@ def _base(mode: str) -> str:
 
 class AlpacaError(Exception):
     """A readable failure (bad key, rejected order, no connection, ...)."""
+    status: int | None = None       # the HTTP status when Alpaca answered; 0 when it could not be reached
 
 
 def _headers(key_id: str, secret: str) -> dict:
@@ -89,9 +90,13 @@ def _request(
             422: f"Alpaca rejected the order: {message}" if message else "Alpaca rejected the order.",
             429: "Alpaca's request limit was reached. Try again in a minute.",
         }
-        raise AlpacaError(reasons.get(exc.code, f"Alpaca returned an error (HTTP {exc.code}). {message}".strip())) from exc
+        err = AlpacaError(reasons.get(exc.code, f"Alpaca returned an error (HTTP {exc.code}). {message}".strip()))
+        err.status = exc.code
+        raise err from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise AlpacaError("Couldn't reach Alpaca. Check the internet connection.") from exc
+        err = AlpacaError("Couldn't reach Alpaca. Check the internet connection.")
+        err.status = 0
+        raise err from exc
     if not raw.strip():
         return None
     try:
@@ -305,6 +310,9 @@ def get_snapshots(symbols: list[str], keys: tuple[str, str], **kw) -> dict[str, 
     return {sym: _snapshot_from(sym, raw[sym]) for sym in syms if isinstance(raw.get(sym), dict)}
 
 
+SESSIONS = ("regular", "extended", "overnight")
+
+
 def clean_order(order: dict) -> dict:
     """Validates and normalises the order a person typed; raises AlpacaError
     with a plain-language reason."""
@@ -334,10 +342,17 @@ def clean_order(order: dict) -> dict:
     tif = str(order.get("time_in_force") or "day").lower()
     if tif not in _TIFS:
         raise AlpacaError("Choose how long the order stays open.")
+    session = str(order.get("session") or "regular").lower()
+    if session not in SESSIONS:
+        raise AlpacaError("Choose regular hours, extended hours or overnight.")
+    if session != "regular":
+        if order_type != "limit":
+            raise AlpacaError("Outside regular trading hours only limit orders are accepted. Choose Limit and enter your price.")
+        tif = "day"
     if order_type == "market":
         tif = "day"
     return {"symbol": symbol, "side": side, "qty": int(qty), "type": order_type,
-            "limit_price": limit_price, "time_in_force": tif}
+            "limit_price": limit_price, "time_in_force": tif, "session": session}
 
 
 _previews: dict[str, tuple[float, dict, str, float]] = {}
@@ -418,6 +433,8 @@ def place_order(
     }
     if clean["limit_price"] is not None:
         body["limit_price"] = str(clean["limit_price"])
+    if clean["session"] != "regular":
+        body["extended_hours"] = True          # pre-market, after-hours and the overnight session; Alpaca takes limit + day only
     raw = _request("POST", f"{_base(mode)}/v2/orders", keys, body=body, **kw)
     return {"id": str((raw or {}).get("id") or ""), "status": str((raw or {}).get("status") or "accepted"),
             "estimate": estimate, "mode": mode, **clean}

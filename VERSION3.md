@@ -345,3 +345,24 @@ are not touched.
     Connect and the account data (it still only appears once you are connected). Code: `pages/broker_page.py`.
 56. **Green and red gains.** In the broker positions table (and its tax-lot rows) every change / day's gain / total gain figure is green
     when positive and red when negative; zero stays plain. The colours come from the theme (brighter in dark mode). Code: `pages/broker_page.py`.
+57. **Yahoo Finance when Alpaca is not available.** Stock Analysis (quotes, charts, rating, news, watchlist, company names), the
+    ratings on your positions and the order form's price now fall back to Yahoo Finance (through the yfinance library already used for
+    earnings dates) when Alpaca prices cannot be read: no Alpaca keys saved, Alpaca down / rejecting the keys / rate-limiting, or a
+    ticker Alpaca's free IEX feed has no bars for. After an Alpaca outage the app skips Alpaca for a minute so screens do not wait on
+    it. The screens say when prices came from Yahoo (its free data can lag a few minutes, and has no bid / ask). Reading prices never
+    places an order, and order sizing / sending still uses the broker itself. Code: `collector/yahoo.py`, `collector/market_data.py`.
+58. **Tabs come back instantly.** The IBKR / E*TRADE tabs and the Stock Analysis watchlist show the last view straight away when you
+    return (kept for that browser tab, 30 minutes at most) and refresh in the background; if the refresh fails the last view stays.
+    The Alpaca trading tabs keep their account / positions / orders for 20 seconds, show an older copy (up to 15 minutes) at once while
+    refreshing behind the scenes (the page reloads itself once to pick the new numbers up), read the three Alpaca calls side by side,
+    and show the last copy with its time if Alpaca cannot be reached. Sending or cancelling an order and changing keys always start
+    fresh. Code: `collector/alpaca_view.py`, `pages/trading.py`, `pages/broker_page.py`, `pages/watchlist.py`.
+59. **Extended hours and overnight.** The order tickets (Alpaca, IBKR, E*TRADE) have a **Session** choice. Outside regular hours only
+    limit orders that last the day are accepted (the ticket switches to Limit / Today only for you). Alpaca sends `extended_hours`
+    (pre-market 4:00-9:30 AM, after-hours 4:00-8:00 PM, overnight 8:00 PM-4:00 AM ET; overnight only for assets Alpaca lists as
+    overnight-tradable). E*TRADE sends `marketSession: EXTENDED` (its API has no overnight session, so that option is not offered).
+    IBKR sends `outsideRTH` for pre/after-hours and tif `OVT` for the overnight session (this last one is not yet tried on a real
+    account: IBKR will refuse it with a message if it is wrong). Pre-market / after-hours **prices** (Yahoo Finance, when there is one)
+    show under the last price in the IBKR / E*TRADE positions, in the Alpaca order form's price box and in the Stock Analysis quote.
+    Yahoo has no overnight-session prices. The rating hover box now lists one fact per line. Code: `alpaca.clean_order` (`session`),
+    `etrade._order_request`, `ibkr._order_body`, `yahoo.get_extended`, `market_data.get_extended`, route `/api/extended`.

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from source.collector import alpaca
+from source.collector import alpaca, market_data
 from source.common import db
 from source.reporting import technicals as ta
 from source.webapp.pages.quote_chart import HISTORY_DAYS, _iso, _quote_block, company_names
@@ -60,18 +60,18 @@ def _row(item: dict, snap: dict | None, daily: list[dict]) -> dict:
     }
 
 
-def build_rows(items: list[dict], keys: tuple[str, str], *, mode: str | None = None, now: datetime | None = None, **kw) -> list[dict]:
+def build_rows(items: list[dict], keys: tuple[str, str] | None, *, mode: str | None = None, now: datetime | None = None, **kw) -> list[dict]:
     """One JSON-ready row per watchlist item, in the list's own order."""
     if not items:
         return []
     now = now or datetime.now(timezone.utc)
     symbols = [i["symbol"] for i in items]
-    bars = alpaca.get_bars_multi(symbols, keys, start=_iso(now - timedelta(days=HISTORY_DAYS)), **kw)
+    bars = market_data.get_bars_multi(symbols, keys, start=_iso(now - timedelta(days=HISTORY_DAYS)), **kw)
     try:
-        snaps = alpaca.get_snapshots(symbols, keys, **kw)
+        snaps = market_data.get_snapshots(symbols, keys, **kw)
     except alpaca.AlpacaError:
         snaps = {}   # the daily bars still give a last price
-    names = company_names(symbols, keys, mode, **kw) if mode else {}
+    names = company_names(symbols, keys, mode, **kw) if mode is not None else {}
     rows = [_row(i, snaps.get(i["symbol"]), bars.get(i["symbol"]) or []) for i in items]
     for row in rows:
         row["name"] = names.get(row["symbol"], "")
@@ -226,12 +226,26 @@ _JS = """
       if (d.pending > 0 && earnTries < 4) { earnTries += 1; clearTimeout(earnTimer); earnTimer = setTimeout(loadEarn, 7000); }
     }).catch(function () { /* the dates are a nicety: the table stays as it is */ });
   }
+  // Coming back to this tab shows the last prices at once (this browser tab only, 30 minutes at most), then refreshes them.
+  var WL_CACHE = 'finsi.watchlist';
+  function cacheSave() { try { sessionStorage.setItem(WL_CACHE, JSON.stringify({t: Date.now(), rows: rows})); } catch (e) { /* no storage: no cache */ } }
+  function cacheShow() {
+    try {
+      var c = JSON.parse(sessionStorage.getItem(WL_CACHE) || 'null');
+      if (!c || !c.rows || Date.now() - c.t > 30 * 60 * 1000) { return; }
+      var want = rows.map(function (r) { return r.symbol; }), have = {};
+      c.rows.forEach(function (r) { have[r.symbol] = r; });
+      if (!want.length || !want.every(function (s) { return have[s] && !have[s].error; })) { return; }     // the saved list changed or a row had no price
+      rows = want.map(function (s) { var r = have[s]; r.note = (rows.filter(function (x) { return x.symbol === s; })[0] || {}).note || r.note; return r; });
+      applyEarn(); render(); status('Showing prices from ' + new Date(c.t).toLocaleTimeString() + ' \u2014 refreshing\u2026');
+    } catch (e) { /* ignore a bad cache */ }
+  }
   function load() {
     status('Loading prices\\u2026');
     return postJSON('/api/watchlist/data', {}).then(function (d) {
-      rows = d.rows; applyEarn(); render();
+      rows = d.rows; applyEarn(); render(); if (!d.warning) { cacheSave(); }
       if (!d.warning) { earnTries = 0; loadEarn(); }
-      status(d.warning ? 'Your saved list is shown, but prices could not be loaded: ' + d.warning : rows.length ? 'Updated ' + new Date().toLocaleTimeString() + '. Prices refresh by themselves every minute.' : '', !!d.warning);
+      status(d.warning ? 'Your saved list is shown, but prices could not be loaded: ' + d.warning : rows.length ? 'Updated ' + new Date().toLocaleTimeString() + (d.source === 'yahoo' ? ' (prices from Yahoo Finance, because Alpaca prices were not available).' : '.') + ' Prices refresh by themselves every minute.' : '', !!d.warning);
       if (timer) { clearInterval(timer); }
       if (rows.length) { timer = setInterval(function () { if (!document.hidden) { load(); } }, 60000); }
     }).catch(function (e) { render(); status('Your saved list is shown, but prices could not be loaded: ' + e.message, true); });
@@ -257,7 +271,7 @@ _JS = """
   window.watchRefresh = load;
   render();   // the saved list shows at once; prices fill in when they arrive
   // postJSON is defined further down the page, so wait until the page has loaded
-  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', load); } else { load(); }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', function () { cacheShow(); load(); }); } else { cacheShow(); load(); }
 })();
 </script>
 """
