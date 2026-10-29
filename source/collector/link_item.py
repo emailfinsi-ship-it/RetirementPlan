@@ -159,6 +159,20 @@ def _create_update_mode_link_token(client, access_token: str, additional_product
     return response["link_token"]
 
 
+def _create_reconnect_link_token(client, access_token: str) -> str:
+    """Link token for "update mode" on an Item whose login Plaid says has to be redone (ITEM_LOGIN_REQUIRED: the bank
+    changed its credentials / MFA, the password changed, or the bank wants a fresh consent). Just the Item's own
+    access token and no new products: Link reopens for that one bank and the person signs in again."""
+    request = LinkTokenCreateRequest(
+        user=LinkTokenCreateRequestUser(client_user_id=LOCAL_USER_ID),
+        client_name=CLIENT_NAME,
+        country_codes=[CountryCode("US")],
+        language="en",
+        access_token=access_token,
+    )
+    return client.link_token_create(request)["link_token"]
+
+
 def _run_local_link(link_token: str, *, port: int, timeout_seconds: int) -> _LinkResult:
     result = _LinkResult()
     server = HTTPServer(("127.0.0.1", port), _make_handler(link_token, result))
@@ -236,6 +250,19 @@ def enable_transactions_for_item(
 ) -> None:
     """Adds the Transactions product to an Item already linked (see enable_product_for_item)."""
     enable_product_for_item(item_key, "transactions", port=port, timeout_seconds=timeout_seconds)
+
+
+def reconnect_item(item_key: str, *, port: int = DEFAULT_PORT, timeout_seconds: int = 300) -> None:
+    """Signs an already-linked Item back in (Plaid Link update mode) when its login has expired. The Item and its
+    access token stay the same, so nothing already stored changes; the next sync works again. Waits here for Link to
+    finish in the browser tab, like the other update-mode flows."""
+    item_row = db.get_plaid_item(item_key)
+    if not item_row:
+        raise ValueError(f"No linked item '{item_key}'.")
+    access_token = secrets_store.get_item_access_token(item_key)
+    client = build_client(item_row["environment"], profile=item_row.get("credential_profile") or "primary")
+    _run_local_link(_create_reconnect_link_token(client, access_token), port=port, timeout_seconds=timeout_seconds)
+    db.set_meta(f"item_login_required:{item_key}", "")        # signed in again; the next sync confirms it
 
 
 def enable_auth_for_item(

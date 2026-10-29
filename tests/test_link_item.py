@@ -202,5 +202,43 @@ class TestEnableAuthForItem(PlaidVaultTestCase):
         self.assertEqual(db.get_plaid_item("fidelity_401k")["products"], "transactions")
 
 
+class TestReconnectItem(PlaidVaultTestCase):
+    """A bank whose login expired (ITEM_LOGIN_REQUIRED) is signed in again with plain update-mode Link."""
+
+    def _seed(self):
+        db.upsert_plaid_item(
+            item_key="morgan_stanley_2", plaid_item_id="item-ms", institution_id="ins_ms", institution_name="Morgan Stanley",
+            products=["investments"], environment="production", credential_profile="primary", linked_at="2026-09-01T00:00:00+00:00",
+        )
+        secrets_store.set_item_access_token("morgan_stanley_2", "access-token-ms")
+
+    def test_asks_plaid_for_update_mode_with_no_new_products_and_clears_the_flag(self):
+        self._seed()
+        db.set_meta("item_login_required:morgan_stanley_2", "1")
+        client = MagicMock()
+        client.link_token_create.return_value = {"link_token": "reconnect-token"}
+        with patch("source.collector.link_item.build_client", return_value=client), \
+             patch("source.collector.link_item._run_local_link", return_value=link_item._LinkResult()) as run:
+            link_item.reconnect_item("morgan_stanley_2")
+        request = client.link_token_create.call_args.args[0]
+        self.assertEqual(request.access_token, "access-token-ms")
+        self.assertFalse(getattr(request, "additional_consented_products", None))
+        self.assertEqual(run.call_args.args[0], "reconnect-token")
+        self.assertFalse(db.get_meta("item_login_required:morgan_stanley_2"))
+
+    def test_unknown_item_and_a_failed_link_change_nothing(self):
+        with self.assertRaises(ValueError):
+            link_item.reconnect_item("never_linked")
+        self._seed()
+        db.set_meta("item_login_required:morgan_stanley_2", "1")
+        client = MagicMock()
+        client.link_token_create.return_value = {"link_token": "t"}
+        with patch("source.collector.link_item.build_client", return_value=client), \
+             patch("source.collector.link_item._run_local_link", side_effect=TimeoutError("timed out")):
+            with self.assertRaises(TimeoutError):
+                link_item.reconnect_item("morgan_stanley_2")
+        self.assertTrue(db.get_meta("item_login_required:morgan_stanley_2"))
+
+
 if __name__ == "__main__":
     unittest.main()
