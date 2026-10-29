@@ -142,7 +142,7 @@ class TestOrderValidation(unittest.TestCase):
     def test_a_good_order_is_normalised(self):
         clean = alpaca.clean_order(self.good())
         self.assertEqual(clean, {"symbol": "VTI", "side": "buy", "qty": 10, "type": "market",
-                                 "limit_price": None, "time_in_force": "day"})
+                                 "limit_price": None, "time_in_force": "day", "session": "regular"})
 
     def test_bad_orders_are_refused_in_plain_words(self):
         bad = [
@@ -254,15 +254,14 @@ class TestLiveOrders(unittest.TestCase):
         self.assertIn("different account", str(ctx.exception))
         self.assertFalse([c for c in fake.calls if c["method"] == "POST"])
 
-    def test_the_per_order_limit_can_only_tighten(self):
+    def test_the_per_order_limit_is_the_one_the_owner_set(self):
         fake = FakeAlpaca(self.routes())
         with self.assertRaises(alpaca.AlpacaError) as ctx:
             alpaca.preview_order(self.ORDER, KEYS, mode="live", max_notional=2_000.0, urlopen=fake)  # $2,500
         self.assertIn("limited to $2,000", str(ctx.exception))
-        # a "higher" limit never lifts the built-in ceiling
+        # there is no built-in ceiling any more: a higher limit (set in Setup) lets a bigger order through
         fake2 = FakeAlpaca(trade_route(5_000.0))
-        with self.assertRaises(alpaca.AlpacaError):
-            alpaca.preview_order({**self.ORDER, "qty": "6"}, KEYS, mode="live", max_notional=1e9, urlopen=fake2)
+        alpaca.preview_order({**self.ORDER, "qty": "6"}, KEYS, mode="live", max_notional=1e9, urlopen=fake2)
 
     def test_the_daily_limit_is_checked_at_preview_and_again_at_place(self):
         fake = FakeAlpaca(self.routes())

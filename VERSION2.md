@@ -144,3 +144,9 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Order ticket at the top of the IBKR and E*TRADE tabs.
 
 - Green and red gains in the IBKR / E*TRADE positions table.
+
+- Yahoo Finance fallback for prices when Alpaca is unavailable; tabs show the last view instantly on return (IBKR/E*TRADE/Alpaca/watchlist).
+
+- Yahoo Finance price fallback; instant return to trading tabs; extended-hours / overnight order session and after-hours prices; clearer rating hover box.
+
+- Yahoo Finance price fallback; instant return to trading tabs; extended-hours / overnight order session and after-hours prices; clearer rating hover box.
