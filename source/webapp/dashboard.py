@@ -1257,6 +1257,14 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Item key is required.")
                 plaid_link_item.enable_transactions_for_item(item_key)
                 self._send_json({"ok": True})
+            elif path == "/api/plaid-reconnect":
+                # Backs the Setup page's per-bank "Reconnect" button: Plaid update-mode Link to sign a bank back in
+                # when its login has expired (ITEM_LOGIN_REQUIRED). Same wait-for-the-new-tab shape as the others.
+                item_key = (payload.get("item_key") or "").strip()
+                if not item_key:
+                    raise ValueError("Item key is required.")
+                plaid_link_item.reconnect_item(item_key)
+                self._send_json({"ok": True})
             elif path == "/api/plaid-connect-auth":
                 # Backs the Setup page's per-Item "Enable full account numbers"
                 # button: the same one-time Plaid update-mode Link as Enable

@@ -430,5 +430,29 @@ class TestSyncAll(PlaidVaultTestCase):
         self.assertEqual(db.get_security_industries(), {"sec-aapl": "Consumer Electronics"})
 
 
+class TestLoginRequired(PlaidVaultTestCase):
+    def test_an_expired_login_gets_a_plain_message_and_a_flag_until_it_syncs_again(self):
+        _seed_item("morgan_stanley_2", products=("investments",))
+        plaid_error = Exception('HTTP response body: {"error_code": "ITEM_LOGIN_REQUIRED", "error_type": "ITEM_ERROR"}')
+        with patch("source.collector.sync._sync_one_item", side_effect=plaid_error):
+            result = sync.sync_all()
+        err = result["errors"][0]
+        self.assertTrue(err["needs_login"])
+        self.assertIn("sign in again", err["error"])
+        self.assertNotIn("HTTPHeaderDict", err["error"])
+        self.assertTrue(db.get_meta("item_login_required:morgan_stanley_2"))
+        with patch("source.collector.sync._sync_one_item", return_value=(1, 0, 0, 0)):
+            sync.sync_all()
+        self.assertFalse(db.get_meta("item_login_required:morgan_stanley_2"))
+
+    def test_setup_shows_reconnect_and_flags_the_bank_that_needs_it(self):
+        from source.webapp.pages.setup import _render_setup_page
+        _seed_item("morgan_stanley_2", products=("investments",))
+        self.assertIn("reconnectPlaidItem(this, 'morgan_stanley_2')", _render_setup_page())
+        self.assertNotIn("Needs sign-in", _render_setup_page())
+        db.set_meta("item_login_required:morgan_stanley_2", "1")
+        self.assertIn("Needs sign-in", _render_setup_page())
+
+
 if __name__ == "__main__":
     unittest.main()

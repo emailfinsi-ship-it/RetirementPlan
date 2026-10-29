@@ -223,9 +223,19 @@ def sync_all() -> dict:
             total_numbers += numbers
             total_transactions += transactions
             succeeded.append(item_row["item_key"])
+            if db.get_meta(f"item_login_required:{item_row['item_key']}"):
+                db.set_meta(f"item_login_required:{item_row['item_key']}", "")
         except Exception as exc:
-            errors.append({"item_key": item_row["item_key"], "error": str(exc)})
-            print(f"[{item_row['item_key']}] ERROR: {exc}", file=sys.stderr)
+            key = item_row["item_key"]
+            if "ITEM_LOGIN_REQUIRED" in str(exc):
+                # Plaid's own wording is a wall of headers; say what to do. Setup shows a Reconnect button for this bank.
+                db.set_meta(f"item_login_required:{key}", "1")
+                name = item_row.get("institution_name") or key
+                errors.append({"item_key": key, "needs_login": True,
+                               "error": f"{name} needs you to sign in again (its login expired). Open Setup and press Reconnect on that row."})
+            else:
+                errors.append({"item_key": key, "error": str(exc)})
+            print(f"[{key}] ERROR: {exc}", file=sys.stderr)
 
     # Best-effort industry classification for whatever equities just got
     # synced above (Yahoo Finance -- never fails the sync, see that

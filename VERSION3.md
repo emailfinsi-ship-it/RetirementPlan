@@ -366,3 +366,9 @@ are not touched.
     show under the last price in the IBKR / E*TRADE positions, in the Alpaca order form's price box and in the Stock Analysis quote.
     Yahoo has no overnight-session prices. The rating hover box now lists one fact per line. Code: `alpaca.clean_order` (`session`),
     `etrade._order_request`, `ibkr._order_body`, `yahoo.get_extended`, `market_data.get_extended`, route `/api/extended`.
+60. **Reconnect a bank whose login expired.** When Plaid answers ITEM_LOGIN_REQUIRED (the bank changed its login / MFA, or wants a
+    fresh consent), the sync now says so in plain words ("Morgan Stanley needs you to sign in again...") instead of dumping Plaid's
+    reply, and Setup flags that bank "Needs sign-in" with a highlighted **Reconnect** button (every linked bank has one). It opens the
+    bank's sign-in (Plaid update mode) in a new tab; the Item and its stored token stay the same, and the flag clears once a sync works.
+    Until then that bank's balances stay at their last synced values, even if the page shows them as "live". Code:
+    `link_item.reconnect_item`, `sync.sync_all`, `/api/plaid-reconnect`, `pages/setup.py`.
