@@ -12,6 +12,18 @@ from source.common import app_settings, auth_store, backup, branding, config, db
 from source.webapp.render_helpers import _shell
 
 
+_RECONNECT_JS = """<script>
+function reconnectPlaidItem(btn, itemKey) {
+  if (!confirm('This opens the bank\u2019s sign-in (Plaid Link) in a new browser tab so ' + itemKey + ' can be signed in again. Your passwords go only to the bank and Plaid. Continue?')) { return; }
+  var label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Waiting for the sign-in tab...';
+  postJSON('/api/plaid-reconnect', {item_key: itemKey})
+    .then(function () { location.reload(); })
+    .catch(function (err) { alert(err.message); btn.disabled = false; btn.textContent = label; });
+}
+</script>"""
+
+
 def _render_setup_page() -> str:
     data_status = config.data_dir_status()
     output_status = config.output_dir_status()
@@ -47,20 +59,27 @@ def _render_setup_page() -> str:
             "" if "auth" in products or not has_deposit_account else
             f'<button onclick="enableAuthForItem({item["item_key"]!r})">Enable full account numbers</button>'
         )
+        needs_login = bool(db.get_meta(f"item_login_required:{item['item_key']}"))
+        reconnect_button = (
+            f'<button class="{"primary" if needs_login else ""}" onclick="reconnectPlaidItem(this, {item["item_key"]!r})">Reconnect</button>'
+        )
+        login_flag = '<br><strong style="color:var(--danger)">Needs sign-in</strong>' if needs_login else ""
         return (
             f'<tr><td>{html.escape(item["item_key"])}</td>'
-            f'<td>{html.escape(item["institution_name"] or "")}</td>'
+            f'<td>{html.escape(item["institution_name"] or "")}{login_flag}</td>'
             f'<td>{html.escape(item["products"] or "")}</td>'
             f'<td>{html.escape(item["environment"])}</td>'
             f'<td>{html.escape(profile_label)}</td>'
             f'<td>{html.escape(synced)}</td>'
-            f'<td>{enable_transactions_button}{enable_auth_button}'
+            f'<td>{reconnect_button}{enable_transactions_button}{enable_auth_button}'
             f'<button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button></td></tr>'
         )
 
     items_rows_html = "".join(item_row(i) for i in items) or (
         '<tr><td colspan="7" class="muted">No accounts linked yet.</td></tr>'
     )
+    if items:
+        items_rows_html += _RECONNECT_JS
 
     def backup_row(b):
         return (
