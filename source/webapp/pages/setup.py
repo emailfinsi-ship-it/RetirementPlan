@@ -60,8 +60,12 @@ def _render_setup_page() -> str:
             f'<button onclick="enableAuthForItem({item["item_key"]!r})">Enable full account numbers</button>'
         )
         needs_login = bool(db.get_meta(f"item_login_required:{item['item_key']}"))
+        # Quiet text link normally (a bank rarely needs it); a full primary button once Plaid says the login expired.
         reconnect_button = (
-            f'<button class="{"primary" if needs_login else ""}" onclick="reconnectPlaidItem(this, {item["item_key"]!r})">Reconnect</button>'
+            f'<button class="primary" onclick="reconnectPlaidItem(this, {item["item_key"]!r})">Reconnect</button>' if needs_login else
+            f'<button type="button" title="Sign this bank in again (only needed if its sync says the login expired)" '
+            f'style="background:none;border:none;box-shadow:none;color:var(--ink-muted);text-decoration:underline;padding:2px 6px;font-size:12px;" '
+            f'onclick="reconnectPlaidItem(this, {item["item_key"]!r})">Reconnect</button>'
         )
         login_flag = '<br><strong style="color:var(--danger)">Needs sign-in</strong>' if needs_login else ""
         return (
@@ -71,8 +75,8 @@ def _render_setup_page() -> str:
             f'<td>{html.escape(item["environment"])}</td>'
             f'<td>{html.escape(profile_label)}</td>'
             f'<td>{html.escape(synced)}</td>'
-            f'<td>{reconnect_button}{enable_transactions_button}{enable_auth_button}'
-            f'<button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button></td></tr>'
+            f'<td><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">{enable_transactions_button}{enable_auth_button}'
+            f'<button class="danger" onclick="removePlaidItem({item["item_key"]!r})">Remove</button>{reconnect_button}</div></td></tr>'
         )
 
     items_rows_html = "".join(item_row(i) for i in items) or (
