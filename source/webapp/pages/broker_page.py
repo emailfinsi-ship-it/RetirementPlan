@@ -97,7 +97,7 @@ _JS = r"""
         (p.qty >= 1 ? '<button type="button" data-act="sell"' + acct + ' data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
       var arrow = lotsOn ? '<td><button type="button" class="lot-toggle" data-act="toggle"' + acct + ' data-sym="' + esc(p.symbol) + '" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + (open ? 'Hide' : 'Show') + ' the lots">' + (open ? '▾' : '▸') + '</button></td>' : '';
       return '<tr class="bk-parent">' + arrow + '<td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
-        '<td class="num">' + mf(p.price, p.currency) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change, p.currency) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
+        '<td class="num">' + mf(p.price, p.currency) + extLine(p.symbol) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change, p.currency) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
         '<td class="num">' + num(p.qty) + '</td><td class="num">' + mf(p.avg_cost, p.currency) + '</td>' +
         '<td class="num ' + cl(p.day_gain) + '">' + sg(p.day_gain, p.currency) + '</td><td class="num ' + cl(p.day_gain_pct) + '">' + pc(p.day_gain_pct) + '</td>' +
         '<td class="num ' + cl(p.gain) + '">' + sg(p.gain, p.currency) + '</td><td class="num ' + cl(p.gain_pct) + '">' + pc(p.gain_pct) + '</td>' +
@@ -123,6 +123,17 @@ _JS = r"""
         '<td class="num ' + cl(l.gain) + '">' + sg(l.gain) + '</td><td class="num ' + cl(l.gain_pct) + '">' + pc(l.gain_pct) + '</td>' +
         '<td class="num">' + usd(l.market_value, true) + '</td><td></td><td></td><td>' + sell + '</td></tr>';
     }).join('');
+  }
+  // pre-market / after-hours price under the last price (Yahoo Finance; only while there is one)
+  var EXT = {};
+  function extLine(sym) {
+    var x = EXT[sym]; if (!x) { return ''; }
+    return '<div class="small ' + cl(x.change) + '" title="' + esc(x.label) + ' price from Yahoo Finance">' + esc(x.label) + ' ' + usd(x.price, true) + (x.change_pct == null ? '' : ' (' + pc(x.change_pct) + ')') + '</div>';
+  }
+  function loadExt() {
+    var syms = []; SECTIONS.forEach(function (sec) { (sec.positions || []).forEach(function (p) { if (syms.indexOf(p.symbol) < 0) { syms.push(p.symbol); } }); });
+    if (!syms.length) { return; }
+    postJSON('/api/extended', {symbols: syms}).then(function (r) { EXT = r.items || {}; if (Object.keys(EXT).length) { redraw(); } }).catch(function () { /* an extra: ignore */ });
   }
   function redraw() {
     SECTIONS.forEach(function (sec, i) { var w = $('bk-pos-' + i); if (w) { w.innerHTML = posTable(sec); } });
@@ -261,6 +272,7 @@ _JS = r"""
       var cut = key.lastIndexOf('|'), sec = secById(key.slice(0, cut)); if (sec) { loadLots(sec, key.slice(cut + 1)); }
     });
     if (window.applyRatings) { window.applyRatings(); }
+    loadExt();
     // the order ticket can trade any of the accounts: pick one here (Buy / Sell on a stock picks its account)
     var tf = $('bk-form'), ta = tf.account, keep = ta.value;
     ta.innerHTML = d.accounts.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>'; }).join('');
@@ -270,21 +282,37 @@ _JS = r"""
     var sel = $('bk-acct'); if (sel) { sel.onchange = function () { load(sel.value); }; }
   }
 
+  // Coming back to this tab shows the last view straight away (kept for this browser tab only, 30 minutes at most) and
+  // refreshes it in the background, instead of a blank page while every account is read again.
+  var CACHE_KEY = 'finsi.bk.' + BROKER, CACHE_MAX_MS = 30 * 60 * 1000;
+  function cacheSave(d) {
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({t: Date.now(), choice: CHOICE, d: d})); } catch (e) { /* storage unavailable: no cache */ }
+  }
+  function cacheShow() {
+    try {
+      var c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (!c || !c.d || !c.d.connected || Date.now() - c.t > CACHE_MAX_MS) { return false; }
+      CHOICE = c.choice || '';
+      render(c.d);
+      say('bk-status', 'Showing what was loaded at ' + new Date(c.t).toLocaleTimeString() + ' — refreshing…');
+      return true;
+    } catch (e) { return false; }
+  }
   function load(account) {
     if (account !== undefined) { CHOICE = account; }
-    say('bk-status', 'Loading…');
-    return postJSON('/api/broker/data', {broker: BROKER, account: CHOICE}).then(function (d) { render(d); say('bk-status', d.connected ? 'Updated ' + new Date().toLocaleTimeString() + '.' : ''); })
+    say('bk-status', DATA ? 'Refreshing…' : 'Loading…');
+    return postJSON('/api/broker/data', {broker: BROKER, account: CHOICE}).then(function (d) { render(d); if (d.connected) { cacheSave(d); } say('bk-status', d.connected ? 'Updated ' + new Date().toLocaleTimeString() + '.' : ''); })
       .catch(function (e) { say('bk-status', e.message, true); });
   }
 
   function order() {
     var f = $('bk-form');
-    return {symbol: f.symbol.value, side: f.side.value, qty: f.qty.value, type: f.type.value, limit_price: f.limit_price.value, time_in_force: f.tif.value};
+    return {symbol: f.symbol.value, side: f.side.value, qty: f.qty.value, type: f.type.value, limit_price: f.limit_price.value, time_in_force: f.tif.value, session: f.session.value};
   }
   function showPreview(p) {
     LAST = p; var o = p.order;
     var an = ((DATA.accounts || []).filter(function (a) { return a.id === p.account; })[0] || {}).name;
-    var h = '<div class="bk-preview">' + (an ? '<div class="muted small">Account: ' + esc(an) + '</div>' : '') + '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> (' + (o.type === 'limit' ? 'limit ' + usd(o.limit_price, true) : 'market') + ', ' + (o.time_in_force === 'gtc' ? 'good till cancelled' : 'today only') + ')' +
+    var h = '<div class="bk-preview">' + (an ? '<div class="muted small">Account: ' + esc(an) + '</div>' : '') + '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> (' + (o.type === 'limit' ? 'limit ' + usd(o.limit_price, true) : 'market') + ', ' + (o.time_in_force === 'gtc' ? 'good till cancelled' : 'today only') + (o.session === 'extended' ? ', extended hours' : o.session === 'overnight' ? ', overnight session' : '') + ')' +
       '<br>Worth about <strong>' + usd(p.estimate, true) + '</strong>' + (p.price ? ' at ' + usd(p.price, true) + ' a share' : '') + (p.commission != null ? '; estimated commission ' + usd(p.commission, true) : '') + '.' +
       (p.notes && p.notes.length ? '<div class="bk-warn">' + p.notes.map(esc).join('<br>') + '</div>' : '') +
       '<form data-act="send" class="inline bk-step"><label>To send this REAL-MONEY order, type its symbol (' + esc(o.symbol) + ')<input name="confirm" autocomplete="off" style="width:110px; text-transform:uppercase"></label> ' +
@@ -356,7 +384,21 @@ _JS = r"""
     });
     var sym = new URLSearchParams(location.search).get('symbol'); if (sym) { f.symbol.value = sym.toUpperCase(); }
     f.type.addEventListener('change', function () { f.limit_price.disabled = f.type.value !== 'limit'; });
+    // Session: outside regular hours only limit orders that last the day are accepted. E*TRADE's connection has no overnight session.
+    if (BROKER === 'etrade') { f.session.querySelector('option[value=overnight]').remove(); }
+    var SESSION_NOTES = {
+      extended: 'Extended hours: pre-market 4:00\u20139:30 AM and after-hours 4:00\u20138:00 PM ET. Only limit orders, good for the day; fewer people trade then, so prices can jump and the gap between buy and sell prices is wide. Set a limit price you are happy with.',
+      overnight: 'Overnight: 8:00 PM\u20134:00 AM ET (Sunday to Thursday evenings), limit orders only, and only for stocks IBKR lists for its overnight session. Prices can jump; set a limit you are happy with.'
+    };
+    f.session.addEventListener('change', function () {
+      var ext = f.session.value !== 'regular', note = $('bk-session-note');
+      if (ext) { f.type.value = 'limit'; f.tif.value = 'day'; }
+      f.type.querySelector('option[value=market]').disabled = ext; f.tif.disabled = ext;
+      f.limit_price.disabled = f.type.value !== 'limit';
+      note.hidden = !ext; note.textContent = SESSION_NOTES[f.session.value] || '';
+    });
     f.limit_price.disabled = true;
+    cacheShow();
     load();
   });
   window.brokerReload = function () { load(); };
@@ -376,8 +418,10 @@ _TICKET = """
   <label>Type<select name="type"><option value="market">Market</option><option value="limit">Limit</option></select></label>
   <label>Limit price<input name="limit_price" type="number" min="0.01" step="0.01" style="width:100px"></label>
   <label>Good for<select name="tif"><option value="day">Today only</option><option value="gtc">Until cancelled</option></select></label>
+  <label>Session<select name="session"><option value="regular">Regular hours</option><option value="extended">Extended hours (pre-market &amp; after-hours)</option><option value="overnight">Overnight</option></select></label>
   <button type="submit" class="primary">Preview order</button>
 </form>
+<p id="bk-session-note" class="muted small" hidden></p>
 <p id="bk-ticket-note" class="muted small"></p>
 <div id="bk-preview"></div>
 </div>

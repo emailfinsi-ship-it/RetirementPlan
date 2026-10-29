@@ -14,7 +14,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timedelta, timezone
 
-from source.collector import alpaca
+from source.collector import alpaca, market_data
 from concurrent.futures import ThreadPoolExecutor
 
 from source.common import db, secrets_store
@@ -52,27 +52,31 @@ def _new_york(dt: datetime) -> datetime:
         return dt.astimezone(timezone(timedelta(hours=-5)))
 
 
-def market_data_source(mode: str | None = None) -> tuple[tuple[str, str], str]:
+def market_data_source(mode: str | None = None) -> tuple[tuple[str, str] | None, str]:
     """(keys, mode) used to READ prices and names. Prices are the same for either account,
     so unless a mode is named this prefers the practice (play-money) keys and falls back
-    to the live ones; it raises a plain-language error when neither is saved."""
+    to the live ones. With neither saved this returns (None, "") and prices come from
+    Yahoo Finance (see source.collector.market_data); it raises a plain-language error
+    only where Yahoo is switched off (the test runner)."""
     order = [mode] if mode in alpaca.MODES else ["paper", "live"]
     for m in order:
         try:
             return secrets_store.get_alpaca_keys(mode=m), m
         except secrets_store.SecretNotFoundError:
             continue
+    if market_data.yahoo_enabled():
+        return None, ""
     raise ValueError("Stock Analysis reads prices from Alpaca. Save your practice (free) or live keys on the Trading tab first.")
 
 
-def market_data_keys(mode: str | None = None) -> tuple[str, str]:
+def market_data_keys(mode: str | None = None) -> tuple[str, str] | None:
     return market_data_source(mode)[0]
 
 
 _NO_NAME: set[str] = set()   # tickers Alpaca had no name for, so a refresh doesn't ask again every minute
 
 
-def company_names(symbols: list[str], keys: tuple[str, str], mode: str, **kw) -> dict[str, str]:
+def company_names(symbols: list[str], keys: tuple[str, str] | None, mode: str, **kw) -> dict[str, str]:
     """{symbol: company name} for what could be found. Names are remembered in the database,
     so each ticker is looked up from Alpaca once."""
     syms = list(dict.fromkeys(symbols))
@@ -80,7 +84,7 @@ def company_names(symbols: list[str], keys: tuple[str, str], mode: str, **kw) ->
     missing = [s for s in syms if s not in known and s not in _NO_NAME]
     if missing:
         with ThreadPoolExecutor(max_workers=6) as pool:
-            found = list(pool.map(lambda s: alpaca.get_asset_name(s, keys, mode=mode, **kw), missing))
+            found = list(pool.map(lambda s: market_data.get_asset_name(s, keys, mode=mode or "paper", **kw), missing))
         for sym, name in zip(missing, found):
             if name:
                 db.watchlist.remember_name(sym, name)
@@ -164,10 +168,11 @@ def _quote_block(sym: str, snap: dict | None, daily: list[dict]) -> dict:
     }
 
 
-def build_price(symbol: str, keys: tuple[str, str], **kw) -> dict:
+def build_price(symbol: str, keys: tuple[str, str] | None, **kw) -> dict:
     """The current price and bid / ask for the order form (one light call; JSON-ready)."""
     sym = alpaca._symbol(symbol)
-    snap = alpaca.get_snapshot(sym, keys, **kw)
+    snap = market_data.get_snapshot(sym, keys, **kw)
+    source = market_data.last_source()
     day, prev = snap.get("day") or {}, snap.get("prev_day")
     price = snap.get("price") or day.get("c")
     if not price:
@@ -178,27 +183,29 @@ def build_price(symbol: str, keys: tuple[str, str], **kw) -> dict:
         "symbol": sym, "price": price, "prev_close": prev_close, "change": change,
         "change_pct": None if not prev_close else change / prev_close * 100.0,
         "bid": snap.get("bid"), "ask": snap.get("ask"), "bid_size": snap.get("bid_size"), "ask_size": snap.get("ask_size"),
-        "as_of": snap.get("trade_time") or "",
+        "as_of": snap.get("trade_time") or "", "data_source": source,
+        "extended": market_data.get_extended([sym]).get(sym),
     }
 
 
-def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, now: datetime | None = None, mode: str | None = None, **kw) -> dict:
+def build_quote(symbol: str, keys: tuple[str, str] | None, range_key: str = "3M", *, now: datetime | None = None, mode: str | None = None, **kw) -> dict:
     """Everything the quote panel shows for ``symbol`` (JSON-ready)."""
     sym = alpaca._symbol(symbol)
     if range_key not in RANGES:
         range_key = "3M"
     now = now or datetime.now(timezone.utc)
-    daily = alpaca.get_bars(sym, keys, timeframe="1Day", start=_iso(now - timedelta(days=HISTORY_DAYS)), limit=1000, **kw)
+    daily = market_data.get_bars(sym, keys, timeframe="1Day", start=_iso(now - timedelta(days=HISTORY_DAYS)), limit=1000, **kw)
     if not daily:
         raise alpaca.AlpacaError(f"No price history was found for {sym}. Check the ticker.")
+    source = market_data.last_source()
     try:
-        snap = alpaca.get_snapshot(sym, keys, **kw)
+        snap = market_data.get_snapshot(sym, keys, **kw)
     except alpaca.AlpacaError:
         snap = None  # the daily bars still give a last price
     quote = _quote_block(sym, snap, daily)
     ind = ta.series(daily)
     if range_key == "1D":
-        intraday = alpaca.get_bars(sym, keys, timeframe="5Min", start=_iso(now - timedelta(days=_INTRADAY_DAYS)), limit=2000, **kw)
+        intraday = market_data.get_bars(sym, keys, timeframe="5Min", start=_iso(now - timedelta(days=_INTRADAY_DAYS)), limit=2000, **kw)
         rows, kind = _intraday_rows(intraday), "intraday"
         if not rows:  # market data for today not available: show the daily chart instead
             rows, kind, range_key = _daily_rows(daily, ind, RANGES["1M"]), "daily", "1M"
@@ -206,18 +213,18 @@ def build_quote(symbol: str, keys: tuple[str, str], range_key: str = "3M", *, no
         rows, kind = _daily_rows(daily, ind, RANGES[range_key]), "daily"
     rating = ta.rating(daily)
     news, news_error = [], False
-    if mode:    # headlines are only fetched for the real route (mode is how it asks for them)
+    if mode is not None:    # headlines are only fetched for the real route (mode is how it asks for them)
         try:
-            news = alpaca.get_news(sym, keys, **kw)
+            news = market_data.get_news(sym, keys, **kw)
         except alpaca.AlpacaError:
             news_error = True     # news is a nicety: the quote still shows
     return {
-        "symbol": sym, "name": company_names([sym], keys, mode, **kw).get(sym, "") if mode else "", "range": range_key, "quote": quote,
+        "symbol": sym, "name": company_names([sym], keys, mode, **kw).get(sym, "") if mode is not None else "", "range": range_key, "quote": quote,
         "week52": ta.range_stats(daily[-253:], quote["price"]),
         "rating": rating, "trends": ta.trends(daily), "macd": ta.macd_status(daily), "news": news, "news_error": news_error,
         "chart": chart_html(rows, kind, quote["prev_close"] if kind == "intraday" else None),
         "rows": [{k: _round(v) if k not in ("t", "tick") else v for k, v in r.items()} for r in rows],
-        "bars": len(daily),
+        "bars": len(daily), "data_source": source, "extended": market_data.get_extended([sym]).get(sym),
     }
 
 

@@ -316,8 +316,8 @@ def _order_request(clean: dict, client_order_id: str, preview_id=None) -> dict:
     limit = clean["type"] == "limit"
     order = {
         "allOrNone": "false", "priceType": "LIMIT" if limit else "MARKET",
-        "orderTerm": "GOOD_UNTIL_CANCEL" if clean["time_in_force"] == "gtc" else "GOOD_FOR_DAY",
-        "marketSession": "REGULAR", "stopPrice": "", "limitPrice": f"{clean['limit_price']:.2f}" if limit else "",
+        "orderTerm": "GOOD_UNTIL_CANCEL" if clean["time_in_force"] == "gtc" and clean.get("session") != "extended" else "GOOD_FOR_DAY",
+        "marketSession": "EXTENDED" if clean.get("session") == "extended" else "REGULAR", "stopPrice": "", "limitPrice": f"{clean['limit_price']:.2f}" if limit else "",
         "Instrument": [{"Product": {"securityType": "EQ", "symbol": clean["symbol"]}, "orderAction": clean["side"].upper(),
                         "quantityType": "QUANTITY", "quantity": clean["qty"]}],
     }
@@ -327,8 +327,11 @@ def _order_request(clean: dict, client_order_id: str, preview_id=None) -> dict:
     return body
 
 
+SESSIONS = ("regular", "extended")           # E*TRADE's API: regular or extended hours (no overnight session)
+
+
 def preview(c: Client, account: str, order: dict, *, max_notional=None, daily_remaining=None) -> dict:
-    clean = bc.clean_order(order)
+    clean = bc.clean_order(order, sessions=SESSIONS)
     cid = secrets.token_hex(8)
     data = c.json("POST", f"/v1/accounts/{urllib.parse.quote(account)}/orders/preview",
                   body={"PreviewOrderRequest": _order_request(clean, cid)})

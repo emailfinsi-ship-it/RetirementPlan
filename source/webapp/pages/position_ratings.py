@@ -8,6 +8,7 @@ import html
 
 CSS = """
 .pr-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-weight:700; font-size:12px; border:2px solid var(--border); white-space:nowrap; cursor:default; }
+.nw-tip .nw-tip-pct { white-space:pre-line; max-width:270px; line-height:1.45; }
 .pr-buy { color:var(--success); border-color:var(--success); } .pr-hold { color:var(--warn); border-color:var(--warn); } .pr-sell { color:var(--danger); border-color:var(--danger); }
 """
 
@@ -19,17 +20,19 @@ JS = r"""
   function cls(label) { return /Buy/.test(label) ? 'pr-buy' : /Sell/.test(label) ? 'pr-sell' : 'pr-hold'; }
   function color(label) { return /Buy/.test(label) ? '#1f8a3f' : /Sell/.test(label) ? '#d70015' : '#b36200'; }
   function trend(t) { return t === 'Up' ? 'up' : t === 'Down' ? 'down' : 'sideways'; }
+  function arrow(t) { return t === 'Up' ? '▲' : t === 'Down' ? '▼' : '▬'; }
   function note(it, skipVotes) {
+    // one short fact per line (the hover box keeps the line breaks), instead of one long run-on sentence
     var p = [];
-    if (it.signal_count && !skipVotes) { p.push(it.buy_votes + ' of ' + it.signal_count + ' signals bullish, ' + it.sell_votes + ' bearish.'); }
-    if (it.rsi != null) { p.push('RSI ' + Math.round(it.rsi) + (it.rsi <= 30 ? ' (oversold)' : it.rsi >= 70 ? ' (overbought)' : '') + '.'); }
+    if (it.signal_count && !skipVotes) { p.push('Signals: ' + it.buy_votes + ' of ' + it.signal_count + ' bullish, ' + it.sell_votes + ' bearish'); }
+    if (it.rsi != null) { p.push('RSI: ' + Math.round(it.rsi) + (it.rsi <= 30 ? ' (oversold)' : it.rsi >= 70 ? ' (overbought)' : '')); }
     if (it.macd_state) {
       var when = it.macd_ago === 0 ? 'today' : it.macd_ago === 1 ? 'yesterday' : it.macd_ago + ' days ago';
-      p.push('MACD ' + it.macd_state + ' its signal line' + (it.macd_cross ? ' (' + it.macd_cross + ' crossover ' + when + ')' : '') + '.');
+      p.push('MACD: ' + it.macd_state + ' signal line' + (it.macd_cross ? '\n' + it.macd_cross + ' crossover ' + when : ''));
     }
-    p.push('Trend: ' + trend(it.trend_short) + ' for a month, ' + trend(it.trend_medium) + ' for 3 months, ' + trend(it.trend_long) + ' for a year.');
-    p.push('Click the symbol for the chart. Technical signals only, not advice.');
-    return p.join(' ');
+    p.push('Trend: ' + arrow(it.trend_short) + ' 1 month \u00B7 ' + arrow(it.trend_medium) + ' 3 months \u00B7 ' + arrow(it.trend_long) + ' 1 year');
+    p.push('Click the symbol for the chart. Not advice.');
+    return p.join('\n');
   }
   function paint() {
     Array.prototype.forEach.call(document.querySelectorAll('td[data-rate-sym]'), function (td) {

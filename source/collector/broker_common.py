@@ -24,12 +24,18 @@ class BrokerError(Exception):
     """A readable failure (not connected, rejected order, no connection, ...)."""
 
 
-def clean_order(order: dict) -> dict:
-    """Validates and normalises the order a person typed (whole shares, market or limit, day or good-till-cancelled)."""
+def clean_order(order: dict, *, sessions: tuple[str, ...] = ("regular",)) -> dict:
+    """Validates and normalises the order a person typed (whole shares, market or limit, day or good-till-cancelled, and the
+    trading session). ``sessions`` is what this broker's API can do beyond regular hours."""
     try:
-        return alpaca.clean_order(order)
+        clean = alpaca.clean_order(order)
     except alpaca.AlpacaError as exc:
         raise BrokerError(str(exc)) from exc
+    if clean["session"] not in sessions:
+        raise BrokerError("This broker's connection can only send orders for " +
+                          ("regular trading hours." if sessions == ("regular",) else " or ".join(sessions) + " sessions.") +
+                          " For other sessions, place the order on the broker's own site.")
+    return clean
 
 
 def money_text(value: float) -> str:

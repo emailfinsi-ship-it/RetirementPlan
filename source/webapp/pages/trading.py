@@ -10,7 +10,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from source.collector import alpaca
+from source.collector import alpaca, alpaca_view
 from source.common import db, secrets_store
 from source.webapp.pages import position_ratings
 from source.webapp.render_helpers import _money, _shell
@@ -225,9 +225,11 @@ _TICKET_FORM = """
   <label>Type<select name="type" onchange="this.form.limit_price.disabled = this.value !== 'limit';"><option value="market">Market (current price)</option><option value="limit">Limit (my price)</option></select></label>
   <label>Limit price<input name="limit_price" type="number" min="0.01" step="0.01" style="width:100px" disabled></label>
   <label>Stays open<select name="time_in_force"><option value="day">Today only</option><option value="gtc">Until cancelled</option></select></label>
+  <label>Session<select name="session" onchange="sessionChanged(this.form)"><option value="regular">Regular hours (9:30 AM &ndash; 4 PM ET)</option><option value="extended">Extended hours: pre-market, after-hours and overnight</option></select></label>
   <button type="submit" class="primary">Preview order</button>
 </form>
 <p id="ticket-note" class="muted small" style="margin:8px 0 0;"></p>
+<p id="session-note" class="muted small" style="margin:4px 0 0;" hidden>Extended-hours orders must be limit orders and last for the day. Pre-market 4:00&ndash;9:30 AM, after-hours 4:00&ndash;8:00 PM, overnight 8:00 PM&ndash;4:00 AM ET (only stocks Alpaca lists as overnight-tradable). Fewer people trade then, so prices can jump and spreads are wide: set a limit price you are happy with.</p>
 <div id="ticket-price" class="status-line" style="margin-top:10px;"><span class="muted">Type a symbol to see its current price.</span></div>
 <div id="ticket-preview" style="margin-top:10px;"></div>
 """
@@ -247,7 +249,7 @@ function setLimit(p) {
   var f = document.getElementById('ticket'); if (!f) { return; }
   f.type.value = 'limit'; f.limit_price.disabled = false; f.limit_price.value = Number(p).toFixed(2);
 }
-function setMarket() { var f = document.getElementById('ticket'); if (f) { f.type.value = 'market'; f.limit_price.disabled = true; f.limit_price.value = ''; } }
+function setMarket() { var f = document.getElementById('ticket'); if (f) { f.session.value = 'regular'; sessionChanged(f); f.type.value = 'market'; f.limit_price.disabled = true; f.limit_price.value = ''; } }
 function loadPrice(v) {
   var box = document.getElementById('ticket-price'); if (!box) { return; }
   var sym = String(v || '').trim().toUpperCase();
@@ -258,31 +260,41 @@ function loadPrice(v) {
     if (d.symbol !== priceSym) { return; }
     var usd = function (n) { return n == null ? '--' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
     var up = (d.change || 0) >= 0, when = d.as_of ? new Date(d.as_of) : null;
+    var x = d.extended, xup = x && (x.change || 0) >= 0;
     var h = '<strong>' + esc(d.symbol) + '</strong> <span style="font-size:20px; font-weight:700;">' + usd(d.price) + '</span> ' +
       (d.change == null ? '' : '<span style="color:' + (up ? '#1baf7a' : '#c94a4a') + '; font-weight:600;">' + (up ? '\u25B2 +' : '\u25BC -') + Math.abs(d.change).toFixed(2) +
         ' (' + (up ? '+' : '-') + Math.abs(d.change_pct).toFixed(2) + '%) today</span> ') +
       '<span class="muted">Bid ' + usd(d.bid) + ' / Ask ' + usd(d.ask) + (when && !isNaN(when) ? ' &middot; last trade ' + when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '') + '</span>' +
+      (x ? '<div style="margin-top:4px;"><strong>' + esc(x.label) + '</strong> ' + usd(x.price) + (x.change == null ? '' : ' <span style="color:' + (xup ? '#1baf7a' : '#c94a4a') + '; font-weight:600;">' + (xup ? '+' : '-') + Math.abs(x.change).toFixed(2) + (x.change_pct == null ? '' : ' (' + (xup ? '+' : '-') + Math.abs(x.change_pct).toFixed(2) + '%)') + '</span>') + ' <span class="muted small">(Yahoo Finance; the order form below can send an extended-hours limit order)</span></div>' : '') +
       '<div style="margin-top:6px;"><span class="muted">Choose: </span>' +
       '<button type="button" onclick="setMarket()">Market (fills at about ' + usd(d.price) + ')</button> ' +
       '<button type="button" onclick="setLimit(' + d.price + ')">Limit at ' + usd(d.price) + '</button>' +
       (d.bid ? ' <button type="button" onclick="setLimit(' + d.bid + ')">Limit at bid ' + usd(d.bid) + '</button>' : '') +
       (d.ask ? ' <button type="button" onclick="setLimit(' + d.ask + ')">Limit at ask ' + usd(d.ask) + '</button>' : '') + '</div>' +
-      '<div class="muted small" style="margin-top:4px;">Free IEX prices can lag the full market, so check the price before sending a real order. Refreshes every 20 seconds.</div>';
+      '<div class="muted small" style="margin-top:4px;">' + (d.data_source === 'yahoo' ? 'This price is from Yahoo Finance (Alpaca prices were not available) and can lag' : 'Free IEX prices can lag the full market') + ', so check the price before sending a real order. Refreshes every 20 seconds.</div>';
     box.innerHTML = h;
   }).catch(function (e) { if (sym === priceSym) { box.innerHTML = '<span class="status-warn">' + esc(e.message) + '</span>'; } });
 }
 setInterval(function () { if (priceSym && !document.hidden) { loadPrice(priceSym); } }, 20000);
 document.addEventListener('DOMContentLoaded', function () { var f = document.getElementById('ticket'); if (f && f.symbol.value) { loadPrice(f.symbol.value); } });
+function sessionChanged(form) {
+  var ext = form.session.value !== 'regular';
+  if (ext) { form.type.value = 'limit'; form.time_in_force.value = 'day'; }
+  form.type.querySelector('option[value=market]').disabled = ext;
+  form.time_in_force.disabled = ext;
+  form.limit_price.disabled = form.type.value !== 'limit';
+  document.getElementById('session-note').hidden = !ext;
+}
 function previewOrder(form) {
   var box = document.getElementById('ticket-preview');
   pendingToken = null;
   var body = {mode: TRADE_MODE, side: form.side.value, symbol: form.symbol.value, qty: form.qty.value, type: form.type.value,
-              limit_price: form.limit_price.value, time_in_force: form.time_in_force.value};
+              limit_price: form.limit_price.value, time_in_force: form.time_in_force.value, session: form.session.value};
   postJSON('/api/alpaca/preview', body).then(function (r) {
     pendingToken = r.token;
     var o = r.order, live = TRADE_MODE === 'live';
     var summary = '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> as a ' +
-      esc(o.type) + ' order' + (o.limit_price ? ' at $' + o.limit_price.toFixed(2) : '') + ', about <strong>$' +
+      esc(o.type) + ' order' + (o.limit_price ? ' at $' + o.limit_price.toFixed(2) : '') + (o.session && o.session !== 'regular' ? ' <strong>for extended hours</strong>' : '') + ', about <strong>$' +
       r.estimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong> (at about $' + r.price.toFixed(2) + ' a share).';
     if (live) {
       box.innerHTML = '<div class="status-line" style="border:2px solid #c94a4a; padding:10px; border-radius:10px;">' +
@@ -358,6 +370,18 @@ def _ticket_html(mode: str, *, armed: bool) -> str:
     )
 
 
+def _stale_note_html(view: dict) -> str:
+    """Shown when the page is built from a kept copy. With no error, the copy is being refreshed in the background, so the
+    page reloads itself once (at most once a minute) to pick the new numbers up."""
+    when = datetime.fromtimestamp(view["at"]).strftime("%-I:%M:%S %p")
+    if view["error"]:
+        return (f'<p class="status-line status-warn">Alpaca could not be reached ({html.escape(view["error"])}). '
+                f'Showing what was loaded at {when}.</p>')
+    return (f'<p class="muted small" id="stale-note">Showing what was loaded at {when} &mdash; refreshing&hellip;</p>'
+            "<script>setTimeout(function () { try { var k = 'finsi.alpaca.reload', t = +sessionStorage.getItem(k) || 0;"
+            " if (Date.now() - t > 60000) { sessionStorage.setItem(k, Date.now()); location.reload(); } } catch (e) {} }, 3000);</script>")
+
+
 def _render_trading_page(mode: str = "paper") -> str:
     live = mode == "live"
     page = "trading-live.html" if live else "trading.html"   # the section row above the page lists both
@@ -380,9 +404,10 @@ def _render_trading_page(mode: str = "paper") -> str:
     acct, positions, orders = None, [], []
     try:
         keys = secrets_store.get_alpaca_keys(mode=mode)
-        acct = alpaca.get_account(keys, mode=mode)
-        positions = alpaca.list_positions(keys, mode=mode)
-        orders = alpaca.list_orders(keys, mode=mode)
+        view = alpaca_view.get(keys, mode)
+        acct, positions, orders = view["account"], view["positions"], view["orders"]
+        if view["stale"]:
+            problem = _stale_note_html(view)
     except (alpaca.AlpacaError, secrets_store.SecretNotFoundError) as exc:
         problem = f'<p class="status-line status-warn">{html.escape(str(exc))}</p>'
     body = intro + problem

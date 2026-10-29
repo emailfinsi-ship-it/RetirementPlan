@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from source.collector import alpaca
+from source.collector import alpaca, alpaca_view, market_data
 from source.common import db, secrets_store
 from source.collector import earnings
 from source.webapp import broker_api
@@ -25,7 +25,7 @@ ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
-    "/api/earnings", "/api/earnings/week", "/api/ratings",
+    "/api/earnings", "/api/earnings/week", "/api/ratings", "/api/extended",
 ) + broker_api.ROUTES
 
 
@@ -61,10 +61,13 @@ def _handle(path: str, payload: dict) -> dict:
             raise secrets_store.SecretNotFoundError("Both the Alpaca key ID and the secret are needed.")
         alpaca.get_account(keys, mode=mode)  # a wrong key is refused now, not saved
         secrets_store.set_alpaca_keys(*keys, mode=mode)
+        alpaca_view.invalidate(mode)
+        market_data.reset()                  # new keys: try Alpaca again at once
         return {}
     if path == "/api/alpaca-keys/delete":
         mode = _mode(payload)
         secrets_store.delete_alpaca_keys(mode=mode)
+        alpaca_view.invalidate(mode)
         if mode == "live":
             lt.disarm()  # no live keys, nothing to be armed
         return {}
@@ -97,9 +100,21 @@ def _handle(path: str, payload: dict) -> dict:
         # still return every saved ticker, with a message, rather than failing the whole call.
         try:
             keys, data_mode = quote_chart.market_data_source()
-            return {"rows": watchlist.build_rows(items, keys, mode=data_mode)}
+            rows = watchlist.build_rows(items, keys, mode=data_mode)
+            return {"rows": rows, "source": market_data.last_source()}
         except (alpaca.AlpacaError, secrets_store.SecretNotFoundError, OSError, ValueError) as exc:
             return {"rows": watchlist.stored_rows(items, "Price not available right now."), "warning": str(exc) or exc.__class__.__name__}
+    if path == "/api/extended":
+        # Pre-market / after-hours prices (Yahoo Finance) for the symbols given; empty when the market is open. Read-only.
+        syms = []
+        for raw in (payload.get("symbols") or [])[:60]:
+            try:
+                sym = db.watchlist.clean_symbol(raw)
+            except ValueError:
+                continue
+            if sym not in syms:
+                syms.append(sym)
+        return {"items": market_data.get_extended(syms)}
     if path == "/api/ratings":
         # Technical rating and the numbers behind it for stocks you hold (read-only; same data as Stock Analysis).
         syms = []
@@ -140,6 +155,7 @@ def _handle(path: str, payload: dict) -> dict:
     keys = secrets_store.get_alpaca_keys(mode=mode)
     if path == "/api/alpaca/cancel":
         alpaca.cancel_order(payload.get("id"), keys, mode=mode)
+        alpaca_view.invalidate(mode)
         return {}
     if path == "/api/alpaca/preview":
         _require_armed(mode)
@@ -152,13 +168,16 @@ def _handle(path: str, payload: dict) -> dict:
         _require_armed(mode)
         token = payload.get("token")
         if mode == "paper":
-            return alpaca.place_order(token, keys, mode="paper")
+            placed_paper = alpaca.place_order(token, keys, mode="paper")
+            alpaca_view.invalidate(mode)
+            return placed_paper
         details = alpaca.preview_details(token)
         if details is None or details["mode"] != "live":
             raise ValueError("That order's preview has expired. Preview it again, then confirm.")
         if str(payload.get("confirm_symbol") or "").strip().upper() != details["symbol"]:
             raise ValueError(f"To send this real-money order, type its symbol ({details['symbol']}) in the box.")
         placed = alpaca.place_order(token, keys, mode="live", daily_remaining=lt.daily_remaining())
+        alpaca_view.invalidate(mode)
         lt.log_live_order(
             symbol=placed["symbol"], side=placed["side"], qty=placed["qty"], order_type=placed["type"],
             estimate=placed["estimate"], order_id=placed["id"], status=placed["status"],
