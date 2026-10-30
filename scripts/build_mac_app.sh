@@ -89,6 +89,7 @@ rm -rf build dist "$SERVER_NAME.spec"
   --collect-all requests_cache \
   --collect-all frozendict \
   --add-data "source/webapp/static:source/webapp/static" \
+  --add-data "source/screener/data:source/screener/data" \
   --add-data "vendor/clientportal:vendor/clientportal" \
   run_app.py
 
