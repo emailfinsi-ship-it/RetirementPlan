@@ -132,7 +132,7 @@ _PUBLIC_PATHS = {"/login.html", "/api/login", "/manifest.json", "/service-worker
 # POST routes a view-only ("viewer") login may still use: they only calculate or
 # show something, and change nothing that is saved.
 _VIEWER_POSTS = {
-    "/api/logout", "/api/login", "/api/reset-password", "/api/what-if", "/api/safe-spending", "/api/benefits/claiming-analysis",
+    "/api/logout", "/api/login", "/api/reset-password", "/api/what-if", "/api/safe-spending", "/api/earliest-retirement", "/api/benefits/claiming-analysis",
     "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/wording-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
@@ -238,6 +238,24 @@ def _safe_spending_cached(summary: dict, target: float) -> dict:
             _SAFE_SPENDING_CACHE.clear()
         _SAFE_SPENDING_CACHE[key] = what_if.find_safe_spending(summary, target)
     return _SAFE_SPENDING_CACHE[key]
+
+_EARLIEST_CACHE: dict = {}
+
+
+def _earliest_retirement_cached(summary: dict, target: float) -> dict:
+    """find_earliest_retirement takes a couple of seconds, so repeat views reuse the last answer for an unchanged plan."""
+    import hashlib
+
+    key = hashlib.md5(repr((
+        round(target, 4), summary["assumptions"], summary["expenses"], summary["income_for_simulation"],
+        summary["retirement_pools"], summary["net_liquid_asset"], summary.get("this_year"),
+    )).encode("utf-8")).hexdigest()
+    if key not in _EARLIEST_CACHE:
+        if len(_EARLIEST_CACHE) >= 16:
+            _EARLIEST_CACHE.clear()
+        _EARLIEST_CACHE[key] = what_if.find_earliest_retirement(summary, target)
+    return _EARLIEST_CACHE[key]
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "PlanDashboard/1.0"
@@ -972,6 +990,14 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("save"):
                     db.set_safe_spend_target(target)   # the Summary shows the level picked on the Will my money last? tab
                 self._send_json({"ok": True, **_safe_spending_cached(build_summary(), target)})
+            elif path == "/api/earliest-retirement":
+                try:
+                    target = float(payload.get("target") or db.safe_spend_target())
+                except (TypeError, ValueError):
+                    target = db.safe_spend_target()
+                if not 0.5 <= target <= 0.99:
+                    raise ValueError("Target must be between 50% and 99%.")
+                self._send_json({"ok": True, **_earliest_retirement_cached(build_summary(), target)})
             elif path == "/api/setup-complete":
                 db.set_setup_complete(True)
                 self._send_json({"ok": True})

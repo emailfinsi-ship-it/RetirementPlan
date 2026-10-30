@@ -26,6 +26,7 @@ from source.reporting.monte_carlo import (
 )
 from source.reporting.monte_carlo.real_estate_sale_compare import monte_carlo_sale_comparison
 from source.webapp.pages import summary_blocks as blocks
+from source.webapp.pages.earliest_card import earliest_retirement_html
 from source.webapp.pages.benefits_card import double_social_security_html, social_security_medicare_card_html
 from source.webapp.pages.scenarios_card import saved_scenarios_card_html
 from source.webapp.render_helpers import _money, _pct, _shell
@@ -200,7 +201,7 @@ def _render_monte_carlo_page() -> str:
 <p class="muted small" style="margin-bottom:0">We ran {result['iterations']:,} possible market futures against your own savings and spending. Ending balances are in {pres.dollars_caption(mode).replace("ending balances in ", "")}.</p>
 </div>
 {chart}
-<p class="muted small jump-links" style="margin:2px 0 10px">Jump to: <a href="#levers">Biggest levers</a> &middot; <a href="#assumptions">What-if and assumptions</a> &middot; <a href="#safe-spending">Safe spending</a> &middot; <a href="#ss-fold">Social Security</a></p>
+<p class="muted small jump-links" style="margin:2px 0 10px">Jump to: <a href="#levers">Biggest levers</a> &middot; <a href="#assumptions">What-if and assumptions</a> &middot; <a href="#safe-spending">Safe spending</a> &middot; <a href="#earliest-retirement">How early could I stop?</a> &middot; <a href="#ss-fold">Social Security</a></p>
 {double_social_security_html(s["income"], assumptions)}
 {stress_html}
 {sensitivity_html}
@@ -237,6 +238,7 @@ def _render_monte_carlo_page() -> str:
 {blocks.safe_spending_html(selector=True)}
 <p class="muted small" style="margin:8px 0 0">The most you could spend each year, starting next year, while keeping your chance of lasting at the level you pick. Higher confidence means a smaller number.</p>
 </div>
+{earliest_retirement_html()}
 {explorer_html}
 <div class="adv-only">
 <h2>What could go wrong?</h2>
