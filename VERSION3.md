@@ -437,3 +437,5 @@ are not touched.
 73. **Connect to IBKR** (IBKR tab): one button that starts the gateway if it is not running (or finds one already running on another port), opens IBKR's own
     sign-in page, and refreshes the tab by itself until you are signed in. It appears under the "not signed in" message and at the top of the Connect card. New
     route `/api/broker/ibkr/connect` (states connected / signin / starting); it never sees your IBKR password. Tests in `TestGatewayLauncher`.
+74. **Alpaca keys rejected**: the Alpaca tab now shows the key form right under "Alpaca rejected the keys" (Enter your Alpaca keys again), so you no longer
+    have to press Remove saved keys first. A wrong pair is still refused before it is saved.
