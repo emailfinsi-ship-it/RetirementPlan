@@ -74,6 +74,10 @@ class FakeIbkr:
                          {"ticker": "ESZ6", "position": 1, "assetClass": "FUT", "mktValue": 99999}]) if path.endswith("/0") else Resp([])
         if path.startswith("/trsrv/stocks"):
             return Resp({"AAPL": [{"name": "APPLE", "contracts": [{"conid": 1, "isUS": False}, {"conid": 265598, "isUS": True}]}]})
+        if path.startswith("/iserver/marketdata/snapshot") and "fields=31,82,83" in path:       # the positions list asks for the day change too
+            ids = [int(i) for i in path.split("conids=")[1].split("&")[0].split(",")]
+            known = {265598: {"31": "C201.00", "82": "-1.50", "83": "-0.74%"}, 14094: {"31": "181.00", "82": "2.00", "83": "1.12%"}}
+            return Resp([{"conid": i, **known[i]} for i in ids if i in known])
         if path.startswith("/iserver/marketdata/snapshot"):
             return Resp([{"31": "C200.50"}])
         if path == "/iserver/account/orders":
@@ -237,6 +241,25 @@ class TestIbkr(unittest.TestCase):
         self.assertEqual([(p["symbol"], p["qty"], p["market_value"]) for p in pos], [("AAPL", 10.0, 2000.0), ("SAP", 5.0, 900.0)])   # futures skipped
         orders = ibkr.open_orders(gw, "U111")
         self.assertEqual([(o["symbol"], o["side"], o["open"]) for o in orders], [("AAPL", "buy", True), ("MSFT", "sell", False)])
+
+    def test_positions_get_a_live_price_change_and_day_gain(self):
+        pos = {p["symbol"]: p for p in ibkr.positions(ibkr.Gateway(opener=FakeIbkr()), "U111")}
+        a = pos["AAPL"]
+        self.assertEqual((a["price"], a["change"], a["change_pct"]), (201.0, -1.5, -0.74))
+        self.assertEqual((a["day_gain"], a["day_gain_pct"]), (-15.0, -0.74))                    # -1.50 a share on 10 shares
+        self.assertEqual((pos["SAP"]["change"], pos["SAP"]["day_gain"]), (2.0, 10.0))
+
+    def test_a_failing_snapshot_never_hides_the_holdings(self):
+        class NoQuotes(FakeIbkr):
+            def __call__(self, req, timeout=None):
+                if "/marketdata/snapshot" in req.full_url:
+                    raise http_error(500)
+                return super().__call__(req, timeout)
+
+        pos = ibkr.positions(ibkr.Gateway(opener=NoQuotes()), "U111")
+        self.assertEqual([p["symbol"] for p in pos], ["AAPL", "SAP"])
+        self.assertIsNone(pos[0].get("change"))
+        self.assertEqual(pos[0]["price"], 200.0)                                                 # IBKR's own marked price stays
 
     def test_preview_prices_the_order_and_place_sends_exactly_it(self):
         fake = FakeIbkr()
