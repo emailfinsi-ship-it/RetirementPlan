@@ -28,7 +28,7 @@ JS = r"""
     if (it.rsi != null) { p.push('RSI: ' + Math.round(it.rsi) + (it.rsi <= 30 ? ' (oversold)' : it.rsi >= 70 ? ' (overbought)' : '')); }
     if (it.macd_state) {
       var when = it.macd_ago === 0 ? 'today' : it.macd_ago === 1 ? 'yesterday' : it.macd_ago + ' days ago';
-      p.push('MACD: ' + it.macd_state + ' signal line' + (it.macd_cross ? '\n' + it.macd_cross + ' crossover ' + when : ''));
+      p.push('MACD: ' + it.macd_state + ' signal line (' + (it.macd_state === 'above' ? 'momentum rising' : 'momentum fading') + ')' + (it.macd_cross ? '\n' + it.macd_cross + ' crossover ' + when : ''));
     }
     p.push('Trend: ' + arrow(it.trend_short) + ' 1 month \u00B7 ' + arrow(it.trend_medium) + ' 3 months \u00B7 ' + arrow(it.trend_long) + ' 1 year');
     p.push('Click the symbol for the chart. Not advice.');

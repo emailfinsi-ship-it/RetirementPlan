@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from source.collector import alpaca, market_data
 from source.common import db
 from source.reporting import technicals as ta
+from source.webapp.pages import glossary
 from source.webapp.pages.quote_chart import HISTORY_DAYS, _iso, _quote_block, company_names
 
 _EXAMPLES = ("SPY", "VTI", "QQQ", "AAPL", "MSFT")
@@ -78,7 +79,7 @@ def build_rows(items: list[dict], keys: tuple[str, str] | None, *, mode: str | N
     return rows
 
 
-_CSS = """
+_CSS = glossary.CSS + """
 details.fold > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 details.fold > summary::-webkit-details-marker { display:none; }
 details.fold > summary h3 { margin:0; display:inline; }
@@ -119,6 +120,7 @@ details.fold[open] > summary .fold-closed { display:none; }
 _JS = """
 <script>
 (function () {
+__MACD_HELP__
   var rows = __INITIAL__, earnBy = {}, earnTries = 0, earnTimer = null, sortKey = null, sortDir = 1, timer = null;
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function usd(n) { return n == null ? '--' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -139,6 +141,7 @@ _JS = """
     ['day_position', 'Day range', true], ['week_position', '52-week', true], ['volume', 'Volume', true],
     ['rsi', 'RSI', true], ['macd_sort', 'MACD', true], ['earn_date', 'Next earnings', true], ['trend_long', 'Trend', false], ['rating_score', 'Rating', true]
   ];
+  var HEAD_TERM = {change_pct: 'change', day_position: 'dayrange', week_position: 'week52', volume: 'volume', rsi: 'rsi', macd_sort: 'macd', earn_date: 'earnings', trend_long: 'trend', rating_score: 'rating'};
   function sorted() {
     if (!sortKey) { return rows.slice(); }
     return rows.slice().sort(function (a, b) {
@@ -168,7 +171,7 @@ _JS = """
     var head = COLS.map(function (c) {
       var mark = sortKey === c[0] ? (sortDir > 0 ? ' \\u25B2' : ' \\u25BC') : '';
       return '<th class="' + (c[0] === 'symbol' ? '' : 'num ') + (c[2] || c[0] === 'symbol' ? 'sortable' : '') + '"' +
-        (c[2] || c[0] === 'symbol' ? ' onclick="watchSort(\\'' + c[0] + '\\')"' : '') + '>' + c[1] + mark + '</th>';
+        (c[2] || c[0] === 'symbol' ? ' onclick="watchSort(\\'' + c[0] + '\\')"' : '') + '>' + (HEAD_TERM[c[0]] ? '<span class="has-tip"' + termAttrs(HEAD_TERM[c[0]]) + '>' + c[1] + '</span>' : c[1]) + mark + '</th>';
     }).join('') + '<th></th><th>Note</th>';
     var body = sorted().map(function (r) {
       var s = esc(r.symbol), note = '<td><input class="wl-note" maxlength="120" placeholder="Add a note" value="' + esc(r.note || '') +
@@ -187,8 +190,8 @@ _JS = """
         var recent = r.macd_cross && r.macd_ago != null && r.macd_ago <= 5, isUp = r.macd_state === 'above';
         var when = r.macd_ago === 0 ? 'today' : r.macd_ago === 1 ? 'yesterday' : r.macd_ago + ' days ago';
         macdCell = recent
-          ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '" title="MACD crossed its signal line ' + when + '">' + (r.macd_cross === 'bullish' ? '\\u25B2 Bullish cross' : '\\u25BC Bearish cross') + '<span class="wl-sub">' + when + '</span></span>'
-          : '<span class="' + (isUp ? 'qp-up' : 'qp-down') + '" title="MACD is ' + (isUp ? 'above' : 'below') + ' its signal line. ' + (r.macd_cross ? 'Last crossover: ' + r.macd_cross + ', ' + when : 'No crossover in the history') + '">' + (isUp ? '\\u25B2 Above' : '\\u25BC Below') + '<span class="wl-sub">signal line</span></span>';
+          ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '"' + macdTipAttrs(r.macd_state, r.macd_cross, r.macd_ago) + '>' + (r.macd_cross === 'bullish' ? '\\u25B2 Bullish cross' : '\\u25BC Bearish cross') + '<span class="wl-sub">' + when + '</span></span>'
+          : '<span class="' + (isUp ? 'qp-up' : 'qp-down') + '"' + macdTipAttrs(r.macd_state, r.macd_cross, r.macd_ago) + '>' + (isUp ? '\\u25B2 Above' : '\\u25BC Below') + '<span class="wl-sub">signal line</span></span>';
       }
       var earnCell = '<span class="muted">--</span>';
       if (r.earn_known) {
@@ -279,7 +282,7 @@ _JS = """
 
 def watchlist_card_html() -> str:
     initial = json.dumps(stored_rows(db.watchlist.list_items())).replace("</", "<\\/")
-    js = _JS.replace("__INITIAL__", initial).replace("__EXAMPLES__", "[" + ",".join(f"'{s}'" for s in _EXAMPLES) + "]")
+    js = _JS.replace("__MACD_HELP__", glossary.JS).replace("__INITIAL__", initial).replace("__EXAMPLES__", "[" + ",".join(f"'{s}'" for s in _EXAMPLES) + "]")
     return f"""
 <style>{_CSS}</style>
 <details class="card fold" id="watchlist">

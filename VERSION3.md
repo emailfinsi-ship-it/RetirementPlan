@@ -372,3 +372,9 @@ are not touched.
     bank's sign-in (Plaid update mode) in a new tab; the Item and its stored token stay the same, and the flag clears once a sync works.
     Until then that bank's balances stay at their last synced values, even if the page shows them as "live". Code:
     `link_item.reconnect_item`, `sync.sync_all`, `/api/plaid-reconnect`, `pages/setup.py`.
+61. **Technical terms explained on hover.** On Stock Analysis (watchlist column headings, the quote panel's stats, ranges, rating,
+    each rating signal, trend table, MACD line and next earnings) and in the rating hover on the IBKR / E*TRADE positions, terms
+    with a dotted underline open a plain-words box: what RSI, MACD and its signal line, moving averages, volume, rating, trend, day and
+    52-week range, bid / ask, previous close, earnings date and VWAP mean, and how to read them (and that none of them predicts
+    anything). The MACD box also says whether MACD is above or below its signal line and when it last crossed. Code:
+    `pages/glossary.py` (the one list of terms), `pages/watchlist.py`, `pages/quote_panel.py`, `pages/position_ratings.py`.
