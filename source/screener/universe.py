@@ -159,13 +159,16 @@ def remember_broker_positions(broker: str, positions) -> None:
             sym = clean_symbol((p or {}).get("symbol"))
             if not sym:
                 continue
-            row = merged.setdefault(sym, {"symbol": sym, "name": str(p.get("name") or "")[:60], "qty": 0.0, "value": 0.0})
+            row = merged.setdefault(sym, {"symbol": sym, "name": str(p.get("name") or "")[:60], "qty": 0.0, "value": 0.0, "cost": 0.0})
             try:
-                row["qty"] += float(p.get("qty") or 0)
+                qty = float(p.get("qty") or 0)
+                row["qty"] += qty
                 row["value"] += float(p.get("market_value") or 0)
+                avg = p.get("avg_cost") if p.get("avg_cost") is not None else p.get("avg_entry_price")
+                row["cost"] += qty * float(avg) if avg is not None else 0.0
             except (TypeError, ValueError):
                 pass
-        rows = [{**r, "qty": round(r["qty"], 4), "value": round(r["value"], 2)} for r in merged.values()]
+        rows = [{**r, "qty": round(r["qty"], 4), "value": round(r["value"], 2), "cost": round(r["cost"], 2)} for r in merged.values()]
         raw = db.get_meta(_HELD_KEY)
         data = json.loads(raw) if raw else {}
         data = data if isinstance(data, dict) else {}
