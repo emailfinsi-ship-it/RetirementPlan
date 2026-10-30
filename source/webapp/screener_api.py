@@ -7,7 +7,8 @@ from source.screener import engine, filters, jobs, parser, saved, universe
 
 ROUTES = ("/api/screener/config", "/api/screener/parse", "/api/screener/run", "/api/screener/status", "/api/screener/cancel",
           "/api/screener/options", "/api/screener/saved/list", "/api/screener/saved/save", "/api/screener/saved/delete",
-          "/api/screener/saved/watch", "/api/screener/saved/seen")
+          "/api/screener/saved/watch", "/api/screener/saved/seen", "/api/holdings/review/start", "/api/holdings/review/result")
+_REVIEWS: dict[str, dict] = {}      # job id -> the holdings it was started for (so the result is judged against the same snapshot)
 
 CATEGORIES = ("Broad market", "Dividend", "Thematic", "Commodities", "Bonds", "International", "Crypto", "Leveraged")
 EXAMPLES = (
@@ -64,6 +65,29 @@ def handle(path: str, payload: dict) -> dict:
         return {"item": saved.set_watch(payload.get("id"), bool(payload.get("watch")))}
     if path == "/api/screener/saved/seen":
         return {"item": saved.mark_seen(payload.get("id"), payload.get("symbols"))}
+    if path == "/api/holdings/review/start":
+        from source.reporting import holdings_review
+        held = holdings_review.collect_held()
+        if not held:
+            raise ValueError("No holdings with a ticker were found. Link your investment accounts in Setup, or open the Alpaca, IBKR or E*TRADE tab once.")
+        f = filters.normalize({"universe": ["custom"], "tickers": list(held)[:400], "limit": 300, "sort": "symbol"})
+        job = jobs.start(f)
+        for old in list(_REVIEWS)[:max(0, len(_REVIEWS) - 5)]:
+            _REVIEWS.pop(old, None)
+        _REVIEWS[job] = held
+        return {"job": job, "count": len(held)}
+    if path == "/api/holdings/review/result":
+        from source.reporting import holdings_review
+        job = str(payload.get("job") or "")
+        st = jobs.status(job)
+        held = _REVIEWS.get(job)
+        if held is None:
+            raise ValueError("That review is no longer available. Run it again.")
+        out = {k: st[k] for k in ("state", "done", "total", "stage", "error", "seconds")}
+        if st["state"] == "done":
+            out["review"] = holdings_review.review(held, (st.get("result") or {}).get("rows") or [])
+            out["sources"] = (st.get("result") or {}).get("sources") or {}
+        return out
     raise ValueError("Not found")
 
 

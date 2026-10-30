@@ -402,10 +402,7 @@ are not touched.
     The PyInstaller build bundles `source/screener/data`.
 63. **One Trade menu per position** on the Alpaca, IBKR and E*TRADE tabs: the separate Buy and Sell buttons are now one "Trade ▾" button whose
     menu offers Buy and Sell (all shares); expanded tax-lot rows keep their own Sell (the account's lot method decides which lot is sold).
-64. **Portfolio risk card** at the top of Stock Analysis: biggest holdings, sectors and firms as bars across Plaid-linked accounts plus
-    what the Alpaca / IBKR / E*TRADE tabs last showed (a broker that is also linked through Plaid is counted once, from the broker), flags
-    for one stock over 15% or a sector over 40%, and a heads-up for big holdings reporting earnings within a week. Code:
-    `reporting/position_risk.py`, `pages/risk_card.py`.
+64. (The Portfolio risk card that was briefly on Stock Analysis was removed: the Linked Positions tab's check-up already covers it.)
 65. **Order preview safety checks** on all three brokers: size as a share of the account, a buy that would make one stock more than 15% of the
     account, selling more than held or the whole position, a sale below cost with a wash-sale reminder, buying back something sold from the app in
     the last 30 days, extended-hours note, wide bid/ask gap (Alpaca), and a limit price far from the market. Heads-ups only; the size limits still
@@ -413,3 +410,12 @@ are not touched.
 66. **Orders tab** (Trading row, after Screener): every real-money order sent from the app across the three brokers, filter by days / broker / side,
     today's total against the daily limit, CSV download. Alpaca statuses are refreshed from Alpaca; IBKR / E*TRADE show the status reported when sent.
     Code: `pages/orders_page.py`, `/api/orders/history` in `trading_api.py`.
+67. **Review my holdings** (Positions tab, below the portfolio check-up): one click screens every stock, ETF and fund you own (linked accounts plus
+    what the Alpaca, IBKR and E*TRADE tabs last showed, a broker also linked through Plaid counted once) with the screener's readings and lists a
+    note per holding, the ones worth a look first: large and stretched / weakening / watch / holding up well / no flags. Rules of thumb: a single stock
+    over 15% (fund over 40%) of everything held, RSI over 70 or under 30, Sell / Strong Sell rating, recent bearish MACD cross, a big one-month
+    move, a deep drop from the 52-week high, gain since purchase. Prompts, not advice; never places an order. Code: `reporting/holdings_review.py`,
+    `pages/holdings_review_card.py`, `/api/holdings/review/*` in `screener_api.py`.
+68. **Build self-test**: `run_app.py --selftest` now also loads the screener list (`sp500.csv`), the screener modules and the price libraries
+    (pandas, numpy, yfinance, requests, cryptography), so a bundle missing any of them fails the build instead of shipping. The Alpaca, IBKR and
+    E*TRADE connections use Python's built-in web calls, so they need no extra package.
