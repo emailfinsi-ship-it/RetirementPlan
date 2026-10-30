@@ -20,7 +20,7 @@ from source.webapp import trade_context
 
 ROUTES = (
     "/api/broker/data", "/api/broker/preview", "/api/broker/order", "/api/broker/cancel",
-    "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/stop", "/api/broker/ibkr/autostart", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
+    "/api/broker/ibkr/gateway", "/api/broker/ibkr/start", "/api/broker/ibkr/connect", "/api/broker/ibkr/stop", "/api/broker/ibkr/autostart", "/api/broker/etrade/keys", "/api/broker/etrade/start", "/api/broker/etrade/finish",
     "/api/broker/etrade/disconnect", "/api/broker/diagnose", "/api/broker/lots",
 )
 
@@ -101,6 +101,28 @@ def _limits() -> dict:
     until = lt.armed_until()
     return {"armed": until is not None, "armed_until": until, "persistent": lt.is_persistent(), "per_order": lt.as_json(lt.per_order_limit()),
             "daily_remaining": lt.as_json(lt.daily_remaining())}
+
+
+def _ibkr_connect() -> dict:
+    """What the Connect button needs next. state: "connected" (nothing to do), "signin" (the gateway answers, open its sign-in page),
+    or "starting" (it was not running, so it is being started; ask again in a couple of seconds). The person still signs in to IBKR
+    themselves, in the browser: this never sees the password."""
+    gw = _gateway()
+    st = ibkr.status(gw)
+    if st.get("down"):                       # nothing at the saved address: look at the usual ports before starting a second gateway
+        found = ibkr.find_gateway(gateway_url(), opener=OPENERS["ibkr"])
+        if found:
+            set_meta(_GATEWAY_META, found)
+            st = ibkr.status(ibkr.Gateway(found, opener=OPENERS["ibkr"]))
+    if st["connected"]:
+        return {"state": "connected", "url": gateway_url(), "message": "Connected to IBKR."}
+    if not st.get("down"):
+        return {"state": "signin", "url": gateway_url(), "message": "Sign in to IBKR in the page that opened, then come back here."}
+    out = ibkr_gateway.start()               # raises BrokerError with a plain explanation when Java or the gateway files are missing
+    port = ibkr_gateway.listen_port()
+    if port:
+        set_meta(_GATEWAY_META, f"https://localhost:{port}")
+    return {"state": "starting", "url": gateway_url(), "message": out["message"]}
 
 
 def _data(payload: dict) -> dict:
@@ -326,6 +348,8 @@ def _handle(path: str, payload: dict) -> dict:
         if port:                                   # sign in at the port the gateway really uses
             set_meta(_GATEWAY_META, f"https://localhost:{port}")
         return {**out, "url": gateway_url()}
+    if path == "/api/broker/ibkr/connect":
+        return _ibkr_connect()
     if path == "/api/broker/ibkr/autostart":
         ibkr_gateway.set_autostart(bool(payload.get("on")))
         return {"on": ibkr_gateway.autostart_enabled()}

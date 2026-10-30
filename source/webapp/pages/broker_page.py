@@ -47,7 +47,7 @@ _CSS = """
 _JS = r"""
 <script>
 (function () {
-  var BROKER = '__BROKER__', ACCOUNT = '', DATA = null, LAST = null;
+  var BROKER = '__BROKER__', ACCOUNT = '', DATA = null, LAST = null, CONNECTING = false, CONNECT_NOTE = '';
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function usd(v, cents) { return v == null ? '--' : '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0}); }
@@ -230,7 +230,8 @@ _JS = r"""
     var ga = $('gw-auto'); if (ga && d.gateway_autostart != null) { ga.checked = !!d.gateway_autostart; }
     if (!d.connected && !CONNECT_SHOWN) { var cc = $('bk-connect'); if (cc) { cc.open = true; } CONNECT_SHOWN = true; }
     if (!d.connected) {
-      $('bk-data').innerHTML = '<p class="status-line status-warn">' + esc(d.message || 'Not connected.') + '</p>';
+      $('bk-data').innerHTML = '<p class="status-line status-warn">' + esc(d.message || 'Not connected.') + '</p>' +
+        (BROKER === 'ibkr' ? '<p><button type="button" class="primary" data-act="ibkrconnect"' + (CONNECTING ? ' disabled' : '') + '>Connect to IBKR</button> <span class="muted small" id="gw-connect-note">' + esc(CONNECT_NOTE || 'Starts the gateway if needed and opens IBKR\u2019s sign-in page.') + '</span></p>' : '');
       $('bk-ticket-card').hidden = true;
       return;
     }
@@ -360,6 +361,41 @@ _JS = r"""
     TMENU.classList.add('on'); btn.classList.add('open'); placeTMenu(btn);
   }
   window.addEventListener('scroll', function () { var b = document.querySelector('.bk-trade-btn.open'); if (!b || !TMENU) { return; } var r = b.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) { closeTMenu(); } else { placeTMenu(b); } }, true);
+  // One press: start the gateway if it is not running, open IBKR's own sign-in page, and refresh this tab until you are signed in.
+  function ibkrConnect(btn) {
+    var win = window.open('', '_blank');           // opened now, while the click still counts; pointed at the sign-in page below
+    var tries = 0, shown = false;
+    function note(t) { CONNECT_NOTE = t; Array.prototype.forEach.call(document.querySelectorAll('#gw-connect-note, #gw-note'), function (n) { n.textContent = t; }); }
+    function free() { CONNECTING = false; Array.prototype.forEach.call(document.querySelectorAll('[data-act=ibkrconnect]'), function (x) { x.disabled = false; }); }
+    CONNECTING = true; Array.prototype.forEach.call(document.querySelectorAll('[data-act=ibkrconnect]'), function (x) { x.disabled = true; });
+    function watch() {
+      var n = 0;
+      (function poll() {
+        load().then(function () {
+          if (DATA && DATA.connected) { note('Connected.'); if (win && !win.closed) { win.close(); } free(); }
+          else if (n++ < 60) { setTimeout(poll, 3000); }
+          else { note('Still not signed in. Press Connect to IBKR to try again.'); free(); }
+        });
+      })();
+    }
+    function step() {
+      postJSON('/api/broker/ibkr/connect', {}).then(function (r) {
+        var a = $('gw-signin'); if (a && r.url) { a.href = r.url; }
+        if (r.state === 'connected') { note(r.message); if (win) { win.close(); } free(); load(); return; }
+        if (r.state === 'signin') {
+          if (win && !win.closed) { win.location.href = r.url; } else { win = window.open(r.url, '_blank'); }
+          note(win ? r.message : 'Your browser blocked the sign-in page. Open the Connect Interactive Brokers section below and press Sign in to IBKR.');
+          if (!shown) { shown = true; watch(); }
+          return;
+        }
+        note(r.message);
+        if (tries++ < 30) { setTimeout(step, 2000); }
+        else { if (win) { win.close(); } note('The gateway did not start. Open the Connect Interactive Brokers section below for details.'); free(); }
+      }).catch(function (e) { if (win) { win.close(); } note(e.message); free(); });
+    }
+    note('Connecting\u2026');
+    step();
+  }
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeTMenu(); } });
   document.addEventListener('click', function (ev) {
     var th = ev.target.closest('th[data-sortkey]'); if (th) { resort(th.dataset.sortkey); return; }
@@ -387,6 +423,7 @@ _JS = r"""
       postJSON('/api/broker/order', {broker: BROKER, account: LAST.account || ACCOUNT, token: LAST.token, confirm_symbol: LAST.order.symbol}).then(function (r) { r.ack_required ? showAck(r) : sent(r); }).catch(err);
     }
     else if (act === 'refresh') { load(); }
+    else if (act === 'ibkrconnect') { ibkrConnect(b); }
     else if (act === 'toggle') { toggleLots(b.dataset.acct, b.dataset.sym); }
     else if (act === 'expandall') { expandAll(); }
     else if (act === 'collapseall') { EXP = {}; redraw(); }
@@ -464,6 +501,7 @@ _TICKET = """
 def _ibkr_connect_html(url: str) -> str:
     return f"""
 <details class="card fold" id="bk-connect"><summary><strong>Connect Interactive Brokers</strong> <span class="muted small">(gateway, sign-in and settings &mdash; click to show)</span></summary>
+<p><button type="button" class="primary" data-act="ibkrconnect" id="gw-connect">Connect to IBKR</button> <span class="muted small">One press: starts the gateway if it is not running, opens IBKR&rsquo;s sign-in page, and this page updates when you are in.</span></p>
 <p class="muted">IBKR connects through its own <strong>Client Portal Gateway</strong>, a small Java program that runs on this computer and comes with this app.
 It starts by itself when this app starts (you can turn that off below) and listens only on this computer, on a port private to this app. If it is not running, press <strong>Start gateway</strong> and wait about 10 seconds, then press <strong>Sign in to IBKR</strong>: IBKR's own sign-in page opens in your browser
 (it may warn about the certificate; that is normal for this local program, so continue past it). Your IBKR password goes only to IBKR's gateway, never to this app.
