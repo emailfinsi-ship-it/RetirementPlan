@@ -33,7 +33,8 @@ for IBKR and E*TRADE the status is the last one the broker reported when it was 
   <div style="overflow-x:auto;"><table id="od-table"></table></div>
 </div>
 <script>
-(function () {
+// Runs once the page has loaded: the shell defines postJSON in a script placed after the page body.
+document.addEventListener('DOMContentLoaded', function () {
   var $ = function (id) { return document.getElementById(id); }, ITEMS = [], BR = {alpaca: 'Alpaca', ibkr: 'IBKR', etrade: 'E*TRADE'};
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function usd(n) { return '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -72,7 +73,7 @@ for IBKR and E*TRADE the status is the last one the broker reported when it was 
   ['od-days'].forEach(function (id) { $(id).addEventListener('change', window.odLoad); });
   ['od-broker', 'od-side'].forEach(function (id) { $(id).addEventListener('change', draw); });
   window.odLoad();
-})();
+});
 </script>
 """
 

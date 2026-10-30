@@ -58,6 +58,16 @@ if __name__ == "__main__":
             from source.reporting import holdings_review  # noqa: F401
         except Exception as exc:        # noqa: BLE001
             problems.append(f"screener modules: {exc}")
+        try:
+            from source.webapp.pages import tutorial
+
+            for key, _name, _about in tutorial.SECTIONS:
+                if not (tutorial.TUTORIAL_DIR / tutorial.video_file(key)).is_file():
+                    problems.append(f"tutorial video for {key} is missing from the bundle")
+            if not (tutorial.TUTORIAL_DIR / "guide.html").is_file():
+                problems.append("tutorial guide is missing from the bundle")
+        except Exception as exc:        # noqa: BLE001
+            problems.append(f"tutorial: {exc}")
         if problems:
             print("selftest FAILED: " + "; ".join(problems), file=sys.stderr)
             sys.exit(1)

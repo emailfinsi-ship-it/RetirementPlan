@@ -51,7 +51,7 @@ _BODY = r"""
       draw(s.review);
     }).catch(function (e) { stop(); $('hr-progress').hidden = true; $('hr-go').disabled = false; $('hr-note').textContent = e.message; });
   }
-  var NAMES = {trim: 'worth a look: large and stretched', review: 'worth a look: weakening', watch: 'to watch', strong: 'holding up well', ok: 'with no flags', nodata: 'without enough history'};
+  var NAMES = {trim: 'worth a look: large position', review: 'worth a look: weakening', watch: 'to watch', strong: 'holding up well', ok: 'with no flags', nodata: 'without enough history'};
   function draw(rv) {
     $('hr-sum').innerHTML = Object.keys(NAMES).filter(function (k) { return rv.counts[k]; }).map(function (k) { return '<span class="hr-lvl ' + k + '">' + rv.counts[k] + ' ' + NAMES[k] + '</span>'; }).join('');
     $('hr-table').innerHTML = '<thead><tr><th>Holding</th><th class="num">Share of all</th><th class="num">Value</th><th class="num">Gain</th><th>Rating</th><th class="num">RSI</th><th>Note</th><th>Why</th></tr></thead><tbody>' +

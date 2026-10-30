@@ -629,7 +629,9 @@ def condense(body: str) -> tuple[str, dict[str, dict]]:
 def page_button_html(page: str) -> str:
     key = f"page:{page}"
     if key not in _E:
-        return ""
+        from source.webapp.pages.tutorial import chapter_link_html
+        watch = chapter_link_html(page)
+        return f'<div class="ex-pagebar">{watch.strip()}</div>' if watch else ""
     tour = (' <button type="button" class="ex-btn ex-page-btn" onclick="startTour()">Take a quick tour</button>'
             if page == "summary.html" else "")
     from source.webapp.pages.tutorial import chapter_link_html

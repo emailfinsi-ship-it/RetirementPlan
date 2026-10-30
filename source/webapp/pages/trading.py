@@ -328,21 +328,24 @@ function previewOrder(form) {
 // One Trade button per position: a small menu with Buy more and Sell (fixed-position so the table cannot clip it).
 var tradeMenuBox = null;
 function closeTradeMenu() { if (tradeMenuBox) { tradeMenuBox.style.display = 'none'; } Array.prototype.forEach.call(document.querySelectorAll('.trade-btn.open'), function (b) { b.classList.remove('open'); }); }
+function placeTradeMenu(btn) {
+  var r = btn.getBoundingClientRect(), w = tradeMenuBox.offsetWidth, h = tradeMenuBox.offsetHeight;
+  tradeMenuBox.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  tradeMenuBox.style.top = (r.bottom + h + 8 > window.innerHeight && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4) + 'px';
+}
 function tradeMenu(btn) {
   var was = btn.classList.contains('open'); closeTradeMenu(); if (was) { return; }
   if (!tradeMenuBox) {
     tradeMenuBox = document.createElement('div'); tradeMenuBox.id = 'trade-menu'; document.body.appendChild(tradeMenuBox);
     document.addEventListener('click', function (ev) { if (!(ev.target.closest && (ev.target.closest('.trade-btn') || ev.target.closest('#trade-menu')))) { closeTradeMenu(); } });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeTradeMenu(); } });
-    window.addEventListener('scroll', closeTradeMenu, true);
+    window.addEventListener('scroll', function () { var b = document.querySelector('.trade-btn.open'); if (b) { placeTradeMenu(b); } }, true);
   }
   var sym = btn.getAttribute('data-sym'), qty = Number(btn.getAttribute('data-qty') || 0);
   tradeMenuBox.innerHTML = '<button type="button" class="tm-buy" onclick="closeTradeMenu(); buyPosition(\\'' + sym + '\\')">Buy ' + esc(sym) + '</button>' +
     (qty >= 1 ? '<button type="button" class="tm-sell" onclick="closeTradeMenu(); sellPosition(\\'' + sym + '\\', ' + qty + ')">Sell ' + qty + ' (all)</button>' : '<span class="muted small" style="padding:6px 10px;">No whole shares to sell</span>');
   tradeMenuBox.style.display = 'flex'; btn.classList.add('open');
-  var r = btn.getBoundingClientRect(), w = tradeMenuBox.offsetWidth, h = tradeMenuBox.offsetHeight;
-  tradeMenuBox.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
-  tradeMenuBox.style.top = (r.bottom + h + 8 > window.innerHeight && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4) + 'px';
+  placeTradeMenu(btn);
 }
 function buyPosition(sym) {
   var f = document.getElementById('ticket');
