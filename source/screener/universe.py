@@ -144,13 +144,66 @@ def custom_entries(symbols) -> list[dict]:
     return out
 
 
+_HELD_KEY = "screener_broker_held"
+
+
+def remember_broker_positions(broker: str, positions) -> None:
+    """Called whenever a trading tab reads its positions: keeps symbol, name, shares and value so "my holdings" can include what is
+    held directly at Alpaca, IBKR or E*TRADE (not linked through Plaid) and the Risk tab can add it all up. Never raises."""
+    try:
+        import json
+        from datetime import datetime
+        from source.common import db
+        merged: dict[str, dict] = {}
+        for p in positions or []:
+            sym = clean_symbol((p or {}).get("symbol"))
+            if not sym:
+                continue
+            row = merged.setdefault(sym, {"symbol": sym, "name": str(p.get("name") or "")[:60], "qty": 0.0, "value": 0.0})
+            try:
+                row["qty"] += float(p.get("qty") or 0)
+                row["value"] += float(p.get("market_value") or 0)
+            except (TypeError, ValueError):
+                pass
+        rows = [{**r, "qty": round(r["qty"], 4), "value": round(r["value"], 2)} for r in merged.values()]
+        raw = db.get_meta(_HELD_KEY)
+        data = json.loads(raw) if raw else {}
+        data = data if isinstance(data, dict) else {}
+        if (data.get(broker) or {}).get("rows") != rows:
+            data[broker] = {"rows": rows, "at": datetime.now().isoformat(timespec="minutes")}
+            db.set_meta(_HELD_KEY, json.dumps(data))
+    except Exception:       # noqa: BLE001 -- bookkeeping must never break a trading page
+        pass
+
+
+def broker_positions() -> dict:
+    """{broker: {"rows": [{symbol, name, qty, value}], "at": iso}} as last shown on the Alpaca / IBKR / E*TRADE tabs."""
+    try:
+        import json
+        from source.common import db
+        raw = db.get_meta(_HELD_KEY)
+        data = json.loads(raw) if raw else {}
+        return {b: v for b, v in data.items() if isinstance(v, dict) and isinstance(v.get("rows"), list)} if isinstance(data, dict) else {}
+    except Exception:       # noqa: BLE001
+        return {}
+
+
+def broker_held_symbols() -> list[str]:
+    return [r["symbol"] for b, v in sorted(broker_positions().items()) for r in v["rows"] if clean_symbol(r.get("symbol"))]
+
+
 def holdings_symbols() -> list[str]:
-    """Tickers of everything held in accounts linked through Plaid (stocks, ETFs and funds with a ticker)."""
+    """Tickers of everything held: accounts linked through Plaid (stocks, ETFs and funds with a ticker) plus what the Alpaca, IBKR
+    and E*TRADE tabs last showed as positions."""
     from source.common import db
     syms, seen = [], set()
     for h in db.list_plaid_holdings():
         sym = clean_symbol(h.get("ticker_symbol"))
         if sym and sym not in seen and str(h.get("security_type") or "").lower() in ("equity", "etf", "mutual fund", ""):
+            seen.add(sym)
+            syms.append(sym)
+    for sym in broker_held_symbols():
+        if sym not in seen:
             seen.add(sym)
             syms.append(sym)
     return syms

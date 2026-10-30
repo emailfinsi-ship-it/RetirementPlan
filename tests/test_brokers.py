@@ -610,6 +610,12 @@ class TestBrokerOrders(BrokerApiCase):
         with self.assertRaises(ValueError):
             self.post("/api/broker/preview", {"broker": "ibkr", "account": "U999", "order": self.order()})
 
+    def test_the_preview_carries_safety_checks_and_a_failing_lookup_does_not_stop_it(self):
+        self.arm()
+        p = self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order()})
+        self.assertIn("checks", p)
+        self.assertIn("pct_of_account", p)
+
     def test_ibkr_order_needs_the_symbol_typed_then_is_sent_and_logged(self):
         self.arm()
         p = self.post("/api/broker/preview", {"broker": "ibkr", "account": "U111", "order": self.order()})

@@ -10,6 +10,7 @@ import pandas as pd
 from source.collector import etrade, yahoo
 from source.screener import engine, filters, jobs, parser, universe
 from source.webapp import screener_api
+from tests.testing_utils import TempConfigTestCase
 
 
 def bars_from(closes, vols=None, spread=0.01):
@@ -207,6 +208,118 @@ class TestJobsAndApi(unittest.TestCase):
         self.assertTrue(any(href == "screener.html" for group in shell.NAV_GROUPS for href, _ in group))
 
 
+def fake_scan_returning(*symbol_lists):
+    """A scan that returns the next list of symbols each time it is called."""
+    queue = list(symbol_lists)
+
+    def scan(f, **kw):
+        syms = queue.pop(0)
+        return {"rows": [{"symbol": x} for x in syms], "scanned": 10, "no_data": 0, "matched": len(syms)}
+    return scan
+
+
+class TestSavedScreens(TempConfigTestCase):
+    def test_save_list_replace_and_delete(self):
+        from source.screener import saved
+        one = saved.save("Oversold tech", {"sectors": ["Information Technology"], "rsi": {"max": 30}}, "oversold tech stocks")
+        self.assertEqual(one["name"], "Oversold tech")
+        self.assertEqual(one["filters"]["rsi"]["max"], 30.0)
+        self.assertIn("RSI below 30", one["summary"])
+        again = saved.save("oversold TECH", {"rsi": {"max": 25}})            # same name (any case): replaced, not duplicated
+        self.assertEqual((again["id"], len(saved.list_scans())), (one["id"], 1))
+        with self.assertRaises(ValueError):
+            saved.save("  ", {})
+        saved.delete(one["id"])
+        self.assertEqual(saved.list_scans(), [])
+
+    def test_the_list_is_capped(self):
+        from source.screener import saved
+        for n in range(saved.MAX_SAVED):
+            saved.save(f"s{n}", {})
+        with self.assertRaises(ValueError):
+            saved.save("one too many", {})
+
+    def test_new_matches_are_found_only_after_a_baseline_and_cleared_when_seen(self):
+        from source.screener import saved
+        item = saved.save("Watch me", {}, watch=True)
+        sid = item["id"]
+        first = saved.check(sid, scan=fake_scan_returning(["AAA", "BBB"]))
+        self.assertEqual((first["new"], first["matches"]), ([], 2))          # the first look is the baseline
+        second = saved.check(sid, scan=fake_scan_returning(["AAA", "CCC", "DDD"]))
+        self.assertEqual(second["new"], ["CCC", "DDD"])
+        alerts = saved.alert_items()
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("2 new matches", alerts[0]["title"])
+        self.assertTrue(alerts[0]["href"].endswith(f"?scan={sid}"))
+        seen = saved.mark_seen(sid, ["AAA", "CCC", "DDD"])
+        self.assertEqual((seen["new"], saved.alert_items()), ([], []))
+
+    def test_unwatched_screens_raise_no_alert_and_a_failing_scan_is_recorded(self):
+        from source.screener import saved
+        sid = saved.save("Quiet", {}, watch=False)["id"]
+        saved.check(sid, scan=fake_scan_returning(["AAA"]))
+        saved.check(sid, scan=fake_scan_returning(["AAA", "BBB"]))
+        self.assertEqual(saved.alert_items(), [])
+        def boom(f, **kw):
+            raise RuntimeError("Yahoo down")
+        self.assertEqual(saved.check(sid, scan=boom)["error"], "Yahoo down")
+
+    def test_run_due_checks_each_watched_screen_once_a_day(self):
+        from source.screener import saved
+        a = saved.save("A", {}, watch=True)["id"]
+        saved.save("B", {}, watch=False)
+        calls = []
+        def scan(f, **kw):
+            calls.append(1)
+            return {"rows": [{"symbol": "AAA"}]}
+        self.assertEqual(len(saved.run_due(scan=scan, today="2026-10-06")), 1)
+        self.assertEqual(saved.run_due(scan=scan, today="2026-10-06"), [])     # already looked at today
+        self.assertEqual(len(saved.run_due(scan=scan, today="2026-10-07")), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(saved.get(a)["name"], "A")
+
+    def test_new_matches_reach_the_alerts_bell(self):
+        from source.reporting import alerts
+        from source.screener import saved
+        sid = saved.save("Bell", {}, watch=True)["id"]
+        saved.check(sid, scan=fake_scan_returning(["AAA"]))
+        saved.check(sid, scan=fake_scan_returning(["AAA", "ZZZ"]))
+        out = alerts.evaluate({"assumptions": {}}, None, [], [], {})
+        self.assertTrue(any(a["id"].startswith(f"scan:{sid}") for a in out))
+
+    def test_routes(self):
+        out = screener_api.handle("/api/screener/saved/save", {"name": "Mine", "filters": {"rsi": {"max": 30}}, "text": "oversold"})
+        sid = out["item"]["id"]
+        self.assertEqual(len(screener_api.handle("/api/screener/saved/list", {})["items"]), 1)
+        self.assertTrue(screener_api.handle("/api/screener/saved/watch", {"id": sid, "watch": True})["item"]["watch"])
+        screener_api.handle("/api/screener/saved/seen", {"id": sid, "symbols": ["AAA"]})
+        screener_api.handle("/api/screener/saved/delete", {"id": sid})
+        self.assertEqual(screener_api.handle("/api/screener/saved/list", {})["items"], [])
+        with self.assertRaises(ValueError):
+            screener_api.handle("/api/screener/saved/watch", {"id": "gone", "watch": True})
+
+
+class TestHeldAtBrokers(TempConfigTestCase):
+    def test_symbols_from_the_trading_tabs_join_my_holdings(self):
+        from source.common import db
+        with patch.object(db, "list_plaid_holdings", return_value=[{"ticker_symbol": "VTI", "security_type": "etf"}]):
+            universe.remember_broker_positions("ibkr", [{"symbol": "NVDA"}, {"symbol": "NVDA"}, {"symbol": "ES 241220C"}])
+            universe.remember_broker_positions("alpaca", [{"symbol": "AAPL"}])
+            self.assertEqual(universe.holdings_symbols(), ["VTI", "AAPL", "NVDA"])
+            universe.remember_broker_positions("alpaca", [])                     # sold everything there
+            self.assertEqual(universe.holdings_symbols(), ["VTI", "NVDA"])
+
+
+class TestResultTools(unittest.TestCase):
+    def test_bulk_add_csv_and_column_chooser_are_on_the_page(self):
+        from source.webapp.pages.screener_page import _BODY, _JS
+        for needle in ("scBulkWatch", "scCsv", "sc-cols", "data-pick", "sc_cols"):
+            self.assertIn(needle, _BODY + _JS)
+        self.assertIn("pr-badge", _BODY + _JS)                      # rating pills match the positions tables
+        self.assertIn("Save screen", _BODY)
+        self.assertIn("/api/screener/saved/seen", _JS)
+
+
 class TestRatingSort(unittest.TestCase):
     def test_rating_sorts_strong_buy_first_and_strong_sell_first(self):
         base = {"change_pct": 0, "move_1w": 0, "rsi": 50, "volume_ratio": 1, "macd_ago": None}
@@ -308,3 +421,57 @@ class TestReaders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPortfolioRisk(TempConfigTestCase):
+    def rows(self):
+        mk = lambda sym, value, kind="stock", sector="Information Technology", firm="Morgan Stanley": {
+            "symbol": sym, "name": sym, "value": value, "kind": kind, "sector": sector, "firm": firm}
+        return [mk("AAPL", 600), mk("MSFT", 150, firm="E*TRADE"), mk("JNJ", 100, sector="Health Care"), mk("VTI", 100, "etf", "Broad market"),
+                mk("CASH", 50, "cash", "Cash")]
+
+    def test_a_big_stock_and_a_big_sector_are_flagged_and_funds_are_not(self):
+        from source.reporting import position_risk
+        res = position_risk.analyze(self.rows())
+        self.assertAlmostEqual(res["total"], 1000.0)
+        self.assertEqual(res["positions"][0]["symbol"], "AAPL")
+        self.assertEqual(res["positions"][0]["flag"], "big")
+        self.assertEqual([p["flag"] for p in res["positions"] if p["symbol"] == "VTI"], [""])     # a fund is already spread out
+        text = " ".join(f["text"] for f in res["findings"])
+        self.assertIn("AAPL is 60%", text)
+        self.assertIn("Information Technology is 75%", text)
+        self.assertNotIn("cash", text.lower().replace("cash.", ""))                                # 5% cash is fine
+
+    def test_a_balanced_book_gets_the_all_clear_and_empty_is_empty(self):
+        from source.reporting import position_risk
+        rows = [{"symbol": f"S{i}", "name": "", "value": 100.0, "kind": "stock", "sector": s, "firm": "A"}
+                for i, s in enumerate(["Energy", "Health Care", "Financials", "Utilities", "Materials", "Industrials", "Real Estate", "Energy", "Financials", "Health Care"])]
+        self.assertEqual(position_risk.analyze(rows)["findings"][0]["level"], "ok")
+        self.assertEqual(position_risk.analyze([])["total"], 0.0)
+
+    def test_collect_counts_a_broker_once_when_it_is_also_linked_through_plaid(self):
+        from source.reporting import position_risk
+        plaid = [{"institution": "E*TRADE", "ticker": "AAPL", "security_name": "Apple", "security_type": "Equity", "market_value": 500.0, "industry": "", "manual_sector": ""},
+                 {"institution": "Fidelity", "ticker": "MSFT", "security_name": "Microsoft", "security_type": "Equity", "market_value": 300.0, "industry": "", "manual_sector": ""}]
+        from source.common import linked_data
+        with patch.object(linked_data, "read_linked_portfolio_positions", return_value=plaid):
+            universe.remember_broker_positions("etrade", [{"symbol": "AAPL", "market_value": 700, "qty": 3}, {"symbol": "NVDA", "market_value": 100, "qty": 1}])
+            got = position_risk.collect()
+        by = {r["symbol"]: r for r in got["rows"]}
+        self.assertEqual(by["AAPL"]["value"], 700.0)           # the broker's own number, not Plaid's 500 as well
+        self.assertEqual(by["AAPL"]["firm"], "E*TRADE")
+        self.assertEqual(by["MSFT"]["firm"], "Fidelity")
+        self.assertEqual(by["AAPL"]["sector"], "Information Technology")
+        self.assertEqual(len([r for r in got["rows"] if r["symbol"] == "AAPL"]), 1)
+
+    def test_the_card_renders_on_stock_analysis(self):
+        from source.reporting import position_risk
+        from source.webapp.pages import risk_card
+        with patch.object(position_risk, "collect", return_value={"rows": self.rows(), "sources": [{"name": "E*TRADE", "value": 150, "seen": "2026-10-06T09:00"}]}):
+            page = risk_card.risk_card_html()
+        self.assertIn("Portfolio risk", page)
+        self.assertIn("AAPL is 60%", page)
+        self.assertIn("E*TRADE (as of 2026-10-06 09:00)", page)
+        self.assertIn("/api/earnings/week", page)
+        with patch.object(position_risk, "collect", return_value={"rows": [], "sources": []}):
+            self.assertIn("Nothing to look at yet", risk_card.risk_card_html())

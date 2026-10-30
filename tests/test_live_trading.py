@@ -161,6 +161,17 @@ class TestLiveRoutes(TradingApiCase):
             self.handle("/api/alpaca/order", {"mode": "live", "token": "x", "confirm_symbol": "VTI"})
         self.assertFalse(self.posts())
 
+    def test_the_preview_carries_safety_checks(self):
+        self.connect_live()
+        self.arm()
+        self.fake.routes[("GET", "api.alpaca.markets/v2/positions")] = [
+            {"symbol": "VTI", "qty": "2", "avg_entry_price": "300", "current_price": "250", "market_value": "500",
+             "unrealized_pl": "-100", "unrealized_plpc": "-0.1"}]
+        out = self.handle("/api/alpaca/preview", {**ORDER, "side": "sell", "qty": "4"})       # sells 4 but holds 2
+        self.assertIn("checks", out)
+        self.assertIn("this sells 4", " ".join(c["text"] for c in out["checks"]))
+        self.assertTrue(all(c["level"] in ("warn", "info") for c in out["checks"]))
+
     def test_a_live_order_needs_preview_then_the_symbol_typed_again(self):
         self.connect_live()
         self.arm()
@@ -335,9 +346,11 @@ class TestLivePage(TradingApiCase):
              "unrealized_pl": "0.4", "unrealized_plpc": "0.1"},
         ]
         body = _render_trading_page("live")
-        self.assertIn("onclick=\"sellPosition('AAPL', 3)\"", body)
-        self.assertNotIn("sellPosition('TINY'", body)                # under one whole share: nothing the form can sell
+        self.assertIn('class="trade-btn" data-sym="AAPL" data-qty="3"', body)       # one Trade menu per position (Buy / Sell all)
+        self.assertNotIn("Sell</button></td>", body)                                  # no separate Buy and Sell buttons any more
+        self.assertIn('data-sym="TINY" data-qty="0.4"', body)                         # under one whole share: the menu offers no Sell
         self.assertIn("function sellPosition(", body)
+        self.assertIn("function buyPosition(", body)
         self.assertIn('id="ticket-note"', body)
 
     def test_each_position_gets_a_rating_cell_and_the_hover_script(self):
@@ -350,7 +363,7 @@ class TestLivePage(TradingApiCase):
         self.assertIn("<th>Rating</th>", body)
         self.assertIn("/api/ratings", body)
         self.assertIn("data-ctip-val", body)                         # the symbol's hover box is filled by the script
-        self.assertLess(body.index('data-rate-sym="AAPL"'), body.index("sellPosition('AAPL', 3)"))   # rating sits before Sell
+        self.assertLess(body.index('data-rate-sym="AAPL"'), body.index('class="trade-btn" data-sym="AAPL"'))   # rating sits before Trade
 
     def test_the_sell_button_on_a_switched_off_live_page_points_to_the_switch(self):
         self.connect_live()
@@ -358,7 +371,7 @@ class TestLivePage(TradingApiCase):
             {"symbol": "AAPL", "qty": "1", "avg_entry_price": "300", "current_price": "344.5", "market_value": "344.5",
              "unrealized_pl": "44.5", "unrealized_plpc": "0.148"}]
         body = _render_trading_page("live")
-        self.assertIn("sellPosition('AAPL', 1)", body)
+        self.assertIn('class="trade-btn" data-sym="AAPL" data-qty="1"', body)
         self.assertIn("turn live trading on above", body)
         self.assertNotIn('id="ticket"', body)
 

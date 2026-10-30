@@ -82,6 +82,7 @@ from source.collector import ibkr_gateway
 from source.webapp.pages.broker_page import _render_broker_page
 from source.webapp.pages.stock_analysis import _render_stock_analysis_page
 from source.webapp.pages.screener_page import _render_screener_page
+from source.webapp.pages.orders_page import _render_orders_page
 from source.webapp.pages.tutorial import TUTORIAL_DIR, _render_tutorial_page
 from source.webapp.pages.linked_positions import _render_linked_positions_page, _sector_for_industry
 from source.webapp.pages.login import _render_login_page
@@ -135,7 +136,7 @@ _VIEWER_POSTS = {
     "/api/scenarios/compare", "/api/backup-verify", "/api/dollars-mode", "/api/view-mode", "/api/wording-mode", "/api/tour-seen",
 }
 # Pages a viewer never sees (they hold settings and secrets).
-_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html", "/stock-analysis.html", "/screener.html", "/ibkr.html", "/etrade.html"}
+_OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html", "/stock-analysis.html", "/screener.html", "/orders.html", "/ibkr.html", "/etrade.html"}
 
 
 def _is_public_path(path: str) -> bool:
@@ -486,6 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_stock_analysis_page())
             elif path == "/screener.html":
                 self._send_html(_render_screener_page())
+            elif path == "/orders.html":
+                self._send_html(_render_orders_page())
             elif path in ("/ibkr.html", "/etrade.html"):
                 self._send_html(_render_broker_page(path[1:-5]))
             elif path == "/diagnostics.txt":
@@ -1368,6 +1371,12 @@ def _daily_snapshot_loop(*, interval_seconds: float = _DAILY_SNAPSHOT_CHECK_SECO
         except Exception as exc:
             print(f"Daily snapshot failed (will retry): {exc}")
         try:
+            from source.screener import saved
+
+            saved.run_due()         # watched Screener scans: find what is new (before alerts are refreshed below)
+        except Exception as exc:
+            print(f"Screener watch check failed (will retry): {exc}")
+        try:
             from source.reporting import alerts
 
             alerts.run_daily_job()
@@ -1490,7 +1499,7 @@ def run(*, open_browser: bool = True) -> None:
         server.shutdown()
     finally:
         server.server_close()
-        # The IBKR gateway is left running on purpose: quitting and reopening FinSi must not end your IBKR sign-in.
+        # The IBKR gateway is left running on purpose: quitting and reopening this app must not end your IBKR sign-in.
         # (It is stopped only by the "Stop gateway" button.)
 
 

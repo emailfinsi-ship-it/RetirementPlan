@@ -18,14 +18,14 @@ from datetime import date
 from source.collector import alpaca, alpaca_view, market_data
 from source.common import db, secrets_store
 from source.collector import earnings
-from source.webapp import broker_api, screener_api
+from source.webapp import broker_api, screener_api, trade_context
 from source.webapp.pages import earnings_panel, quote_chart, watchlist
 
 ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
-    "/api/earnings", "/api/earnings/week", "/api/ratings", "/api/extended",
+    "/api/earnings", "/api/earnings/week", "/api/ratings", "/api/extended", "/api/orders/history",
 ) + broker_api.ROUTES + screener_api.ROUTES
 
 
@@ -41,6 +41,30 @@ def _require_armed(mode: str) -> None:
         raise ValueError(
             "Live trading is switched off. Turn it on at the top of the Trading tab (you'll type a confirmation phrase) first."
         )
+
+
+def _order_history(payload: dict) -> dict:
+    """Every real-money order this app sent (all brokers), newest first. Alpaca's statuses are refreshed from Alpaca's own list
+    first when live keys are saved; the other brokers show the status they reported when the order was sent."""
+    from datetime import timedelta
+    lt = db.live_trading
+    note = ""
+    try:
+        if secrets_store.has_alpaca_keys(mode="live"):
+            lt.sync_statuses(alpaca.list_orders(secrets_store.get_alpaca_keys(mode="live"), limit=100, mode="live"))
+    except Exception:       # noqa: BLE001 -- the saved statuses are still shown
+        note = "Alpaca's latest statuses could not be read just now; showing the last known ones."
+    try:
+        days = max(0, int(payload.get("days") or 0))
+    except (TypeError, ValueError):
+        days = 30
+    items = lt.list_live_orders(2000)
+    if days:
+        cutoff = (date.today() - timedelta(days=days - 1)).isoformat()
+        items = [o for o in items if (o.get("day") or "") >= cutoff]
+    limit = lt.daily_limit()
+    return {"items": items, "note": note, "today": {"spent": lt.spent_today(), "remaining": lt.daily_remaining(),
+                                                    "limit": None if not lt.is_limited(limit) else limit}}
 
 
 def handle(path: str, payload: dict) -> dict:
@@ -106,6 +130,8 @@ def _handle(path: str, payload: dict) -> dict:
             return {"rows": rows, "source": market_data.last_source()}
         except (alpaca.AlpacaError, secrets_store.SecretNotFoundError, OSError, ValueError) as exc:
             return {"rows": watchlist.stored_rows(items, "Price not available right now."), "warning": str(exc) or exc.__class__.__name__}
+    if path == "/api/orders/history":
+        return _order_history(payload)
     if path == "/api/extended":
         # Pre-market / after-hours prices (Yahoo Finance) for the symbols given; empty when the market is open. Read-only.
         syms = []
@@ -162,10 +188,12 @@ def _handle(path: str, payload: dict) -> dict:
     if path == "/api/alpaca/preview":
         _require_armed(mode)
         if mode == "live":
-            return alpaca.preview_order(
+            result = alpaca.preview_order(
                 payload, keys, mode="live", max_notional=lt.per_order_limit(), daily_remaining=lt.daily_remaining(),
             )
-        return alpaca.preview_order(payload, keys, mode="paper")
+        else:
+            result = alpaca.preview_order(payload, keys, mode="paper")
+        return trade_context.for_alpaca(result, keys, mode)      # adds size / concentration / wash-sale / spread heads-ups
     if path == "/api/alpaca/order":
         _require_armed(mode)
         token = payload.get("token")
