@@ -439,3 +439,6 @@ are not touched.
     route `/api/broker/ibkr/connect` (states connected / signin / starting); it never sees your IBKR password. Tests in `TestGatewayLauncher`.
 74. **Alpaca keys rejected**: the Alpaca tab now shows the key form right under "Alpaca rejected the keys" (Enter your Alpaca keys again), so you no longer
     have to press Remove saved keys first. A wrong pair is still refused before it is saved.
+75. **IBKR positions show the live price, Change $, Change % and Day's gain.** IBKR's positions list has no day change, so the app now asks the gateway's
+    market-data snapshot for each holding (last price, change, change %); Day's gain is the change times the shares. If the snapshot is unavailable the
+    holdings still show with IBKR's own price. Tests in `TestIbkr`.

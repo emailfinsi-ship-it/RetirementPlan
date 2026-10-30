@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import secrets
 import ssl
 import urllib.error
@@ -209,7 +210,48 @@ def positions(gw: Gateway, account: str) -> list[dict]:
         if len(raw) < 100:
             break
         page += 1
+    try:
+        _add_quotes(gw, out)
+    except BrokerError:                 # prices and day changes are an extra: the holdings themselves still show
+        pass
     return sorted(out, key=lambda r: -(r["market_value"] or 0))
+
+
+def quotes(gw: Gateway, conids) -> dict[int, dict]:
+    """Live last price, change and change % for these contracts, from the gateway's market-data snapshot. The first request only
+    starts the data flowing, so it is asked again (briefly) until every contract answers. {conid: {"price", "change", "change_pct"}}."""
+    ids = sorted({int(c) for c in conids if c})
+    out: dict[int, dict] = {}
+    for attempt in range(3):
+        if not ids:
+            break
+        raw = gw.call("GET", f"/iserver/marketdata/snapshot?conids={','.join(str(i) for i in ids)}&fields=31,82,83")
+        for row in raw if isinstance(raw, list) else []:
+            if not isinstance(row, dict) or row.get("conid") is None:
+                continue
+            q = {"price": _f(row.get("31")), "change": _f(row.get("82")), "change_pct": _f(row.get("83"))}
+            if q["price"] or q["change"] is not None:
+                out[int(row["conid"])] = q
+        if all(i in out and out[i]["change"] is not None for i in ids):
+            break
+        if attempt < 2:
+            time.sleep(0.7)
+    return out
+
+
+def _add_quotes(gw: Gateway, rows: list[dict]) -> None:
+    """Fills each position's current price, Change $, Change % and Day's gain. IBKR's positions list carries only its last
+    marked price and no day change."""
+    got = quotes(gw, [r.get("conid") for r in rows])
+    for r in rows:
+        q = got.get(int(r["conid"])) if r.get("conid") else None
+        if not q:
+            continue
+        if q["price"]:
+            r["price"] = q["price"]
+        if q["change"] is not None:
+            r["change"], r["change_pct"] = q["change"], q["change_pct"]
+            r["day_gain"], r["day_gain_pct"] = q["change"] * r["qty"], q["change_pct"]
 
 
 _DONE = {"filled", "cancelled", "inactive", "rejected"}
