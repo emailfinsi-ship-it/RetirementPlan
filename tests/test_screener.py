@@ -505,3 +505,40 @@ class TestHoldingsReview(TempConfigTestCase):
         self.assertIn("/api/holdings/review/start", html)
         import source.webapp.pages.linked_positions as lp
         self.assertIn("holdings_review_card_html()", open(lp.__file__, encoding="utf-8").read())
+
+
+class TestPagesWaitForTheShell(unittest.TestCase):
+    """The shell defines postJSON in a script placed after the page body, so a page script that calls it while the page is
+    still loading fails with "postJSON is not defined" (the Orders tab sat on "Loading..." and the Screener never listed its
+    saved screens). These pages must start their work once the page has loaded."""
+
+    def test_screener_and_orders_start_after_the_page_has_loaded(self):
+        from source.webapp.pages.orders_page import _render_orders_page
+        from source.webapp.pages.screener_page import _render_screener_page
+        from source.common import auth_store
+        with patch.object(engine, "_alpaca_keys", return_value=None), patch.object(auth_store, "is_password_set", return_value=False):
+            for name, page in (("screener", _render_screener_page()), ("orders", _render_orders_page())):
+                self.assertIn("document.addEventListener('DOMContentLoaded', function () {", page, name)
+                before = page.split("DOMContentLoaded", 1)[0].rsplit("<script>", 1)[-1]
+                self.assertNotIn("postJSON(", before, name)         # nothing is sent while the page is still loading
+
+
+class TestBarsLoading(unittest.TestCase):
+    def test_a_ticker_alpaca_cannot_take_does_not_cost_the_others_their_alpaca_prices(self):
+        from source.collector import alpaca, yahoo
+        engine._BARS.clear()
+        asked = []
+
+        def fake_multi(symbols, keys, **kw):
+            asked.append(list(symbols))
+            if any(not alpaca._SYMBOL.match(s) for s in symbols):
+                raise alpaca.AlpacaError("Enter a stock or ETF ticker")
+            return {s: [{"t": "x", "o": 1, "h": 1, "l": 1, "c": 1, "v": 1}] * 60 for s in symbols}
+
+        with patch.object(engine, "_alpaca_keys", return_value=("k", "s")), patch.object(alpaca, "get_bars_multi", fake_multi), \
+                patch.object(yahoo, "get_bars_batch", lambda part, start=None, chunk=60: {s: [{"t": "y"}] * 60 for s in part}):
+            out = engine.default_load_bars(["AAPL", "SMP35", "MSFT"])
+        self.assertEqual(asked, [["AAPL", "MSFT"]])
+        self.assertEqual(engine.SOURCES, {"alpaca": 2, "yahoo": 1})
+        self.assertEqual(sorted(out), ["AAPL", "MSFT", "SMP35"])
+        engine._BARS.clear()

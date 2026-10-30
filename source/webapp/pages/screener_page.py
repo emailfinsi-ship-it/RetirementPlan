@@ -161,7 +161,8 @@ Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. Buy and 
 _JS = r"""
 <script>
 __GLOSSARY__
-(function () {
+// Runs once the page has loaded: the shell defines postJSON in a script placed after the page body.
+document.addEventListener('DOMContentLoaded', function () {
   var $ = function (id) { return document.getElementById(id); }, F = $('sc-form'), job = null, timer = null, rows = [], sortKey = null, sortDir = 1, CFG = null;
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function num(v) { return v === '' || v == null ? null : Number(v); }
@@ -449,7 +450,7 @@ __GLOSSARY__
     $('sc-examples').innerHTML = c.examples.map(function (e) { return '<button type="button" data-ex="' + esc(e) + '">' + esc(e) + '</button>'; }).join('');
   }).catch(function () {});
   $('sc-examples').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-ex]'); if (b) { $('sc-text').value = b.getAttribute('data-ex'); find(); } });
-})();
+});
 </script>
 """
 

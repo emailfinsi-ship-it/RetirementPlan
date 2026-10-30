@@ -7,6 +7,7 @@ Read-only: nothing here can place an order and none of it is advice."""
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -173,6 +174,9 @@ def _alpaca_keys():
     return None
 
 
+_ALPACA_SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+
+
 def default_load_bars(symbols: list[str], progress=None) -> dict[str, list[dict]]:
     """Daily bars for ``symbols`` (kept 15 minutes). Alpaca's free feed is used when Alpaca keys are saved (about 100 symbols
     per call); anything it has no bars for, or everything if Alpaca cannot be reached, comes from Yahoo Finance."""
@@ -191,7 +195,9 @@ def default_load_bars(symbols: list[str], progress=None) -> dict[str, list[dict]
     todo = list(need)
     done = len(symbols) - len(need)
     if keys and todo:
-        left = []
+        # One ticker Alpaca cannot take (a fund with digits in its name, say) would make it refuse the whole batch: send those to Yahoo.
+        left = [x for x in todo if not _ALPACA_SYMBOL.match(universe.yahoo_symbol(x).replace("-", "."))]
+        todo = [x for x in todo if x not in left]
         for i in range(0, len(todo), 100):
             part = todo[i:i + 100]
             try:

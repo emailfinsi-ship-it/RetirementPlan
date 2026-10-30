@@ -419,3 +419,18 @@ are not touched.
 68. **Build self-test**: `run_app.py --selftest` now also loads the screener list (`sp500.csv`), the screener modules and the price libraries
     (pandas, numpy, yfinance, requests, cryptography), so a bundle missing any of them fails the build instead of shipping. The Alpaca, IBKR and
     E*TRADE connections use Python's built-in web calls, so they need no extra package.
+69. **Tutorial: one video per tab.** The two long tour videos are replaced by five short narrated ones (Setup, Today, My Plan, Explore, Trading), each with
+    chapters. The Tutorial page has a button per video, a chapter list that jumps to a screen, and the matching part of the user guide under the video; the
+    full guide stays below. Every tab (including the Trading pages and Orders, which had no "About this page" note) now has a **Watch this video** button that
+    opens its video at that page's chapter. Videos and `chapters.json` live in `static/tutorial/` (bundled by the build, which also checks they are there).
+    Code: `pages/tutorial.py` (`SECTIONS`, `section_for`, `chapter_link_html`), `explain.page_button_html`, `static/tutorial/*`.
+70. **User guide rewritten** (docs/README.md and the in-app guide): Review my holdings, the Trading chapter (Alpaca / IBKR / E*TRADE, Trade menu, safety checks,
+    tax lots, Stock Analysis, Screener, Orders), Real-money trading limits, the five-tab layout, and new pictures. The guide marks its parts with
+    `<!-- section: name -->` so the Tutorial page can show the part that matches a video. Rebuild it with `tools/video/build_guide.py`.
+71. **Fixes found while recording**: (a) the Orders tab stayed on "Loading..." and the Screener never listed its saved screens, because their page scripts called
+    `postJSON` before the page shell had defined it; they now start once the page has loaded. (b) On the Alpaca tab the Trade menu closed itself whenever the page
+    scrolled; it now follows its button, like the other tabs. (c) One ticker Alpaca cannot take (a fund with digits in its name) made the screener drop Alpaca for
+    the whole batch; those tickers now go straight to Yahoo and the rest stay on Alpaca. Tests: `TestPagesWaitForTheShell`, `TestBarsLoading`.
+72. **Video tools** (`tools/video/`, not part of the app): `make_tour.py` records a narrated tour of the app on the sample household with made-up Alpaca / IBKR /
+    E*TRADE answers (`fakes.py`), `post.py` joins picture and voice and writes the chapter times, `make_shots.py` takes the guide pictures,
+    `build_guide.py` builds the in-app guide, `narration.py` holds what Fin says.
