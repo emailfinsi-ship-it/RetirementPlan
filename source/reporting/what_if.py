@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 
 from source.reporting.monte_carlo import _resolve_retirement_year, run_simulation, stable_simulation_seed
+from source.reporting.monte_carlo.assumptions import _resolve_birth_year
 from source.reporting.monte_carlo.sensitivity import _scale_line_items
 
 _ITERATIONS = 300
@@ -157,3 +158,67 @@ def find_safe_spending(summary: dict, target: float = 0.90, iterations: int = 40
         "target": target, "current_spending": current, "safe_spending": current * factor,
         "factor": factor, "limit": limit,
     }
+
+
+def find_earliest_retirement(summary: dict, target: float = 0.90, iterations: int = 300, max_wait: int = 30) -> dict:
+    """The earliest retirement year (and the age that year falls in, when a birth year is set) at which the chance your money
+    lasts is still at or above `target`, plus a small table of that chance for the years around it.
+
+    Reuses the plan's own simulation with only "Retirement year" changed. Every probe uses the SAME random market paths (one
+    fixed seed), so retiring a year later can only help and the answer does not jitter. Retiring later is better in this
+    model (more years of growth with nothing drawn), so the earliest year is found by bisection. Income lines are left as
+    they are: a salary that ends in a fixed year is not moved by this test.
+
+    Returns {"target", "this_year", "birth_year", "earliest_year", "earliest_age", "limit", "chosen_year", "rows"}.
+    `limit` is "now" (even stopping this year clears the target), "none" (even waiting `max_wait` years does not) or None.
+    `rows` is [{"year", "age", "success_rate", "is_earliest", "is_chosen"}], oldest first; `chosen_year` is the retirement
+    year already saved in the plan (None when not set)."""
+    assumptions = dict(summary["assumptions"])
+    assumptions["iterations"] = iterations
+    expenses, income = summary["expenses"], summary["income_for_simulation"]
+    pools, balance = summary["retirement_pools"], summary["net_liquid_asset"]
+    this_year = int(summary["this_year"])
+    horizon = max(1, int(float(assumptions.get("plan_horizon_years") or 40)))
+    last = this_year + min(max_wait, horizon - 1)
+    birth = _resolve_birth_year(assumptions)
+    chosen = _resolve_retirement_year(assumptions)
+    seed = stable_simulation_seed(
+        starting_balance=balance, expenses=expenses, income=income, assumptions=assumptions, pools=pools,
+    )
+    cache: dict[int, float] = {}
+
+    def rate(year: int) -> float:
+        if year not in cache:
+            cache[year] = run_simulation(
+                starting_balance=balance, expenses=expenses, income=income, assumptions={**assumptions, "retirement_year": year},
+                pools=pools, rng=random.Random(seed),
+            )["success_rate"]
+        return cache[year]
+
+    limit, earliest = None, None
+    if rate(this_year) >= target:
+        limit, earliest = "now", this_year
+    elif rate(last) < target:
+        limit = "none"
+    else:
+        low, high = this_year, last              # rate(low) < target <= rate(high)
+        while high - low > 1:
+            mid = (low + high) // 2
+            if rate(mid) >= target:
+                high = mid
+            else:
+                low = mid
+        earliest = high
+    years = set()
+    if earliest is not None:
+        years.update(range(earliest - 2, earliest + 4))
+    else:
+        years.update(range(last - 5, last + 1))
+    if chosen is not None:
+        years.add(chosen)
+    years = sorted(y for y in years if this_year <= y <= last)
+    rows = [{"year": y, "age": (y - birth) if birth else None, "success_rate": rate(y), "is_earliest": y == earliest,
+             "is_chosen": y == chosen} for y in years]
+    return {"target": target, "this_year": this_year, "birth_year": birth, "earliest_year": earliest,
+            "earliest_age": (earliest - birth) if (birth and earliest is not None) else None, "limit": limit,
+            "chosen_year": chosen, "rows": rows}
