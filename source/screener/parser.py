@@ -281,6 +281,10 @@ def parse(text: str) -> dict:
         f["sort"] = "rsi"
     elif re.search(r"\bvolume (?:leaders?|spikes?)|sort(?:ed)? by volume", t):
         f["sort"] = "volume"
+    elif re.search(r"sort(?:ed)? by (?:technical )?rating|strong(?:est)? buy(?:s| ratings?)? first|best rated|highest rated", t):
+        f["sort"] = "rating"
+    elif re.search(r"strong(?:est)? sell(?:s| ratings?)? first|worst rated|lowest rated", t):
+        f["sort"] = "rating_low"
 
     ignored = []
     try:

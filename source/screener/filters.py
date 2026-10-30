@@ -15,7 +15,7 @@ DIRECTIONS = ("up", "down", "either")
 MACD_CROSS = ("bullish", "bearish", "any")
 SMA_WINDOWS = (20, 50, 200)
 RATINGS = ("buy", "sell")           # "buy" = Buy or Strong Buy, "sell" = Sell or Strong Sell
-SORTS = ("change", "move", "rsi", "volume", "macd", "putcall", "symbol")
+SORTS = ("change", "move", "rsi", "volume", "macd", "putcall", "symbol", "rating", "rating_low")
 MAX_RESULTS = 300
 
 EMPTY = {
