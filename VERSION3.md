@@ -388,8 +388,8 @@ are not touched.
     background job with a progress bar; results are sortable with hover explanations and a watchlist ★. Code: `source/screener/`
     (`universe.py`, `filters.py`, `parser.py`, `engine.py`, `jobs.py`, `data/sp500.csv`), `webapp/screener_api.py`,
     `webapp/pages/screener_page.py`, `collector/yahoo.py` (batch bars, option volume), `collector/etrade.py` (`option_volume`).
-    Each result row has Buy and Sell buttons: they open the order form of the account you pick (Alpaca / IBKR / E*TRADE, whichever are
+    Each result row has one Trade ▾ button (like E*TRADE's) whose menu offers Buy and Sell (and, with several accounts, which account): it opens the order form of the account you pick (Alpaca / IBKR / E*TRADE, whichever are
     set up) with the symbol and side filled in (`?symbol=XYZ&side=buy|sell`, now read by `pages/trading.py` and `pages/broker_page.py`);
     nothing is sent until you preview and confirm there.
-    Results can be sorted by rating, strongest first (Strong Buy, Buy, Hold, Sell, Strong Sell): click the Rating column, pick "Rating: Strong Buy first" under Sort by, or say "sorted by rating".
+    "Why it matched" is the last column. Results can be sorted by rating, strongest first (Strong Buy, Buy, Hold, Sell, Strong Sell): click the Rating column, pick "Rating: Strong Buy first" under Sort by, or say "sorted by rating".
     The PyInstaller build bundles `source/screener/data`.

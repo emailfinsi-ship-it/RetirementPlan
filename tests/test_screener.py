@@ -202,7 +202,8 @@ class TestJobsAndApi(unittest.TestCase):
         self.assertIn("/api/screener/run", page)
         self.assertIn('name="sector"', page)
         self.assertIn("&side=", page)             # Buy / Sell open the order form with the side filled in
-        self.assertIn("tradeBtn(r.symbol, 'buy')", page)
+        self.assertIn('class="sc-trade-btn"', page)       # one Trade button per row, its menu offers Buy and Sell
+        self.assertLess(page.index("'<th></th><th>Why it matched</th>'"), page.index("td class=\"why\""))
         self.assertTrue(any(href == "screener.html" for group in shell.NAV_GROUPS for href, _ in group))
 
 

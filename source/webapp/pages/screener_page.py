@@ -41,17 +41,17 @@ _CSS = glossary.CSS + """
 #sc-table td.num, #sc-table th.num { text-align:right; white-space:nowrap; }
 #sc-table td.why { font-size:11px; color:var(--ink-muted); min-width:220px; max-width:340px; }
 .sc-out { overflow-x:auto; }
-.sc-trade { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
-.sc-trade a.sc-go, .sc-trade summary { cursor:pointer; list-style:none; display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; text-decoration:none; color:#fff; }
-.sc-trade summary::-webkit-details-marker { display:none; }
-.sc-trade summary { color:#fff; background-image:none; }
-.sc-trade .sc-pick { display:flex; flex-direction:column; gap:2px; margin:4px 0 0; }
-.sc-trade details { vertical-align:top; }
-.sc-trade .buy { background:#12935a; }
-.sc-trade .sell { background:#c94a4a; }
-.sc-trade details { display:inline-block; }
-.sc-trade details[open] > summary { box-shadow:0 0 0 2px var(--border); }
-.sc-trade .sc-pick { font-size:12px; }
+.sc-trade-btn { cursor:pointer; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid var(--brand); background:transparent; color:var(--brand); white-space:nowrap; }
+.sc-trade-btn:hover, .sc-trade-btn.open { background:var(--brand-soft); }
+#sc-tmenu { position:fixed; z-index:60; min-width:150px; padding:6px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.2); display:none; flex-direction:column; font-size:13px; }
+#sc-tmenu.on { display:flex; }
+#sc-tmenu a { padding:6px 10px; border-radius:6px; font-weight:600; text-decoration:none; white-space:nowrap; }
+#sc-tmenu a:hover { background:var(--brand-soft); }
+#sc-tmenu a.buy { color:#12935a; }
+#sc-tmenu a.sell { color:#c94a4a; }
+#sc-tmenu { max-width:230px; }
+#sc-tmenu .sc-mh { white-space:normal; }
+#sc-tmenu .sc-mh { padding:4px 10px 2px; font-size:11px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; }
 """
 
 
@@ -240,27 +240,49 @@ __GLOSSARY__
     draw();
   }
   var COLS = [['symbol', 'Symbol', true], ['type', 'Type'], ['sector', 'Sector'], ['price', 'Price'], ['change_pct', 'Today'], ['move_1w', 'Week'], ['move_1m', 'Month'],
-    ['rsi', 'RSI', false, 'rsi'], ['macd_ago', 'MACD', false, 'macd'], ['volume_ratio', 'Volume vs avg', false, 'volume'], ['pc', 'Put/call', false, 'putcall'], ['rating', 'Rating', false, 'rating'], ['why', 'Why it matched']];
+    ['rsi', 'RSI', false, 'rsi'], ['macd_ago', 'MACD', false, 'macd'], ['volume_ratio', 'Volume vs avg', false, 'volume'], ['pc', 'Put/call', false, 'putcall'], ['rating', 'Rating', false, 'rating']];
   var RANK = {'Strong Buy': 4, 'Buy': 3, 'Hold': 2, 'Sell': 1, 'Strong Sell': 0};   // the Rating column sorts by strength, not alphabet
   function val(r, k) { if (k === 'rating') { return RANK[r.rating] == null ? null : RANK[r.rating]; } return k === 'pc' ? (r.put_call ? r.put_call.ratio : null) : k === 'macd_ago' ? (r.macd_ago == null ? null : (r.macd_cross === 'bullish' ? 1 : -1) / (1 + r.macd_ago)) : r[k]; }
   // Buy / Sell open the order form of the account you pick, with the symbol and side filled in. Nothing is sent from here:
   // the form still needs a preview and a typed confirmation.
   var TARGETS = __TRADE_TARGETS__;
-  function tradeBtn(sym, side) {
-    var q = '?symbol=' + encodeURIComponent(sym) + '&side=' + side, label = side === 'buy' ? 'Buy' : 'Sell',
-        tip = label + ' ' + sym + ': opens the order form with it filled in. Nothing is sent until you preview and confirm there.';
-    if (TARGETS.length === 1) { return '<a class="sc-go ' + side + '" href="' + TARGETS[0][1] + q + '" title="' + esc(tip) + '">' + label + '</a>'; }
-    return '<details class="sc-d"><summary class="' + side + '" title="' + esc(tip) + '">' + label + '</summary><span class="sc-pick">' +
-      TARGETS.map(function (t) { return '<a href="' + t[1] + q + '">' + esc(t[0]) + '</a>'; }).join('') + '</span></details>';
+  // One Trade button per row (like E*TRADE's): it opens a small menu with Buy and Sell. With several accounts set up the menu lists
+  // each account under Buy and under Sell. The menu is fixed-position so the scrolling table does not clip it.
+  var menu = null;
+  function closeMenu() { if (menu) { menu.classList.remove('on'); } Array.prototype.forEach.call(document.querySelectorAll('.sc-trade-btn.open'), function (b) { b.classList.remove('open'); }); }
+  function openMenu(btn) {
+    var sym = btn.getAttribute('data-trade'), was = btn.classList.contains('open'); closeMenu(); if (was) { return; }
+    if (!menu) { menu = document.createElement('div'); menu.id = 'sc-tmenu'; document.body.appendChild(menu); }
+    var h = '';
+    ['buy', 'sell'].forEach(function (side) {
+      var q = '?symbol=' + encodeURIComponent(sym) + '&side=' + side, label = side === 'buy' ? 'Buy' : 'Sell';
+      if (TARGETS.length === 1) { h += '<a class="' + side + '" href="' + TARGETS[0][1] + q + '">' + label + '</a>'; }
+      else { h += '<div class="sc-mh">' + label + ' ' + esc(sym) + ' with</div>' + TARGETS.map(function (t) { return '<a class="' + side + '" href="' + t[1] + q + '">' + esc(t[0]) + '</a>'; }).join(''); }
+    });
+    menu.innerHTML = h + '<div class="sc-mh" style="text-transform:none;">Nothing is sent until you preview and confirm on the order form.</div>';
+    menu.classList.add('on'); btn.classList.add('open'); placeMenu(btn);
   }
+  function placeMenu(btn) {
+    var r = btn.getBoundingClientRect(), w = menu.offsetWidth, hh = menu.offsetHeight;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    menu.style.top = (r.bottom + hh + 8 > window.innerHeight && r.top > hh + 8 ? r.top - hh - 4 : r.bottom + 4) + 'px';
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest ? ev.target.closest('.sc-trade-btn') : null;
+    if (b) { ev.stopPropagation(); openMenu(b); } else if (!(ev.target.closest && ev.target.closest('#sc-tmenu'))) { closeMenu(); }
+  });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeMenu(); } });
+  // the menu follows its button while the page scrolls, and goes away if the button leaves the screen
+  function follow() { var b = document.querySelector('.sc-trade-btn.open'); if (!b || !menu) { return; } var r = b.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) { closeMenu(); } else { placeMenu(b); } }
+  window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow);
   function draw() {
     var list = rows.slice();
     if (sortKey) { list.sort(function (a, b) { var x = val(a, sortKey), y = val(b, sortKey); if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; } return (x < y ? -1 : x > y ? 1 : 0) * sortDir; }); }
     var head = COLS.map(function (c) {
       var t = c[3] ? '<span class="has-tip"' + window.termAttrs(c[3]) + '>' + c[1] + '</span>' : c[1];
-      var sortable = c[0] !== 'why';
-      return '<th class="' + (c[0] === 'symbol' || c[0] === 'type' || c[0] === 'sector' || c[0] === 'why' || c[0] === 'rating' ? '' : 'num') + (sortable ? ' sortable' : '') + '"' + (sortable ? ' onclick="scSort(\'' + c[0] + '\')"' : '') + '>' + t + (sortKey === c[0] ? (sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
-    }).join('') + '<th></th>';
+      var sortable = true;
+      return '<th class="' + (c[0] === 'symbol' || c[0] === 'type' || c[0] === 'sector' || c[0] === 'rating' ? '' : 'num') + (sortable ? ' sortable' : '') + '"' + (sortable ? ' onclick="scSort(\'' + c[0] + '\')"' : '') + '>' + t + (sortKey === c[0] ? (sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    }).join('') + '<th></th><th>Why it matched</th>';
     var body = list.map(function (r) {
       var macd = r.macd_state == null ? '<span class="muted">--</span>' : r.macd_cross && r.macd_ago != null && r.macd_ago <= 10
         ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '">' + (r.macd_cross === 'bullish' ? '▲ Bullish' : '▼ Bearish') + ' ' + (r.macd_ago === 0 ? 'today' : r.macd_ago + 'd ago') + '</span>'
@@ -269,8 +291,9 @@ __GLOSSARY__
       return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(r.symbol) + '" title="' + esc(r.name) + '"><strong>' + esc(r.symbol) + '</strong></a><div class="muted small">' + esc(r.name) + '</div></td>' +
         '<td>' + (r.type === 'etf' ? 'ETF' : 'Stock') + '</td><td>' + esc(r.sector || '') + '</td><td class="num">$' + fmt(r.price, 2) + '</td><td class="num">' + pct(r.change_pct) + '</td><td class="num">' + pct(r.move_1w) +
         '</td><td class="num">' + pct(r.move_1m) + '</td><td class="num">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td><td class="num">' + macd + '</td><td class="num">' + (r.volume_ratio == null ? '--' : r.volume_ratio.toFixed(1) + 'x') +
-        '</td><td class="num">' + pc + '</td><td>' + esc(r.rating) + '</td><td class="why">' + esc((r.why || []).join('; ')) + '</td>' +
-        '<td style="white-space:nowrap;"><span class="sc-trade">' + tradeBtn(r.symbol, 'buy') + tradeBtn(r.symbol, 'sell') + '</span> <button type="button" class="small" data-watch="' + esc(r.symbol) + '" title="Add to your watchlist">☆</button></td></tr>';
+        '</td><td class="num">' + pc + '</td><td>' + esc(r.rating) + '</td>' +
+        '<td style="white-space:nowrap;"><button type="button" class="sc-trade-btn" data-trade="' + esc(r.symbol) + '" title="Buy or sell ' + esc(r.symbol) + ': opens the order form with it filled in. Nothing is sent until you preview and confirm there.">Trade ▾</button> <button type="button" class="small" data-watch="' + esc(r.symbol) + '" title="Add to your watchlist">☆</button></td>' +
+        '<td class="why">' + esc((r.why || []).join('; ')) + '</td></tr>';
     }).join('');
     $('sc-table').innerHTML = rows.length ? '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody>' : '';
     if (!rows.length) { $('sc-summary').innerHTML += ' <span class="muted">Nothing matched: loosen a filter (a wider RSI range or a longer MACD window usually helps).</span>'; }
