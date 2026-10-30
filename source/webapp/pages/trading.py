@@ -28,7 +28,7 @@ def _signed_money(value) -> str:
     return f"{'+' if value >= 0 else '-'}{_money(abs(value), cents=True)}"
 
 
-def _connect_card_html(mode: str) -> str:
+def _connect_card_html(mode: str, again: bool = False) -> str:
     if mode == "live":
         blurb = (
             '<p class="status-line status-warn"><strong>Real money.</strong> These are your live Alpaca keys. Orders sent from this tab '
@@ -37,14 +37,14 @@ def _connect_card_html(mode: str) -> str:
             '<p class="muted">In your Alpaca dashboard, switch to <em>Live</em>, open <em>API Keys</em>, generate a key and paste both parts. '
             'A key you create for this app can be revoked at any time from the Alpaca dashboard.</p>'
         )
-        title = "Connect your Alpaca live account"
+        title = "Enter your Alpaca live keys again" if again else "Connect your Alpaca live account"
     else:
         blurb = (
             '<p class="muted">Alpaca offers a free <strong>paper trading</strong> account: play money, real market prices. In your Alpaca '
             'dashboard switch to <em>Paper</em>, open <em>API Keys</em>, generate a key, and paste both parts here. They are stored in the '
             'macOS Keychain with your other credentials, never in the database.</p>'
         )
-        title = "Connect your Alpaca practice account"
+        title = "Enter your Alpaca practice keys again" if again else "Connect your Alpaca practice account"
     return f"""
 <div class="card">
 <h3 style="margin-top:0;">{title}</h3>
@@ -472,6 +472,9 @@ def _render_trading_page(mode: str = "paper") -> str:
         body += _ticket_html(mode, armed=db.live_trading.is_armed() if live else True)
         body += f"<h3>Recent orders at Alpaca</h3>{_orders_html(orders, mode)}"
     else:
+        # The saved keys did not work (or Alpaca could not be reached): offer the key form right here, so there is no need to
+        # remove them first. A wrong pair is refused before it is saved, so the old keys stay until a good pair replaces them.
+        body += _connect_card_html(mode, again=True)
         body += (
             f'<p><button type="button" onclick="{html.escape(_disconnect_js(mode))}">Remove saved keys</button></p>'
         )
