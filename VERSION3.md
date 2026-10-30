@@ -378,3 +378,14 @@ are not touched.
     52-week range, bid / ask, previous close, earnings date and VWAP mean, and how to read them (and that none of them predicts
     anything). The MACD box also says whether MACD is above or below its signal line and when it last crossed. Code:
     `pages/glossary.py` (the one list of terms), `pages/watchlist.py`, `pages/quote_panel.py`, `pages/position_ratings.py`.
+62. **Screener tab (Trading → Screener).** Type a request in plain words ("technology stocks where MACD crossed up in the last 5 days
+    and RSI under 40, up or down 5% this week, top 20") and a built-in parser (no Claude / no outside AI) turns it into filters you can
+    see and edit: stocks / ETFs, sectors, industries, themes (AI, semiconductors, ...), MACD crossover or above / below signal, RSI range,
+    swing (a move of N% or $N over a window, up / down / either, and today's high-to-low range), price, 20 / 50 / 200-day average, near
+    52-week high / low, volume vs 20-day average, call/put volume ratio, technical rating. Universe: S&P 500 + big stocks + ~100 ETFs,
+    your Plaid holdings, your watchlist, and any tickers you type. Prices come from Alpaca (Yahoo fills gaps); put/call volume from
+    E*TRADE option chains (Yahoo fallback) and is computed for the best 60 matches only (button loads it for the rest). Runs as a
+    background job with a progress bar; results are sortable with hover explanations and a watchlist ★. Code: `source/screener/`
+    (`universe.py`, `filters.py`, `parser.py`, `engine.py`, `jobs.py`, `data/sp500.csv`), `webapp/screener_api.py`,
+    `webapp/pages/screener_page.py`, `collector/yahoo.py` (batch bars, option volume), `collector/etrade.py` (`option_volume`).
+    The PyInstaller build bundles `source/screener/data`.

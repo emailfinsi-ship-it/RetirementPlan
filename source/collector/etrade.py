@@ -381,3 +381,35 @@ def cancel(c: Client, account: str, order_id: str) -> None:
     if not re.fullmatch(r"\d{1,20}", order_id):
         raise BrokerError("That order id isn't valid.")
     c.json("PUT", f"/v1/accounts/{urllib.parse.quote(account)}/orders/cancel", body={"CancelOrderRequest": {"orderId": int(order_id)}})
+
+
+def option_volume(c: Client, symbol: str, *, max_expiries: int = 3, max_days: int = 45) -> dict | None:
+    """Option volume for the nearest expiries (up to ``max_days`` out): {"call_volume","put_volume","ratio","call_oi","put_oi",
+    "expiries"}, or None when the symbol has no listed options. Read-only."""
+    from datetime import date
+    data = c.json("GET", "/v1/market/optionexpiredate", query={"symbol": symbol, "expiryType": "ALL"})
+    today, use = date.today(), []
+    for d in _as_list((data.get("OptionExpireDateResponse") or {}).get("ExpirationDate")):
+        try:
+            day = date(int(d["year"]), int(d["month"]), int(d["day"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if day >= today and ((day - today).days <= max_days or not use):
+            use.append(day)
+    use = sorted(set(use))[:max_expiries]
+    if not use:
+        return None
+    cv = pv = coi = poi = 0.0
+    for day in use:
+        chain = c.json("GET", "/v1/market/optionchains", query={
+            "symbol": symbol, "expiryYear": day.year, "expiryMonth": day.month, "expiryDay": day.day, "chainType": "CALLPUT", "noOfStrikes": 60})
+        for pair in _as_list((chain.get("OptionChainResponse") or {}).get("OptionPair")):
+            call, put = pair.get("Call") or {}, pair.get("Put") or {}
+            cv += _f(call.get("volume")) or 0.0
+            pv += _f(put.get("volume")) or 0.0
+            coi += _f(call.get("openInterest")) or 0.0
+            poi += _f(put.get("openInterest")) or 0.0
+    if cv + pv <= 0:
+        return None
+    return {"call_volume": cv, "put_volume": pv, "ratio": (pv / cv) if cv > 0 else None, "call_oi": coi, "put_oi": poi,
+            "expiries": [d.isoformat() for d in use]}

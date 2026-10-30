@@ -18,7 +18,7 @@ from datetime import date
 from source.collector import alpaca, alpaca_view, market_data
 from source.common import db, secrets_store
 from source.collector import earnings
-from source.webapp import broker_api
+from source.webapp import broker_api, screener_api
 from source.webapp.pages import earnings_panel, quote_chart, watchlist
 
 ROUTES = (
@@ -26,7 +26,7 @@ ROUTES = (
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
     "/api/earnings", "/api/earnings/week", "/api/ratings", "/api/extended",
-) + broker_api.ROUTES
+) + broker_api.ROUTES + screener_api.ROUTES
 
 
 def _mode(payload: dict) -> str:
@@ -52,6 +52,8 @@ def handle(path: str, payload: dict) -> dict:
 
 def _handle(path: str, payload: dict) -> dict:
     lt = db.live_trading
+    if path in screener_api.ROUTES:
+        return screener_api.handle(path, payload)
     if path in broker_api.ROUTES:          # the IBKR and E*TRADE tabs (same arming and limits, own module)
         return broker_api.handle(path, payload)
     if path == "/api/alpaca-keys":
