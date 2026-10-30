@@ -55,6 +55,13 @@ if (!window.termAttrs) {
       'The lowest price a seller will take right now. If you buy at market you usually pay about this. The gap between bid and ask is the spread: wide spreads (common outside regular hours) cost you more.'],
     earnings: ['Next earnings',
       'The date the company reports its quarterly results. Prices often move sharply that day, in either direction. Funds and ETFs do not report earnings.'],
+    putcall: ['Put/call volume ratio',
+      'Puts traded divided by calls traded, over the nearest option expiries. A call is a bet the price rises; a put is a bet it falls (or protection against a fall).\n' +
+      'Above 1: more put activity than call activity, often cautious or hedging. Below 0.7: more call activity, often optimistic.\n' +
+      'Extreme readings are sometimes read the opposite way, as a sign the crowd is too one-sided. It is a mood gauge, not a prediction, and thinly traded options give noisy numbers.'],
+    swing: ['Swing',
+      'How far the price moved over the window you pick, measured from the close that many trading days ago to the latest price, up or down.\n' +
+      'You can ask for a size in dollars, in percent, or both. "Today\u2019s range" instead measures today\u2019s high minus low.'],
     vwap: ['VWAP',
       'Volume-weighted average price: the average price paid today, counting busier moments more. Above it, buyers today are ahead; below it, behind.']
   };

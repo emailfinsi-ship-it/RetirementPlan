@@ -36,7 +36,7 @@ NAV_GROUPS = (
     (("linked-accounts.html", "Accounts"), ("linked-positions.html", "Positions"), ("rebalance.html", "Risk & Suggestions")),
     (("real-expenditure.html", "Actual Spending"), ("budget-vs-actual.html", "Budget vs Actual")),
     (("drawdown-planning.html", "Drawdown Planning"), ("legacy-planning.html", "Legacy Planning")),
-    (("trading-live.html", "Alpaca"), ("ibkr.html", "IBKR"), ("etrade.html", "E*TRADE"), ("stock-analysis.html", "Stock Analysis")),
+    (("trading-live.html", "Alpaca"), ("ibkr.html", "IBKR"), ("etrade.html", "E*TRADE"), ("stock-analysis.html", "Stock Analysis"), ("screener.html", "Screener")),
 )
 
 # Pages that belong to a group but are not offered in its row for now (the Alpaca practice account).

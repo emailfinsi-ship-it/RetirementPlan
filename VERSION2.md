@@ -154,3 +154,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Reconnect a bank whose login expired (Setup button) and a plain sync message for it. Reconnect a bank whose login expired.
 
 - Technical terms explained on hover (Stock Analysis and the ratings hover).
+
+- Screener tab (Trading -> Screener): plain-words stock/ETF screener (MACD, RSI, swing %/$, sectors, put/call volume) using Alpaca/Yahoo/E*TRADE data; see VERSION3.md item 62.
