@@ -15,7 +15,7 @@ FALLING = ("Sell", "Strong Sell")
 _BROKER_LABEL = {"alpaca": "Alpaca", "ibkr": "IBKR", "etrade": "E*TRADE"}
 _BROKER_WORDS = {"alpaca": ("alpaca",), "ibkr": ("interactive brokers", "ibkr"), "etrade": ("e*trade", "etrade", "e-trade")}
 _ORDER = {"trim": 0, "review": 1, "watch": 2, "strong": 3, "ok": 4, "nodata": 5}
-LABELS = {"trim": "Worth a look: large and stretched", "review": "Worth a look: weakening", "watch": "Watch", "strong": "Holding up well",
+LABELS = {"trim": "Worth a look: large position", "review": "Worth a look: weakening", "watch": "Watch", "strong": "Holding up well",
           "ok": "No flags", "nodata": "Not enough price history"}
 
 
@@ -112,7 +112,7 @@ def _note(h: dict, r: dict | None, weight: float) -> dict:
 
     if big and (hot or bearish or bearish_cross):
         level = "trim"
-        out["headline"] = LABELS["trim"]
+        out["headline"] = "Worth a look: large and stretched" if hot else "Worth a look: large and weakening"
         reasons.append("Worth deciding whether the position should be this big" + (
             "; in a taxable account, selling a gain is taxed (and which lots are sold matters)." if taxable and (gain or 0) > 0 else "."))
     elif bearish and (bearish_cross or (m1 is not None and m1 <= -8) or deep):

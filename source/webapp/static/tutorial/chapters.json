@@ -1,0 +1,159 @@
+{
+ "setup": {
+  "duration": 283.5,
+  "chapters": [
+   {
+    "name": "welcome",
+    "title": "First launch",
+    "page": "/",
+    "start": 13.0
+   },
+   {
+    "name": "wizard",
+    "title": "The setup wizard",
+    "page": "/setup-wizard.html",
+    "start": 64.6
+   },
+   {
+    "name": "plaid",
+    "title": "Connecting accounts",
+    "page": "/setup.html",
+    "start": 110.6
+   },
+   {
+    "name": "setup",
+    "title": "The Setup tab",
+    "page": "/setup.html",
+    "start": 188.0
+   }
+  ]
+ },
+ "today": {
+  "duration": 103.4,
+  "chapters": [
+   {
+    "name": "today",
+    "title": "Your whole picture",
+    "page": "/summary.html",
+    "start": 14.4
+   }
+  ]
+ },
+ "myplan": {
+  "duration": 148.2,
+  "chapters": [
+   {
+    "name": "accounts",
+    "title": "Accounts",
+    "page": "/linked-accounts.html",
+    "start": 13.4
+   },
+   {
+    "name": "positions",
+    "title": "Positions and Review my holdings",
+    "page": "/linked-positions.html",
+    "start": 28.1
+   },
+   {
+    "name": "assets",
+    "title": "Assets and Debts",
+    "page": "/asset.html",
+    "start": 73.6
+   },
+   {
+    "name": "real-estate",
+    "title": "Real Estate",
+    "page": "/real-estate.html",
+    "start": 88.7
+   },
+   {
+    "name": "income",
+    "title": "Income and Expenses",
+    "page": "/expense.html",
+    "start": 99.1
+   },
+   {
+    "name": "spending",
+    "title": "Actual Spending",
+    "page": "/real-expenditure.html",
+    "start": 116.2
+   },
+   {
+    "name": "budget",
+    "title": "Budget vs Actual",
+    "page": "/budget-vs-actual.html",
+    "start": 127.5
+   }
+  ]
+ },
+ "explore": {
+  "duration": 110.5,
+  "chapters": [
+   {
+    "name": "will-it-last",
+    "title": "Will my money last?",
+    "page": "/monte-carlo.html",
+    "start": 18.3
+   },
+   {
+    "name": "risk",
+    "title": "Risk & Suggestions",
+    "page": "/rebalance.html",
+    "start": 46.3
+   },
+   {
+    "name": "drawdown",
+    "title": "Drawdown Planning",
+    "page": "/drawdown-planning.html",
+    "start": 68.4
+   },
+   {
+    "name": "legacy",
+    "title": "Legacy Planning",
+    "page": "/legacy-planning.html",
+    "start": 89.3
+   }
+  ]
+ },
+ "trading": {
+  "duration": 230.7,
+  "chapters": [
+   {
+    "name": "alpaca",
+    "title": "Alpaca",
+    "page": "/trading-live.html",
+    "start": 17.9
+   },
+   {
+    "name": "etrade",
+    "title": "E*TRADE",
+    "page": "/etrade.html",
+    "start": 69.8
+   },
+   {
+    "name": "ibkr",
+    "title": "IBKR",
+    "page": "/ibkr.html",
+    "start": 105.2
+   },
+   {
+    "name": "analysis",
+    "title": "Stock Analysis",
+    "page": "/stock-analysis.html",
+    "start": 122.6
+   },
+   {
+    "name": "screener",
+    "title": "Screener",
+    "page": "/screener.html",
+    "start": 145.2
+   },
+   {
+    "name": "orders",
+    "title": "Orders",
+    "page": "/orders.html",
+    "start": 199.3
+   }
+  ]
+ }
+}
