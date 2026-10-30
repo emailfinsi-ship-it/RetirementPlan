@@ -152,3 +152,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Yahoo Finance price fallback; instant return to trading tabs; extended-hours / overnight order session and after-hours prices; clearer rating hover box.
 
 - Reconnect a bank whose login expired (Setup button) and a plain sync message for it. Reconnect a bank whose login expired.
+
+- Technical terms explained on hover (Stock Analysis and the ratings hover).

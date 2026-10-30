@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 
+from source.webapp.pages import glossary
 from source.webapp.pages.quote_chart import CHART_CSS
 
 _PANEL_CSS = """
@@ -52,12 +53,14 @@ _PANEL_CSS = """
 _PANEL_JS = """
 <script>
 (function () {
+__MACD_HELP__
   var MODE = '__MODE__', cur = {symbol: '', range: '3M', rows: []};
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function usd(n) { return n == null ? '--' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
   function vol(n) { return n == null ? '--' : (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n))); }
   function signed(n, suffix) { return n == null ? '--' : (n >= 0 ? '+' : '-') + Math.abs(n).toFixed(2) + (suffix || ''); }
-  function track(low, high, pos, lowLabel, highLabel, title) {
+  function track(low, high, pos, lowLabel, highLabel, title, term) {
+    title = '<span class="has-tip"' + termAttrs(term) + '>' + title + '</span>';
     if (low == null || high == null || pos == null) { return '<div><strong>' + title + '</strong><div class="muted small">Not available right now.</div></div>'; }
     return '<div><strong>' + title + '</strong><div class="qp-track"><i style="left:calc(' + (pos * 100).toFixed(1) + '% - 2px)"></i></div>' +
       '<div class="qp-trackl"><span>' + lowLabel + ' ' + usd(low) + '</span><span>' + highLabel + ' ' + usd(high) + '</span></div></div>';
@@ -148,18 +151,18 @@ _PANEL_JS = """
     }
     h += '<div class="qp-stats">' +
       '<div><span>Open</span>' + usd(q.open) + '</div><div><span>Day high</span>' + usd(q.high) + '</div><div><span>Day low</span>' + usd(q.low) + '</div>' +
-      '<div><span>Previous close</span>' + usd(q.prev_close) + '</div><div><span>Volume today</span>' + vol(q.volume) + '</div>' +
-      '<div><span>Bid</span>' + usd(q.bid) + (q.bid_size ? ' x ' + q.bid_size : '') + '</div><div><span>Ask</span>' + usd(q.ask) + (q.ask_size ? ' x ' + q.ask_size : '') + '</div></div>';
-    h += '<div class="qp-ranges">' + track(q.low, q.high, q.day_position, 'Low', 'High', 'Day range') +
-      track(d.week52.low, d.week52.high, d.week52.position, 'Low', 'High', '52-week range') + '</div>';
-    h += '<div class="qp-rate"><strong>Technical rating</strong><span class="qp-badge ' + badgeClass(r.label) + '">' + esc(r.label) + '</span>' +
+      '<div><span class="has-tip"' + termAttrs('prevclose') + '>Previous close</span>' + usd(q.prev_close) + '</div><div><span class="has-tip"' + termAttrs('volume') + '>Volume today</span>' + vol(q.volume) + '</div>' +
+      '<div><span class="has-tip"' + termAttrs('bid') + '>Bid</span>' + usd(q.bid) + (q.bid_size ? ' x ' + q.bid_size : '') + '</div><div><span class="has-tip"' + termAttrs('ask') + '>Ask</span>' + usd(q.ask) + (q.ask_size ? ' x ' + q.ask_size : '') + '</div></div>';
+    h += '<div class="qp-ranges">' + track(q.low, q.high, q.day_position, 'Low', 'High', 'Day range', 'dayrange') +
+      track(d.week52.low, d.week52.high, d.week52.position, 'Low', 'High', '52-week range', 'week52') + '</div>';
+    h += '<div class="qp-rate"><strong class="has-tip"' + termAttrs('rating') + '>Technical rating</strong><span class="qp-badge ' + badgeClass(r.label) + '">' + esc(r.label) + '</span>' +
       (r.of ? '<span class="muted">' + r.buy_votes + ' of ' + r.of + ' signals bullish, ' + r.sell_votes + ' bearish</span>' : '') + '</div>';
-    h += '<p class="qp-macd"><strong>MACD crossover:</strong> ' + macdText(d.macd) + '</p>';
-    h += '<p class="qp-macd"><strong>Next earnings:</strong> <span id="qp-earn" class="muted">checking\\u2026</span></p>';
+    h += '<p class="qp-macd"' + (d.macd && d.macd.state ? macdTipAttrs(d.macd.state, d.macd.cross, d.macd.bars_ago) : '') + '><strong class="has-tip"' + (d.macd && d.macd.state ? '' : termAttrs('macd')) + '>MACD crossover:</strong> ' + macdText(d.macd) + '</p>';
+    h += '<p class="qp-macd"><strong class="has-tip"' + termAttrs('earnings') + '>Next earnings:</strong> <span id="qp-earn" class="muted">checking\\u2026</span></p>';
     h += '<div class="qp-cols"><div><ul class="qp-sig">' + r.signals.map(function (s) {
-      return '<li><b class="' + (s.vote > 0 ? 'qp-up' : s.vote < 0 ? 'qp-down' : 'muted') + '">' + (s.vote > 0 ? '\\u25B2' : s.vote < 0 ? '\\u25BC' : '\\u25AC') + '</b><span><strong>' +
+      return '<li><b class="' + (s.vote > 0 ? 'qp-up' : s.vote < 0 ? 'qp-down' : 'muted') + '">' + (s.vote > 0 ? '\\u25B2' : s.vote < 0 ? '\\u25BC' : '\\u25AC') + '</b><span><strong class="has-tip"' + termAttrs(termKeyForSignal(s.name)) + '>' +
         esc(s.name) + '.</strong> ' + esc(s.text) + '</span></li>'; }).join('') + '</ul></div>' +
-      '<div><table><thead><tr><th>Trend</th><th>Direction</th><th class="num">Change</th></tr></thead><tbody>' + d.trends.map(function (t) {
+      '<div><table><thead><tr><th><span class="has-tip"' + termAttrs('trend') + '>Trend</span></th><th>Direction</th><th class="num">Change</th></tr></thead><tbody>' + d.trends.map(function (t) {
         var cls = t.direction === 'Up' ? 'qp-up' : t.direction === 'Down' ? 'qp-down' : '';
         var mark = t.direction === 'Up' ? '\\u25B2 ' : t.direction === 'Down' ? '\\u25BC ' : '';
         return '<tr><td>' + esc(t.label) + '</td><td class="' + cls + '">' + mark + esc(t.direction) + '</td><td class="num">' + (t.change_pct == null ? '--' : signed(t.change_pct, '%')) + '</td></tr>';
@@ -250,7 +253,7 @@ def trade_targets() -> list[list[str]]:
 def quote_panel_html(mode: str = "auto") -> str:
     """``mode`` picks which saved Alpaca keys read the prices; \"auto\" prefers the practice keys."""
     return f"""
-<style>{CHART_CSS}{_PANEL_CSS}</style>
+<style>{CHART_CSS}{_PANEL_CSS}{glossary.CSS}</style>
 <div class="card" id="quote">
 <h3 style="margin-top:0;">Quote and chart</h3>
 <p class="muted">Look up any stock or ETF: price, day range, trend, a buy / sell rating from the chart, and a price, volume and RSI chart.
@@ -261,5 +264,5 @@ Looking things up never places an order and works even while live trading is off
 </form>
 <div id="qp-out"></div>
 </div>
-{_PANEL_JS.replace("__MODE__", mode).replace("__TRADE_TARGETS__", json.dumps(trade_targets()))}
+{_PANEL_JS.replace("__MACD_HELP__", glossary.JS).replace("__MODE__", mode).replace("__TRADE_TARGETS__", json.dumps(trade_targets()))}
 """
