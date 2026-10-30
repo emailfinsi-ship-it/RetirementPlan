@@ -6451,6 +6451,8 @@ class TestTradingTab(DashboardTestCase):
         self.assertEqual(resp.status, 200)
         self.assertIn("reach Alpaca", body)
         self.assertIn("Remove saved keys", body)
+        self.assertIn("Enter your Alpaca practice keys again", body)      # the key form is right there, no need to remove them first
+        self.assertIn('name="key_id"', body)
 
     def test_preview_then_order_places_exactly_one_practice_order(self):
         from unittest.mock import patch

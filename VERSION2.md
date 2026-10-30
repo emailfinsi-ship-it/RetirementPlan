@@ -161,3 +161,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Positions tab: Review my holdings card (screens everything you own, notes per holding); Portfolio risk card removed from Stock Analysis (covered in Positions); build self-test checks screener data + libraries. See VERSION3.md items 67-68.
 - Tutorial: five narrated videos (Setup, Today, My Plan, Explore, Trading) bundled in the app, a Watch link on every tab, guide rewritten; regeneration tools in tools/video. See VERSION3.md items 69-72.
 - IBKR tab: one-press Connect to IBKR button (starts the gateway, opens the sign-in, refreshes when you are in). See VERSION3.md item 73.
+- Alpaca tab: key form shown right under a keys-rejected message. See VERSION3.md item 74.
