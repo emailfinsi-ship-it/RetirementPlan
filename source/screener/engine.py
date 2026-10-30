@@ -272,12 +272,16 @@ def _row(e: dict, m: dict, why: list[str]) -> dict:
     }
 
 
+RATING_RANK = {"Strong Buy": 4, "Buy": 3, "Hold": 2, "Sell": 1, "Strong Sell": 0}      # best to worst
+
+
 def _sort_key(row: dict, key: str):
     pc = (row.get("put_call") or {}).get("ratio")
     table = {
         "change": -abs(row["change_pct"] or 0), "move": -abs(row["move_1w"] or 0), "rsi": row["rsi"] if row["rsi"] is not None else 999,
         "volume": -(row["volume_ratio"] or 0), "macd": row["macd_ago"] if row["macd_ago"] is not None else 999,
         "putcall": -(pc or 0), "symbol": row["symbol"],
+        "rating": -RATING_RANK.get(row.get("rating"), -1), "rating_low": RATING_RANK.get(row.get("rating"), 99),
     }
     return table[key]
 

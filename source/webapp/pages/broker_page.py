@@ -382,7 +382,8 @@ _JS = r"""
       ev.preventDefault(); say('bk-ticket-note', '');
       postJSON('/api/broker/preview', {broker: BROKER, account: f.account.value || ACCOUNT, order: order()}).then(function (p) { p.account = f.account.value || ACCOUNT; showPreview(p); }).catch(function (e) { $('bk-preview').innerHTML = ''; say('bk-ticket-note', e.message, true); });
     });
-    var sym = new URLSearchParams(location.search).get('symbol'); if (sym) { f.symbol.value = sym.toUpperCase(); }
+    var qs = new URLSearchParams(location.search), sym = qs.get('symbol'), side = (qs.get('side') || '').toLowerCase();
+    if (sym) { f.symbol.value = sym.toUpperCase(); if (side === 'buy' || side === 'sell') { f.side.value = side; } }
     f.type.addEventListener('change', function () { f.limit_price.disabled = f.type.value !== 'limit'; });
     // Session: outside regular hours only limit orders that last the day are accepted. E*TRADE's connection has no overnight session.
     if (BROKER === 'etrade') { f.session.querySelector('option[value=overnight]').remove(); }

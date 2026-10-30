@@ -4,14 +4,17 @@ Type what you are looking for in plain English ("ETFs where MACD crossed up in t
 the filters by hand: MACD crossover, RSI, sectors, swing size in dollars or percent over a window (and today's range), price,
 moving average, 52-week high / low, volume, put/call volume, rating. The typed request is read by a built-in parser (no outside
 service), shown filled into the form so it can be corrected, and then run. Prices come from Alpaca or Yahoo Finance, put/call
-volume from E*TRADE or Yahoo Finance. Read-only: it never places an order, and it is not advice."""
+volume from E*TRADE or Yahoo Finance. It never places an order itself: the Buy / Sell buttons open the order form of the account
+you pick with the symbol and side filled in, where the order still needs a preview and a typed confirmation. Not advice."""
 
 from __future__ import annotations
 
 import html
+import json
 
 from source.screener import universe
 from source.webapp.pages import glossary
+from source.webapp.pages.quote_panel import trade_targets
 from source.webapp.render_helpers import _shell
 
 _CATEGORIES = ("Broad market", "Dividend", "Thematic", "Commodities", "Bonds", "International", "Crypto", "Leveraged")
@@ -38,6 +41,17 @@ _CSS = glossary.CSS + """
 #sc-table td.num, #sc-table th.num { text-align:right; white-space:nowrap; }
 #sc-table td.why { font-size:11px; color:var(--ink-muted); min-width:220px; max-width:340px; }
 .sc-out { overflow-x:auto; }
+.sc-trade { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
+.sc-trade a.sc-go, .sc-trade summary { cursor:pointer; list-style:none; display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; text-decoration:none; color:#fff; }
+.sc-trade summary::-webkit-details-marker { display:none; }
+.sc-trade summary { color:#fff; background-image:none; }
+.sc-trade .sc-pick { display:flex; flex-direction:column; gap:2px; margin:4px 0 0; }
+.sc-trade details { vertical-align:top; }
+.sc-trade .buy { background:#12935a; }
+.sc-trade .sell { background:#c94a4a; }
+.sc-trade details { display:inline-block; }
+.sc-trade details[open] > summary { box-shadow:0 0 0 2px var(--border); }
+.sc-trade .sc-pick { font-size:12px; }
 """
 
 
@@ -48,7 +62,7 @@ def _check(name: str, value: str, label: str, checked: bool = False) -> str:
 _BODY = """
 <h2 style="margin-top:0">Screener</h2>
 <p class="muted">Find stocks and ETFs that match what you describe. Type it in plain English or set the filters yourself. Prices come from
-Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. It only looks; it never places an order, and none of it is advice.</p>
+Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. Buy and Sell open the order form of the account you pick with the symbol filled in; nothing is sent until you preview and confirm there. None of this is advice.</p>
 
 <div class="card">
   <div class="sc-q">
@@ -101,7 +115,7 @@ Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. It only 
   <fieldset><legend><span class="has-tip" data-term="rating">Rating</span> and results</legend>
     <div class="sc-row"><select name="rating"><option value="">Any rating</option><option value="buy">Buy or Strong Buy</option><option value="sell">Sell or Strong Sell</option></select></div>
     <div class="sc-row"><span>Show up to</span><input type="number" name="limit" min="1" max="300" value="50"><span>sorted by</span>
-      <select name="sort"><option value="change">Biggest move today</option><option value="move">Biggest move this week</option><option value="rsi">Lowest RSI</option><option value="volume">Highest volume</option><option value="macd">Newest MACD cross</option><option value="putcall">Highest put/call</option><option value="symbol">Symbol</option></select></div>
+      <select name="sort"><option value="change">Biggest move today</option><option value="move">Biggest move this week</option><option value="rsi">Lowest RSI</option><option value="volume">Highest volume</option><option value="macd">Newest MACD cross</option><option value="putcall">Highest put/call</option><option value="rating">Rating: Strong Buy first</option><option value="rating_low">Rating: Strong Sell first</option><option value="symbol">Symbol</option></select></div>
   </fieldset>
 </div>
 <fieldset style="margin-top:14px; border:1px solid var(--border); border-radius:12px; padding:8px 12px;"><legend style="font-size:12px; font-weight:700; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; padding:0 6px;">Sectors (none ticked = all)</legend>
@@ -227,7 +241,18 @@ __GLOSSARY__
   }
   var COLS = [['symbol', 'Symbol', true], ['type', 'Type'], ['sector', 'Sector'], ['price', 'Price'], ['change_pct', 'Today'], ['move_1w', 'Week'], ['move_1m', 'Month'],
     ['rsi', 'RSI', false, 'rsi'], ['macd_ago', 'MACD', false, 'macd'], ['volume_ratio', 'Volume vs avg', false, 'volume'], ['pc', 'Put/call', false, 'putcall'], ['rating', 'Rating', false, 'rating'], ['why', 'Why it matched']];
-  function val(r, k) { return k === 'pc' ? (r.put_call ? r.put_call.ratio : null) : k === 'macd_ago' ? (r.macd_ago == null ? null : (r.macd_cross === 'bullish' ? 1 : -1) / (1 + r.macd_ago)) : r[k]; }
+  var RANK = {'Strong Buy': 4, 'Buy': 3, 'Hold': 2, 'Sell': 1, 'Strong Sell': 0};   // the Rating column sorts by strength, not alphabet
+  function val(r, k) { if (k === 'rating') { return RANK[r.rating] == null ? null : RANK[r.rating]; } return k === 'pc' ? (r.put_call ? r.put_call.ratio : null) : k === 'macd_ago' ? (r.macd_ago == null ? null : (r.macd_cross === 'bullish' ? 1 : -1) / (1 + r.macd_ago)) : r[k]; }
+  // Buy / Sell open the order form of the account you pick, with the symbol and side filled in. Nothing is sent from here:
+  // the form still needs a preview and a typed confirmation.
+  var TARGETS = __TRADE_TARGETS__;
+  function tradeBtn(sym, side) {
+    var q = '?symbol=' + encodeURIComponent(sym) + '&side=' + side, label = side === 'buy' ? 'Buy' : 'Sell',
+        tip = label + ' ' + sym + ': opens the order form with it filled in. Nothing is sent until you preview and confirm there.';
+    if (TARGETS.length === 1) { return '<a class="sc-go ' + side + '" href="' + TARGETS[0][1] + q + '" title="' + esc(tip) + '">' + label + '</a>'; }
+    return '<details class="sc-d"><summary class="' + side + '" title="' + esc(tip) + '">' + label + '</summary><span class="sc-pick">' +
+      TARGETS.map(function (t) { return '<a href="' + t[1] + q + '">' + esc(t[0]) + '</a>'; }).join('') + '</span></details>';
+  }
   function draw() {
     var list = rows.slice();
     if (sortKey) { list.sort(function (a, b) { var x = val(a, sortKey), y = val(b, sortKey); if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; } return (x < y ? -1 : x > y ? 1 : 0) * sortDir; }); }
@@ -245,12 +270,12 @@ __GLOSSARY__
         '<td>' + (r.type === 'etf' ? 'ETF' : 'Stock') + '</td><td>' + esc(r.sector || '') + '</td><td class="num">$' + fmt(r.price, 2) + '</td><td class="num">' + pct(r.change_pct) + '</td><td class="num">' + pct(r.move_1w) +
         '</td><td class="num">' + pct(r.move_1m) + '</td><td class="num">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td><td class="num">' + macd + '</td><td class="num">' + (r.volume_ratio == null ? '--' : r.volume_ratio.toFixed(1) + 'x') +
         '</td><td class="num">' + pc + '</td><td>' + esc(r.rating) + '</td><td class="why">' + esc((r.why || []).join('; ')) + '</td>' +
-        '<td><button type="button" class="small" data-watch="' + esc(r.symbol) + '" title="Add to your watchlist">☆</button></td></tr>';
+        '<td style="white-space:nowrap;"><span class="sc-trade">' + tradeBtn(r.symbol, 'buy') + tradeBtn(r.symbol, 'sell') + '</span> <button type="button" class="small" data-watch="' + esc(r.symbol) + '" title="Add to your watchlist">☆</button></td></tr>';
     }).join('');
     $('sc-table').innerHTML = rows.length ? '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody>' : '';
     if (!rows.length) { $('sc-summary').innerHTML += ' <span class="muted">Nothing matched: loosen a filter (a wider RSI range or a longer MACD window usually helps).</span>'; }
   }
-  window.scSort = function (k) { if (sortKey === k) { sortDir = -sortDir; } else { sortKey = k; sortDir = (k === 'symbol' || k === 'type' || k === 'sector' || k === 'rating') ? 1 : -1; } draw(); };
+  window.scSort = function (k) { if (sortKey === k) { sortDir = -sortDir; } else { sortKey = k; sortDir = (k === 'symbol' || k === 'type' || k === 'sector') ? 1 : -1; } draw(); };
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest ? ev.target.closest('button[data-watch]') : null; if (!b) { return; }
     b.disabled = true; postJSON('/api/watchlist/add', {symbol: b.getAttribute('data-watch')}).then(function () { b.textContent = '★'; }).catch(function (e) { b.disabled = false; alert(e.message); });
@@ -289,4 +314,4 @@ def _render_screener_page() -> str:
     body = (_BODY.replace("__THEMES__", themes).replace("__SWING1__", _swing_row(1)).replace("__SWING2__", _swing_row(2))
             .replace("__SECTORS__", sectors).replace("__CATEGORIES__", cats))
     return _shell(title="Screener", active="screener.html",
-                  body=f"<style>{_CSS}</style>{body}" + _JS.replace("__GLOSSARY__", glossary.JS))
+                  body=f"<style>{_CSS}</style>{body}" + _JS.replace("__GLOSSARY__", glossary.JS).replace("__TRADE_TARGETS__", json.dumps(trade_targets())))

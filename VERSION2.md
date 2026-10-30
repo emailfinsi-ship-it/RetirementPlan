@@ -156,3 +156,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Technical terms explained on hover (Stock Analysis and the ratings hover).
 
 - Screener tab (Trading -> Screener): plain-words stock/ETF screener (MACD, RSI, swing %/$, sectors, put/call volume) using Alpaca/Yahoo/E*TRADE data; see VERSION3.md item 62.
+- Screener: Buy / Sell buttons open the chosen account's order form (?symbol=&side=); results sort by rating (Strong Buy first). See VERSION3.md item 62.
