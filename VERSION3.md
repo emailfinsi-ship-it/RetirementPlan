@@ -434,3 +434,6 @@ are not touched.
 72. **Video tools** (`tools/video/`, not part of the app): `make_tour.py` records a narrated tour of the app on the sample household with made-up Alpaca / IBKR /
     E*TRADE answers (`fakes.py`), `post.py` joins picture and voice and writes the chapter times, `make_shots.py` takes the guide pictures,
     `build_guide.py` builds the in-app guide, `narration.py` holds what Fin says.
+73. **Connect to IBKR** (IBKR tab): one button that starts the gateway if it is not running (or finds one already running on another port), opens IBKR's own
+    sign-in page, and refreshes the tab by itself until you are signed in. It appears under the "not signed in" message and at the top of the Connect card. New
+    route `/api/broker/ibkr/connect` (states connected / signin / starting); it never sees your IBKR password. Tests in `TestGatewayLauncher`.

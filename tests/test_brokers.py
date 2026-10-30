@@ -845,6 +845,28 @@ class TestGatewayLauncher(BrokerApiCase):
         self.assertEqual(ibkr.clean_gateway_url(""), f"https://localhost:{self.gw.PRIVATE_PORT}")
         self.assertIn(self.gw.PRIVATE_PORT, ibkr.COMMON_PORTS)
 
+    def test_the_connect_button_starts_the_gateway_then_asks_for_the_sign_in(self):
+        down = lambda req, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("refused"))      # noqa: E731
+        with patch.dict(broker_api.OPENERS, {"ibkr": down}), patch.object(self.gw, "start", return_value={"started": True, "message": "Starting"}) as st, \
+                patch.object(self.gw, "listen_port", return_value=5599):
+            out = self.post("/api/broker/ibkr/connect", {})
+        self.assertEqual((out["state"], out["url"]), ("starting", "https://localhost:5599"))
+        st.assert_called_once()
+        self.ib.authenticated = False                                                                  # the gateway answers, nobody signed in yet
+        with patch.object(self.gw, "start") as st2:
+            out = self.post("/api/broker/ibkr/connect", {})
+        self.assertEqual(out["state"], "signin")
+        st2.assert_not_called()                                                                        # never a second gateway
+        self.ib.authenticated = True
+        self.assertEqual(self.post("/api/broker/ibkr/connect", {})["state"], "connected")
+
+    def test_connect_with_no_java_is_a_message_not_a_crash(self):
+        down = lambda req, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("refused"))      # noqa: E731
+        with patch.dict(broker_api.OPENERS, {"ibkr": down}), patch.object(self.gw, "start", side_effect=BrokerError("Java is not installed on this Mac.")):
+            with self.assertRaises(ValueError) as ctx:
+                self.post("/api/broker/ibkr/connect", {})
+        self.assertIn("Java", str(ctx.exception))
+
     def test_start_failure_reaches_the_page_as_a_message(self):
         with patch.object(self.gw, "start", side_effect=BrokerError("Java is not installed on this Mac.")):
             with self.assertRaises(ValueError):
@@ -978,6 +1000,8 @@ class TestBrokerPages(DashboardTestCase):
         self.assertIn('id="gw-auto"', page)                          # "start automatically with the app" switch
         self.assertIn('id="gw-start"', page)                         # Start gateway / Sign in to IBKR / Stop gateway
         self.assertIn("/api/broker/ibkr/start", page)
+        self.assertIn("/api/broker/ibkr/connect", page)                       # one-press Connect to IBKR
+        self.assertIn('data-act="ibkrconnect"', page)
         self.assertIn("{k: 'rating', t: 'Rating'", page)                       # each position gets a rating and a hover analysis
         self.assertIn("/api/ratings", page)
 
