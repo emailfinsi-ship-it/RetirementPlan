@@ -155,6 +155,11 @@ def evaluate(summary: dict, chance: float | None, positions: list[dict], data_is
                 add("drift", "info", "Your mix has drifted from your goal",
                     f"You hold {abs(worst['drift_pts']):.0f} percentage points {word} in {worst['cls'].lower()} than your goal.",
                     "/rebalance.html")
+    try:        # watched Screener scans with new matches (read from what the daily check stored; nothing is scanned here)
+        from source.screener import saved
+        out.extend(saved.alert_items())
+    except Exception:       # noqa: BLE001 -- the screener must never stop the plan alerts
+        pass
     return out
 
 

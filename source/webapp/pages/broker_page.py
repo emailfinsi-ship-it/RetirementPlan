@@ -25,12 +25,22 @@ _CSS = """
 .bk-ticket input, .bk-ticket select { min-width:90px; }
 .bk-preview { border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin:10px 0; background:var(--surface-alt); }
 .bk-step { margin:6px 0; }
+.bk-checks { margin:8px 0; } .bk-check { margin:4px 0; padding:6px 10px; border-radius:8px; border:1px solid var(--border); font-size:13px; }
+.bk-check.warn { border-color:var(--warn); background:var(--surface-alt); font-weight:600; }
 .bk-warn { border:1px solid var(--warn); border-radius:10px; padding:8px 10px; margin:8px 0; }
 .bk-pos td, .bk-pos th { white-space:nowrap; }
 .bk-lot td { background:var(--surface-alt); font-size:13px; }
 .bk-lot td:first-child { border-left:3px solid var(--brand); }
 .lot-toggle { background:none; border:0; padding:2px 6px; font-size:15px; cursor:pointer; color:var(--brand); line-height:1; }
 .bk-pos th.sortable { cursor:pointer; user-select:none; }
+.bk-trade-btn { cursor:pointer; padding:3px 12px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid var(--brand); background:transparent; color:var(--brand); white-space:nowrap; }
+.bk-trade-btn:hover, .bk-trade-btn.open { background:var(--brand-soft); }
+#bk-tmenu { position:fixed; z-index:60; min-width:170px; padding:6px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.25); display:none; flex-direction:column; font-size:13px; }
+#bk-tmenu.on { display:flex; }
+#bk-tmenu button { text-align:left; border:0; background:transparent; padding:7px 10px; border-radius:6px; font-weight:600; cursor:pointer; color:var(--ink); }
+#bk-tmenu button:hover { background:var(--brand-soft); }
+#bk-tmenu button[data-act=buy] { color:var(--success); }
+#bk-tmenu button[data-act=sell] { color:var(--danger); }
 .bk-pos th.sortable:hover { text-decoration:underline; }
 """
 
@@ -93,8 +103,8 @@ _JS = r"""
     }).join('') + '<th></th>';
     return '<table class="bk-pos"><thead><tr>' + head + '</tr></thead><tbody>' + rows.map(function (p) {
       var open = lotsOn && EXP[K(sec.id, p.symbol)];
-      var buy = '<button type="button" data-act="buy"' + acct + ' data-sym="' + esc(p.symbol) + '">Buy</button> ' +
-        (p.qty >= 1 ? '<button type="button" data-act="sell"' + acct + ' data-sym="' + esc(p.symbol) + '" data-qty="' + Math.floor(p.qty) + '">Sell</button>' : '');
+      // one Trade button (like E*TRADE's own site): its menu offers Buy more and Sell
+      var buy = '<button type="button" class="bk-trade-btn" data-act="tmenu"' + acct + ' data-sym="' + esc(p.symbol) + '" data-qty="' + (p.qty >= 1 ? Math.floor(p.qty) : 0) + '" title="Buy or sell ' + esc(p.symbol) + '. This only fills in the order ticket; nothing is sent until you preview and confirm.">Trade ▾</button>';
       var arrow = lotsOn ? '<td><button type="button" class="lot-toggle" data-act="toggle"' + acct + ' data-sym="' + esc(p.symbol) + '" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + (open ? 'Hide' : 'Show') + ' the lots">' + (open ? '▾' : '▸') + '</button></td>' : '';
       return '<tr class="bk-parent">' + arrow + '<td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(p.symbol) + '" title="' + esc(p.name || 'Open in Stock Analysis') + '"><strong>' + esc(p.symbol) + '</strong></a></td>' +
         '<td class="num">' + mf(p.price, p.currency) + extLine(p.symbol) + '</td><td class="num ' + cl(p.change) + '">' + sg(p.change, p.currency) + '</td><td class="num ' + cl(p.change_pct) + '">' + pc(p.change_pct) + '</td>' +
@@ -314,6 +324,8 @@ _JS = r"""
     var an = ((DATA.accounts || []).filter(function (a) { return a.id === p.account; })[0] || {}).name;
     var h = '<div class="bk-preview">' + (an ? '<div class="muted small">Account: ' + esc(an) + '</div>' : '') + '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> (' + (o.type === 'limit' ? 'limit ' + usd(o.limit_price, true) : 'market') + ', ' + (o.time_in_force === 'gtc' ? 'good till cancelled' : 'today only') + (o.session === 'extended' ? ', extended hours' : o.session === 'overnight' ? ', overnight session' : '') + ')' +
       '<br>Worth about <strong>' + usd(p.estimate, true) + '</strong>' + (p.price ? ' at ' + usd(p.price, true) + ' a share' : '') + (p.commission != null ? '; estimated commission ' + usd(p.commission, true) : '') + '.' +
+ (p.pct_of_account != null ? ' That is ' + (p.pct_of_account * 100 >= 10 ? Math.round(p.pct_of_account * 100) : (p.pct_of_account * 100).toFixed(1)) + '% of this account.' : '') +
+      (p.checks && p.checks.length ? '<div class="bk-checks">' + p.checks.map(function (c) { return '<div class="bk-check ' + esc(c.level) + '">' + (c.level === 'warn' ? '&#9888; ' : '&#9432; ') + esc(c.text) + '</div>'; }).join('') + '</div>' : '') +
       (p.notes && p.notes.length ? '<div class="bk-warn">' + p.notes.map(esc).join('<br>') + '</div>' : '') +
       '<form data-act="send" class="inline bk-step"><label>To send this REAL-MONEY order, type its symbol (' + esc(o.symbol) + ')<input name="confirm" autocomplete="off" style="width:110px; text-transform:uppercase"></label> ' +
       '<button type="submit" class="primary" style="background:#c94a4a;">Send order</button> <button type="button" data-act="discard">Discard</button></form>' +
@@ -331,10 +343,30 @@ _JS = r"""
     LAST = null; load();
   }
 
+  // The Trade menu is one fixed-position box (so the scrolling table cannot clip it); its Buy / Sell items reuse the same actions the old buttons had.
+  var TMENU = null;
+  function closeTMenu() { if (TMENU) { TMENU.classList.remove('on'); } Array.prototype.forEach.call(document.querySelectorAll('.bk-trade-btn.open'), function (x) { x.classList.remove('open'); }); }
+  function placeTMenu(btn) {
+    var r = btn.getBoundingClientRect(), w = TMENU.offsetWidth, h = TMENU.offsetHeight;
+    TMENU.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    TMENU.style.top = (r.bottom + h + 8 > window.innerHeight && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4) + 'px';
+  }
+  function openTMenu(btn) {
+    var was = btn.classList.contains('open'); closeTMenu(); if (was) { return; }
+    if (!TMENU) { TMENU = document.createElement('div'); TMENU.id = 'bk-tmenu'; document.body.appendChild(TMENU); }
+    var acct = btn.dataset.acct ? ' data-acct="' + esc(btn.dataset.acct) + '"' : '', sym = esc(btn.dataset.sym), qty = Number(btn.dataset.qty || 0);
+    TMENU.innerHTML = '<button type="button" data-act="buy"' + acct + ' data-sym="' + sym + '">Buy ' + sym + '</button>' +
+      (qty >= 1 ? '<button type="button" data-act="sell"' + acct + ' data-sym="' + sym + '" data-qty="' + qty + '">Sell ' + qty + ' (all)</button>' : '<span class="muted small" style="padding:6px 10px;">No whole shares to sell</span>');
+    TMENU.classList.add('on'); btn.classList.add('open'); placeTMenu(btn);
+  }
+  window.addEventListener('scroll', function () { var b = document.querySelector('.bk-trade-btn.open'); if (!b || !TMENU) { return; } var r = b.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) { closeTMenu(); } else { placeTMenu(b); } }, true);
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeTMenu(); } });
   document.addEventListener('click', function (ev) {
     var th = ev.target.closest('th[data-sortkey]'); if (th) { resort(th.dataset.sortkey); return; }
-    var b = ev.target.closest('[data-act]'); if (!b || b.tagName === 'FORM') { return; }
+    var b = ev.target.closest('[data-act]'); if (!b || b.tagName === 'FORM') { closeTMenu(); return; }
     var act = b.dataset.act;
+    if (act === 'tmenu') { openTMenu(b); return; }
+    closeTMenu();
     if (act === 'disarm') { postJSON('/api/alpaca/live/disarm', {}).then(function () { load(); }).catch(err); }
     else if (act === 'sell') {
       var f = $('bk-form'); if (b.dataset.acct) { f.account.value = b.dataset.acct; } f.symbol.value = b.dataset.sym; f.side.value = 'sell'; f.qty.value = b.dataset.qty;

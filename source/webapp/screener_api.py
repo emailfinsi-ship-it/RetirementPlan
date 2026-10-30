@@ -1,12 +1,13 @@
 """The Screener tab's routes: understand a typed request, run a screen in the background, report progress, and look up
-put/call volume for the rows on screen. Read-only; nothing here places an order."""
+put/call volume for the rows on screen, and keep saved screens. Nothing here places an order."""
 
 from __future__ import annotations
 
-from source.screener import engine, filters, jobs, parser, universe
+from source.screener import engine, filters, jobs, parser, saved, universe
 
 ROUTES = ("/api/screener/config", "/api/screener/parse", "/api/screener/run", "/api/screener/status", "/api/screener/cancel",
-          "/api/screener/options")
+          "/api/screener/options", "/api/screener/saved/list", "/api/screener/saved/save", "/api/screener/saved/delete",
+          "/api/screener/saved/watch", "/api/screener/saved/seen")
 
 CATEGORIES = ("Broad market", "Dividend", "Thematic", "Commodities", "Bonds", "International", "Crypto", "Leveraged")
 EXAMPLES = (
@@ -52,6 +53,17 @@ def handle(path: str, payload: dict) -> dict:
     if path == "/api/screener/options":
         syms = [s for s in dict.fromkeys(universe.clean_symbol(x) for x in (payload.get("symbols") or [])) if s][:40]
         return {"items": engine.default_load_options(syms) if syms else {}}
+    if path == "/api/screener/saved/list":
+        return {"items": saved.list_scans()}
+    if path == "/api/screener/saved/save":
+        return {"item": saved.save(payload.get("name"), payload.get("filters"), payload.get("text") or "", bool(payload.get("watch")))}
+    if path == "/api/screener/saved/delete":
+        saved.delete(payload.get("id"))
+        return {}
+    if path == "/api/screener/saved/watch":
+        return {"item": saved.set_watch(payload.get("id"), bool(payload.get("watch")))}
+    if path == "/api/screener/saved/seen":
+        return {"item": saved.mark_seen(payload.get("id"), payload.get("symbols"))}
     raise ValueError("Not found")
 
 

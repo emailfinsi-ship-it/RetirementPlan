@@ -16,6 +16,7 @@ from source.collector import etrade, ibkr, ibkr_gateway
 from source.collector.broker_common import BrokerError
 from source.common import db, secrets_store
 from source.common.db.meta import get_meta, set_meta
+from source.webapp import trade_context
 
 ROUTES = (
     "/api/broker/data", "/api/broker/preview", "/api/broker/order", "/api/broker/cancel",
@@ -304,7 +305,17 @@ def _handle(path: str, payload: dict) -> dict:
     if path == "/api/broker/diagnose":
         return _diagnose(payload)
     if path == "/api/broker/data":
-        return _data(payload)
+        data = _data(payload)
+        try:
+            from source.screener import universe
+            held = list(data.get("positions") or [])
+            for acct in (data.get("overview") or {}).get("accounts") or []:
+                held += acct.get("positions") or []
+            if data.get("connected") and held:
+                universe.remember_broker_positions(data.get("broker") or _broker(payload), held)
+        except Exception:       # noqa: BLE001
+            pass
+        return data
     if path == "/api/broker/ibkr/gateway":
         url = ibkr.clean_gateway_url(payload.get("url"))
         set_meta(_GATEWAY_META, url)
@@ -368,8 +379,9 @@ def _handle(path: str, payload: dict) -> dict:
         return {}
     if path == "/api/broker/preview":
         _require_armed()
-        return mod.preview(client, account, payload.get("order") or {}, max_notional=lt.per_order_limit(),
-                           daily_remaining=lt.daily_remaining())
+        result = mod.preview(client, account, payload.get("order") or {}, max_notional=lt.per_order_limit(),
+                             daily_remaining=lt.daily_remaining())
+        return trade_context.for_broker(mod, client, account, result)     # adds size / concentration / wash-sale heads-ups
     if path == "/api/broker/order":
         _require_armed()
         token = payload.get("token")

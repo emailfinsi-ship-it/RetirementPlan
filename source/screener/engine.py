@@ -267,7 +267,8 @@ def _row(e: dict, m: dict, why: list[str]) -> dict:
         "move_1d": (m["moves"].get("1d") or {}).get("pct"), "move_1w": (m["moves"].get("1w") or {}).get("pct"),
         "move_1m": (m["moves"].get("1m") or {}).get("pct"), "day_range_pct": m["day_range_pct"],
         "rsi": m["rsi"], "macd_state": m["macd_state"], "macd_cross": m["macd_cross"], "macd_ago": m["macd_ago"],
-        "rating": m["rating"], "volume_ratio": m["volume_ratio"], "from_high_pct": m["from_high_pct"],
+        "rating": m["rating"], "buy_votes": m.get("buy_votes"), "sell_votes": m.get("sell_votes"), "signals": m.get("signals"),
+        "volume_ratio": m["volume_ratio"], "from_high_pct": m["from_high_pct"],
         "put_call": None, "why": why,
     }
 

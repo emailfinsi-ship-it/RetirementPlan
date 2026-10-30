@@ -52,6 +52,12 @@ def _fetch(keys, mode: str, **kw) -> dict:
 def _store(mode: str, entry: dict) -> None:
     with _lock:
         _cache[mode] = entry
+    if mode == "live":          # the screener's "my holdings" also covers what is held directly at Alpaca (live account only)
+        try:
+            from source.screener import universe
+            universe.remember_broker_positions("alpaca", entry.get("positions"))
+        except Exception:    # noqa: BLE001
+            pass
 
 
 def _refresh_in_background(keys, mode: str) -> None:
