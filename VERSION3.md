@@ -442,3 +442,8 @@ are not touched.
 75. **IBKR positions show the live price, Change $, Change % and Day's gain.** IBKR's positions list has no day change, so the app now asks the gateway's
     market-data snapshot for each holding (last price, change, change %); Day's gain is the change times the shares. If the snapshot is unavailable the
     holdings still show with IBKR's own price. Tests in `TestIbkr`.
+76. **How early could I stop working?** (Explore, under safe spending): reruns the plan's Monte Carlo with only the retirement year changed and finds the earliest year
+    (and age, when a birth year is set) that still keeps the chance of lasting at the level picked for safe spending, with the chance for the years around it and
+    your saved retirement year marked. Same market paths for every year, so it only rises with later years; bisection keeps it to about 2 seconds. Income lines are not
+    changed (a salary ending in a fixed year is not moved) and the card says so. `what_if.find_earliest_retirement`, `/api/earliest-retirement` (also allowed for the
+    view-only login), `pages/earliest_card.py`. Tests: `TestEarliestRetirement`. The guide mentions it.

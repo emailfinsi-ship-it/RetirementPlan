@@ -100,6 +100,61 @@ class TestSafeSpending(DashboardTestCase):
         self.assertEqual(status, 400)
 
 
+class TestEarliestRetirement(DashboardTestCase):
+    def setUp(self):
+        demo_data.seed_sample_household()
+
+    def tearDown(self):
+        demo_data.remove_sample_data()
+
+    def test_a_comfortable_plan_can_stop_now_and_the_table_runs_oldest_first(self):
+        r = what_if.find_earliest_retirement(build_summary(), 0.9)
+        self.assertEqual((r["limit"], r["earliest_year"]), ("now", r["this_year"]))
+        years = [row["year"] for row in r["rows"]]
+        self.assertEqual(years, sorted(years))
+        self.assertEqual(sum(row["is_earliest"] for row in r["rows"]), 1)
+        self.assertTrue(any(row["is_chosen"] for row in r["rows"]))              # the retirement year already saved in the plan
+        self.assertEqual(r["rows"][0]["age"], r["rows"][0]["year"] - r["birth_year"])
+
+    def test_a_tight_plan_finds_a_later_year_and_later_is_never_worse(self):
+        for it in db.list_line_items("expenses"):
+            db.update_line_item("expenses", it["id"], {"annual_amount": it["annual_amount"] * 2.4})
+        r = what_if.find_earliest_retirement(build_summary(), 0.8)
+        self.assertIsNone(r["limit"])
+        self.assertGreater(r["earliest_year"], r["this_year"] + 5)
+        rates = [row["success_rate"] for row in r["rows"] if not row["is_chosen"]]
+        self.assertEqual(rates, sorted(rates))                                    # same market paths for every year, so it only rises
+        earliest = next(row for row in r["rows"] if row["is_earliest"])
+        self.assertGreaterEqual(earliest["success_rate"], 0.8)
+        before = [row for row in r["rows"] if row["year"] == r["earliest_year"] - 1]
+        self.assertTrue(before and before[0]["success_rate"] < 0.8)               # one year earlier is the first that fails
+
+    def test_a_plan_that_never_gets_there_says_so(self):
+        for it in db.list_line_items("expenses"):
+            db.update_line_item("expenses", it["id"], {"annual_amount": it["annual_amount"] * 20})
+        r = what_if.find_earliest_retirement(build_summary(), 0.9)
+        self.assertEqual((r["limit"], r["earliest_year"], r["earliest_age"]), ("none", None, None))
+
+    def test_without_a_birth_year_it_answers_in_years(self):
+        db.set_assumptions({"birth_year": ""})
+        r = what_if.find_earliest_retirement(build_summary(), 0.9)
+        self.assertIsNone(r["earliest_age"])
+        self.assertTrue(all(row["age"] is None for row in r["rows"]))
+
+    def test_endpoint_validation_and_the_card_on_the_page(self):
+        status, d = self._post("/api/earliest-retirement", {"target": 0.9})
+        self.assertEqual(status, 200)
+        self.assertTrue(d["ok"])
+        self.assertIn("earliest_year", d)
+        status, _ = self._post("/api/earliest-retirement", {"target": 0.2})
+        self.assertEqual(status, 400)
+        body = self._get("/monte-carlo.html").read().decode("utf-8")
+        self.assertIn("How early could I stop working?", body)
+        self.assertIn('id="er-text"', body)
+        self.assertIn("/api/earliest-retirement", body)
+        self.assertLess(body.index('id="safe-spending"'), body.index('id="earliest-retirement"'))
+
+
 class TestPagesShowTheExtras(DashboardTestCase):
     def setUp(self):
         demo_data.seed_sample_household()
