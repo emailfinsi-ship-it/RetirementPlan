@@ -201,7 +201,33 @@ class TestJobsAndApi(unittest.TestCase):
         self.assertIn('id="sc-form"', page)
         self.assertIn("/api/screener/run", page)
         self.assertIn('name="sector"', page)
+        self.assertIn("&side=", page)             # Buy / Sell open the order form with the side filled in
+        self.assertIn("tradeBtn(r.symbol, 'buy')", page)
         self.assertTrue(any(href == "screener.html" for group in shell.NAV_GROUPS for href, _ in group))
+
+
+class TestRatingSort(unittest.TestCase):
+    def test_rating_sorts_strong_buy_first_and_strong_sell_first(self):
+        base = {"change_pct": 0, "move_1w": 0, "rsi": 50, "volume_ratio": 1, "macd_ago": None}
+        rows = [dict(base, symbol=s, rating=r) for s, r in (("A", "Sell"), ("B", "Strong Buy"), ("C", "Hold"), ("D", "Strong Sell"), ("E", "Buy"))]
+        best = [r["symbol"] for r in sorted(rows, key=lambda r: engine._sort_key(r, "rating"))]
+        worst = [r["symbol"] for r in sorted(rows, key=lambda r: engine._sort_key(r, "rating_low"))]
+        self.assertEqual(best, ["B", "E", "C", "A", "D"])
+        self.assertEqual(worst, ["D", "A", "C", "E", "B"])
+
+    def test_asking_for_it_in_words_and_the_form_value(self):
+        self.assertEqual(parser.parse("tech stocks, strongest buy ratings first")["filters"]["sort"], "rating")
+        self.assertEqual(parser.parse("ETFs sorted by rating")["filters"]["sort"], "rating")
+        self.assertEqual(filters.normalize({"sort": "rating_low"})["sort"], "rating_low")
+        from source.webapp.pages.screener_page import _JS
+        self.assertIn("'Strong Buy': 4", _JS)
+
+
+class TestTradeLinks(unittest.TestCase):
+    def test_order_forms_read_the_side_from_the_link(self):
+        from source.webapp.pages import broker_page, trading
+        self.assertIn(".get('side')", trading._TICKET_JS)
+        self.assertIn("qs.get('side')", broker_page._JS if hasattr(broker_page, "_JS") else open(broker_page.__file__).read())
 
 
 class FakeYF:

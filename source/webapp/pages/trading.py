@@ -239,8 +239,8 @@ _TICKET_JS = """
 var TRADE_MODE = '__MODE__';
 var pendingToken = null;
 (function () {
-  var sym = new URLSearchParams(location.search).get('symbol'), f = document.getElementById('ticket');
-  if (sym && f) { f.symbol.value = sym.toUpperCase(); f.scrollIntoView({behavior: 'smooth', block: 'center'}); f.qty.focus(); }
+  var sym = new URLSearchParams(location.search).get('symbol'), side = (new URLSearchParams(location.search).get('side') || '').toLowerCase(), f = document.getElementById('ticket');
+  if (sym && f) { f.symbol.value = sym.toUpperCase(); if (side === 'buy' || side === 'sell') { f.side.value = side; } f.scrollIntoView({behavior: 'smooth', block: 'center'}); f.qty.focus(); }
 })();
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 var priceTimer = null, priceSym = '';
