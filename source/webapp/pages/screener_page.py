@@ -13,13 +13,13 @@ import html
 import json
 
 from source.screener import universe
-from source.webapp.pages import glossary
+from source.webapp.pages import glossary, position_ratings
 from source.webapp.pages.quote_panel import trade_targets
 from source.webapp.render_helpers import _shell
 
 _CATEGORIES = ("Broad market", "Dividend", "Thematic", "Commodities", "Bonds", "International", "Crypto", "Leveraged")
 
-_CSS = glossary.CSS + """
+_CSS = glossary.CSS + position_ratings.CSS + """
 .sc-q { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .sc-q input[type=text] { flex:1 1 360px; min-width:240px; font-size:15px; padding:9px 12px; }
 .sc-ex { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 0; }
@@ -41,6 +41,15 @@ _CSS = glossary.CSS + """
 #sc-table td.num, #sc-table th.num { text-align:right; white-space:nowrap; }
 #sc-table td.why { font-size:11px; color:var(--ink-muted); min-width:220px; max-width:340px; }
 .sc-out { overflow-x:auto; }
+.sc-saved { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:6px; }
+.sc-saved-item { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px; padding:5px 10px; font-size:13px; }
+.sc-saved-item .sc-new { background:#12935a; color:#fff; border-radius:999px; padding:1px 8px; font-size:11px; font-weight:700; }
+.sc-saved-item label { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-muted); }
+.sc-bulk { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:8px 0; font-size:13px; }
+.sc-cols { display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; margin:6px 0 0; }
+.sc-cols label { display:inline-flex; align-items:center; gap:4px; }
+#sc-table tr.sc-isnew td:first-child { box-shadow:inset 3px 0 0 #12935a; }
+#sc-table .sc-newchip { background:#12935a; color:#fff; border-radius:999px; padding:0 6px; font-size:10px; font-weight:700; margin-left:4px; }
 .sc-trade-btn { cursor:pointer; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid var(--brand); background:transparent; color:var(--brand); white-space:nowrap; }
 .sc-trade-btn:hover, .sc-trade-btn.open { background:var(--brand-soft); }
 #sc-tmenu { position:fixed; z-index:60; min-width:150px; padding:6px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.2); display:none; flex-direction:column; font-size:13px; }
@@ -72,6 +81,12 @@ Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. Buy and 
   <div class="sc-ex" id="sc-examples"></div>
   <p class="sc-understood" id="sc-understood" hidden></p>
   <p class="muted small" id="sc-sources"></p>
+</div>
+
+<div class="card" id="sc-saved-card">
+  <h3 style="margin-top:0">Saved screens</h3>
+  <div class="sc-saved" id="sc-saved"></div>
+  <p class="muted small" id="sc-saved-note">Set up a screen below and press <em>Save screen</em> to keep it. Tick &ldquo;tell me about new matches&rdquo; and the app re-checks it once a day while it is open, then shows new names in the bell at the top (and as a Mac notification if you turned those on in Setup).</p>
 </div>
 
 <details class="card fold" id="sc-filters" open>
@@ -123,7 +138,8 @@ Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. Buy and 
   <div class="muted small" style="margin-top:6px;">ETFs: sector funds follow the sector above; other ETFs are grouped as</div>
   <div class="sc-sectors">__CATEGORIES__</div>
 </fieldset>
-<p style="margin-top:12px;"><button type="submit" class="primary" id="sc-run">Run screen</button> <button type="button" onclick="scClear()">Clear filters</button></p>
+<p style="margin-top:12px;"><button type="submit" class="primary" id="sc-run">Run screen</button> <button type="button" onclick="scClear()">Clear filters</button>
+  <span style="margin-left:14px;"><input type="text" id="sc-save-name" maxlength="40" placeholder="Name this screen" style="width:180px;"> <button type="button" onclick="scSave()">Save screen</button> <span class="muted small" id="sc-save-note"></span></span></p>
 </form>
 </details>
 
@@ -131,6 +147,13 @@ Alpaca or Yahoo Finance, put/call volume from E*TRADE or Yahoo Finance. Buy and 
   <div id="sc-progress" hidden><div class="sc-bar"><i id="sc-bar"></i></div><div class="muted small"><span id="sc-stage"></span> <button type="button" class="small" onclick="scCancel()">Cancel</button></div></div>
   <div id="sc-summary" class="status-line"></div>
   <p id="sc-actions" class="small" hidden><button type="button" onclick="scLoadOptions()" id="sc-opt-btn">Load put/call volume for these rows</button> <span class="muted" id="sc-opt-note"></span></p>
+  <div class="sc-bulk" id="sc-bulk" hidden>
+    <span id="sc-selcount" class="muted"></span>
+    <button type="button" onclick="scBulkWatch()" id="sc-bulk-watch">Add selected to watchlist</button>
+    <button type="button" onclick="scCsv()">Download CSV</button>
+    <details class="sc-colpick"><summary class="muted small" style="cursor:pointer;">Columns</summary><div class="sc-cols" id="sc-cols"></div></details>
+    <span class="muted small" id="sc-bulk-note"></span>
+  </div>
   <div class="sc-out"><table id="sc-table"></table></div>
 </div>
 """
@@ -198,7 +221,7 @@ __GLOSSARY__
   function find() {
     var text = $('sc-text').value.trim(); if (!text) { $('sc-text').focus(); return; }
     postJSON('/api/screener/parse', {text: text}).then(function (r) {
-      fillForm(r.filters); showUnderstood(r.understood, r.message);
+      currentScan = null; newSet = {}; fillForm(r.filters); showUnderstood(r.understood, r.message);
       if (r.understood && r.understood.length) { run(r.filters); }
     }).catch(function (e) { showUnderstood([], e.message); });
   }
@@ -214,7 +237,7 @@ __GLOSSARY__
       timer = setInterval(poll, 1000); poll();
     }).catch(function (e) { $('sc-progress').hidden = true; $('sc-summary').innerHTML = '<span class="status-warn">' + esc(e.message) + '</span>'; $('sc-run').disabled = false; });
   }
-  window.scRun = function () { run(); };
+  window.scRun = function () { currentScan = null; newSet = {}; run(); };
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
   window.scCancel = function () { if (job) { postJSON('/api/screener/cancel', {job: job}); } };
   function poll() {
@@ -230,7 +253,7 @@ __GLOSSARY__
   function fmt(n, d) { return n == null ? '--' : Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d}); }
   function pct(n) { return n == null ? '<span class="muted">--</span>' : '<span class="' + (n >= 0 ? 'qp-up' : 'qp-down') + '">' + (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%</span>'; }
   function done(res, cancelled) {
-    rows = res.rows; sortKey = null;
+    rows = res.rows; sortKey = null; picked = {};
     var src = res.sources || {}, from = Object.keys(src).map(function (k) { return src[k] + ' from ' + (k === 'alpaca' ? 'Alpaca' : 'Yahoo Finance'); }).join(', ');
     $('sc-summary').innerHTML = (cancelled ? 'Stopped. ' : '') + '<strong>' + res.matched + '</strong> match' + (res.matched === 1 ? '' : 'es') + ' out of ' + res.scanned + ' scanned' +
       (res.no_data ? ' (' + res.no_data + ' had too little price history)' : '') + (res.truncated ? '; showing the first ' + rows.length : '') + (from ? '. Prices: ' + from : '') +
@@ -238,9 +261,33 @@ __GLOSSARY__
     $('sc-actions').hidden = !rows.length || rows.some(function (r) { return r.put_call; });
     $('sc-opt-note').textContent = '';
     draw();
+    if (currentScan && !cancelled) {         // you have now seen this saved screen's results: they become the comparison for next time
+      postJSON('/api/screener/saved/seen', {id: currentScan, symbols: rows.map(function (r) { return r.symbol; })}).then(loadSaved).catch(function () {});
+    }
   }
-  var COLS = [['symbol', 'Symbol', true], ['type', 'Type'], ['sector', 'Sector'], ['price', 'Price'], ['change_pct', 'Today'], ['move_1w', 'Week'], ['move_1m', 'Month'],
-    ['rsi', 'RSI', false, 'rsi'], ['macd_ago', 'MACD', false, 'macd'], ['volume_ratio', 'Volume vs avg', false, 'volume'], ['pc', 'Put/call', false, 'putcall'], ['rating', 'Rating', false, 'rating']];
+  // Optional columns (Symbol, the checkbox, Trade and Why it matched are always there). The choice is remembered in this browser.
+  var COLS = [['type', 'Type'], ['sector', 'Sector'], ['price', 'Price'], ['change_pct', 'Today'], ['move_1w', 'Week'], ['move_1m', 'Month'],
+    ['rsi', 'RSI', 'rsi'], ['macd_ago', 'MACD', 'macd'], ['volume_ratio', 'Volume vs avg', 'volume'], ['pc', 'Put/call', 'putcall'], ['rating', 'Rating', 'rating']];
+  var SHOW = {};
+  COLS.forEach(function (c) { SHOW[c[0]] = true; });
+  try { var savedCols = JSON.parse(localStorage.getItem('sc_cols') || 'null'); if (savedCols) { COLS.forEach(function (c) { if (c[0] in savedCols) { SHOW[c[0]] = !!savedCols[c[0]]; } }); } } catch (e) {}
+  function drawColPicker() {
+    $('sc-cols').innerHTML = COLS.map(function (c) { return '<label><input type="checkbox" data-col="' + c[0] + '"' + (SHOW[c[0]] ? ' checked' : '') + '> ' + esc(c[1]) + '</label>'; }).join('');
+  }
+  document.addEventListener('change', function (ev) {
+    var t = ev.target; if (!t || !t.getAttribute) { return; }
+    var col = t.getAttribute('data-col');
+    if (col) { SHOW[col] = t.checked; try { localStorage.setItem('sc_cols', JSON.stringify(SHOW)); } catch (e) {} draw(); return; }
+    if (t.getAttribute('data-pick') != null) { if (t.checked) { picked[t.getAttribute('data-pick')] = 1; } else { delete picked[t.getAttribute('data-pick')]; } countPicked(); return; }
+    if (t.id === 'sc-pick-all') { rows.forEach(function (r) { if (t.checked) { picked[r.symbol] = 1; } else { delete picked[r.symbol]; } }); Array.prototype.forEach.call(document.querySelectorAll('#sc-table input[data-pick]'), function (c) { c.checked = t.checked; }); countPicked(); }
+  });
+  var picked = {};
+  function pickedSymbols() { return rows.map(function (r) { return r.symbol; }).filter(function (x) { return picked[x]; }); }
+  function countPicked() {
+    var n = pickedSymbols().length; $('sc-selcount').textContent = n ? n + ' selected' : 'Tick rows to select them';
+    $('sc-bulk-watch').disabled = !n;
+    var all = $('sc-pick-all'); if (all) { all.checked = rows.length > 0 && n === rows.length; }
+  }
   var RANK = {'Strong Buy': 4, 'Buy': 3, 'Hold': 2, 'Sell': 1, 'Strong Sell': 0};   // the Rating column sorts by strength, not alphabet
   function val(r, k) { if (k === 'rating') { return RANK[r.rating] == null ? null : RANK[r.rating]; } return k === 'pc' ? (r.put_call ? r.put_call.ratio : null) : k === 'macd_ago' ? (r.macd_ago == null ? null : (r.macd_cross === 'bullish' ? 1 : -1) / (1 + r.macd_ago)) : r[k]; }
   // Buy / Sell open the order form of the account you pick, with the symbol and side filled in. Nothing is sent from here:
@@ -275,29 +322,79 @@ __GLOSSARY__
   // the menu follows its button while the page scrolls, and goes away if the button leaves the screen
   function follow() { var b = document.querySelector('.sc-trade-btn.open'); if (!b || !menu) { return; } var r = b.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) { closeMenu(); } else { placeMenu(b); } }
   window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow);
+  function cell(k, r) {
+    if (k === 'type') { return '<td>' + (r.type === 'etf' ? 'ETF' : 'Stock') + '</td>'; }
+    if (k === 'sector') { return '<td>' + esc(r.sector || '') + '</td>'; }
+    if (k === 'price') { return '<td class="num">$' + fmt(r.price, 2) + '</td>'; }
+    if (k === 'change_pct' || k === 'move_1w' || k === 'move_1m') { return '<td class="num">' + pct(r[k]) + '</td>'; }
+    if (k === 'rsi') { return '<td class="num">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td>'; }
+    if (k === 'volume_ratio') { return '<td class="num">' + (r.volume_ratio == null ? '--' : r.volume_ratio.toFixed(1) + 'x') + '</td>'; }
+    if (k === 'rating') {
+      // same green / amber / red pill as the positions tables on the Alpaca, IBKR and E*TRADE tabs
+      if (!r.rating) { return '<td><span class="muted">--</span></td>'; }
+      var cls = /Buy/.test(r.rating) ? 'pr-buy' : /Sell/.test(r.rating) ? 'pr-sell' : 'pr-hold';
+      var note = (r.signals ? 'Signals: ' + r.buy_votes + ' of ' + r.signals + ' bullish, ' + r.sell_votes + ' bearish\n' : '') + (r.rsi != null ? 'RSI: ' + Math.round(r.rsi) + '\n' : '') + 'Not advice.';
+      return '<td><span class="pr-badge ' + cls + '" data-ctip="' + esc(r.symbol + ' \u00B7 ' + r.rating) + '" data-ctip-note="' + esc(note) + '">' + esc(r.rating) + '</span></td>';
+    }
+    if (k === 'macd_ago') {
+      return '<td class="num">' + (r.macd_state == null ? '<span class="muted">--</span>' : r.macd_cross && r.macd_ago != null && r.macd_ago <= 10
+        ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '">' + (r.macd_cross === 'bullish' ? '▲ Bullish' : '▼ Bearish') + ' ' + (r.macd_ago === 0 ? 'today' : r.macd_ago + 'd ago') + '</span>'
+        : '<span class="' + (r.macd_state === 'above' ? 'qp-up' : 'qp-down') + '">' + (r.macd_state === 'above' ? '▲ Above' : '▼ Below') + '</span>') + '</td>';
+    }
+    if (k === 'pc') {
+      return '<td class="num">' + (r.put_call ? '<span title="' + fmt(r.put_call.put_volume, 0) + ' puts / ' + fmt(r.put_call.call_volume, 0) + ' calls (' + esc(r.put_call.source || '') + ')">' + (r.put_call.ratio == null ? '--' : Number(r.put_call.ratio).toFixed(2)) + '</span>' : '<span class="muted">--</span>') + '</td>';
+    }
+    return '<td></td>';
+  }
   function draw() {
     var list = rows.slice();
     if (sortKey) { list.sort(function (a, b) { var x = val(a, sortKey), y = val(b, sortKey); if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; } return (x < y ? -1 : x > y ? 1 : 0) * sortDir; }); }
-    var head = COLS.map(function (c) {
-      var t = c[3] ? '<span class="has-tip"' + window.termAttrs(c[3]) + '>' + c[1] + '</span>' : c[1];
-      var sortable = true;
-      return '<th class="' + (c[0] === 'symbol' || c[0] === 'type' || c[0] === 'sector' || c[0] === 'rating' ? '' : 'num') + (sortable ? ' sortable' : '') + '"' + (sortable ? ' onclick="scSort(\'' + c[0] + '\')"' : '') + '>' + t + (sortKey === c[0] ? (sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    var shown = COLS.filter(function (c) { return SHOW[c[0]]; });
+    var th = function (k, label, tip, left) {
+      var t = tip ? '<span class="has-tip"' + window.termAttrs(tip) + '>' + label + '</span>' : label;
+      return '<th class="' + (left ? '' : 'num') + ' sortable" onclick="scSort(\'' + k + '\')">' + t + (sortKey === k ? (sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    };
+    var head = '<th><input type="checkbox" id="sc-pick-all" title="Select all rows"></th>' + th('symbol', 'Symbol', '', true) + shown.map(function (c) {
+      return th(c[0], c[1], c[2], c[0] === 'type' || c[0] === 'sector' || c[0] === 'rating');
     }).join('') + '<th></th><th>Why it matched</th>';
     var body = list.map(function (r) {
-      var macd = r.macd_state == null ? '<span class="muted">--</span>' : r.macd_cross && r.macd_ago != null && r.macd_ago <= 10
-        ? '<span class="' + (r.macd_cross === 'bullish' ? 'qp-up' : 'qp-down') + '">' + (r.macd_cross === 'bullish' ? '▲ Bullish' : '▼ Bearish') + ' ' + (r.macd_ago === 0 ? 'today' : r.macd_ago + 'd ago') + '</span>'
-        : '<span class="' + (r.macd_state === 'above' ? 'qp-up' : 'qp-down') + '">' + (r.macd_state === 'above' ? '▲ Above' : '▼ Below') + '</span>';
-      var pc = r.put_call ? '<span title="' + fmt(r.put_call.put_volume, 0) + ' puts / ' + fmt(r.put_call.call_volume, 0) + ' calls (' + esc(r.put_call.source || '') + ')">' + (r.put_call.ratio == null ? '--' : Number(r.put_call.ratio).toFixed(2)) + '</span>' : '<span class="muted">--</span>';
-      return '<tr><td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(r.symbol) + '" title="' + esc(r.name) + '"><strong>' + esc(r.symbol) + '</strong></a><div class="muted small">' + esc(r.name) + '</div></td>' +
-        '<td>' + (r.type === 'etf' ? 'ETF' : 'Stock') + '</td><td>' + esc(r.sector || '') + '</td><td class="num">$' + fmt(r.price, 2) + '</td><td class="num">' + pct(r.change_pct) + '</td><td class="num">' + pct(r.move_1w) +
-        '</td><td class="num">' + pct(r.move_1m) + '</td><td class="num">' + (r.rsi == null ? '--' : r.rsi.toFixed(0)) + '</td><td class="num">' + macd + '</td><td class="num">' + (r.volume_ratio == null ? '--' : r.volume_ratio.toFixed(1) + 'x') +
-        '</td><td class="num">' + pc + '</td><td>' + esc(r.rating) + '</td>' +
+      var isNew = newSet[r.symbol];
+      return '<tr' + (isNew ? ' class="sc-isnew"' : '') + '><td><input type="checkbox" data-pick="' + esc(r.symbol) + '"' + (picked[r.symbol] ? ' checked' : '') + '></td>' +
+        '<td><a href="/stock-analysis.html?symbol=' + encodeURIComponent(r.symbol) + '" title="' + esc(r.name) + '"><strong>' + esc(r.symbol) + '</strong></a>' + (isNew ? '<span class="sc-newchip" title="Not in this screen\u2019s results the last time you looked">NEW</span>' : '') + '<div class="muted small">' + esc(r.name) + '</div></td>' +
+        shown.map(function (c) { return cell(c[0], r); }).join('') +
         '<td style="white-space:nowrap;"><button type="button" class="sc-trade-btn" data-trade="' + esc(r.symbol) + '" title="Buy or sell ' + esc(r.symbol) + ': opens the order form with it filled in. Nothing is sent until you preview and confirm there.">Trade ▾</button> <button type="button" class="small" data-watch="' + esc(r.symbol) + '" title="Add to your watchlist">☆</button></td>' +
         '<td class="why">' + esc((r.why || []).join('; ')) + '</td></tr>';
     }).join('');
     $('sc-table').innerHTML = rows.length ? '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody>' : '';
+    $('sc-bulk').hidden = !rows.length; drawColPicker(); countPicked();
     if (!rows.length) { $('sc-summary').innerHTML += ' <span class="muted">Nothing matched: loosen a filter (a wider RSI range or a longer MACD window usually helps).</span>'; }
   }
+  var newSet = {};
+  window.scBulkWatch = function () {
+    var syms = pickedSymbols(); if (!syms.length) { return; }
+    var btn = $('sc-bulk-watch'); btn.disabled = true; $('sc-bulk-note').textContent = 'Adding…';
+    postJSON('/api/watchlist/add', {symbols: syms}).then(function (r) {
+      var n = (r.added || []).length; $('sc-bulk-note').textContent = n + ' added to your watchlist' + (n < syms.length ? ' (' + (syms.length - n) + ' were already on it)' : '') + '.';
+      syms.forEach(function (x) { var b = document.querySelector('button[data-watch="' + x + '"]'); if (b) { b.textContent = '★'; b.disabled = true; } }); btn.disabled = false;
+    }).catch(function (e) { $('sc-bulk-note').textContent = e.message; btn.disabled = false; });
+  };
+  // CSV of the selected rows (or every row when none are ticked), with every column regardless of what is shown.
+  window.scCsv = function () {
+    var sel = pickedSymbols(), list = rows.filter(function (r) { return !sel.length || picked[r.symbol]; });
+    var cols = [['symbol', 'Symbol'], ['name', 'Name'], ['type', 'Type'], ['sector', 'Sector'], ['price', 'Price'], ['change_pct', 'Today %'], ['move_1w', 'Week %'], ['move_1m', 'Month %'], ['rsi', 'RSI'],
+      ['macd', 'MACD'], ['volume_ratio', 'Volume vs avg'], ['pc', 'Put/call'], ['rating', 'Rating'], ['why', 'Why it matched']];
+    function q(v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    function get(r, k) {
+      if (k === 'macd') { return r.macd_cross && r.macd_ago != null ? r.macd_cross + ' cross ' + r.macd_ago + 'd ago' : (r.macd_state || ''); }
+      if (k === 'pc') { return r.put_call && r.put_call.ratio != null ? Number(r.put_call.ratio).toFixed(2) : ''; }
+      if (k === 'why') { return (r.why || []).join('; '); }
+      if (k === 'rsi' && r.rsi != null) { return Number(r.rsi).toFixed(1); }
+      return r[k];
+    }
+    var text = cols.map(function (c) { return q(c[1]); }).join(',') + '\n' + list.map(function (r) { return cols.map(function (c) { return q(get(r, c[0])); }).join(','); }).join('\n') + '\n';
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: 'text/csv'}));
+    a.download = 'screener-' + new Date().toISOString().slice(0, 10) + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  };
   window.scSort = function (k) { if (sortKey === k) { sortDir = -sortDir; } else { sortKey = k; sortDir = (k === 'symbol' || k === 'type' || k === 'sector') ? 1 : -1; } draw(); };
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest ? ev.target.closest('button[data-watch]') : null; if (!b) { return; }
@@ -310,6 +407,42 @@ __GLOSSARY__
       $('sc-opt-note').textContent = n + ' of ' + Math.min(rows.length, 40) + ' have option volume today (the first 40 rows were checked).'; btn.disabled = false; draw();
     }).catch(function (e) { $('sc-opt-note').textContent = e.message; btn.disabled = false; });
   };
+
+  // ---- saved screens
+  var currentScan = null, SAVED = [];
+  function drawSaved() {
+    $('sc-saved').innerHTML = SAVED.length ? SAVED.map(function (x) {
+      return '<span class="sc-saved-item" title="' + esc((x.summary || []).join('; ')) + '"><button type="button" class="small" data-run-saved="' + esc(x.id) + '"><strong>' + esc(x.name) + '</strong></button>' +
+        (x.new && x.new.length ? '<span class="sc-new" title="' + esc(x.new.join(', ')) + '">' + x.new.length + ' new</span>' : '') +
+        '<label title="Checked once a day while the app is open; new names appear in the bell"><input type="checkbox" data-watch-saved="' + esc(x.id) + '"' + (x.watch ? ' checked' : '') + '> tell me about new matches</label>' +
+        (x.error ? '<span class="status-warn small" title="' + esc(x.error) + '">last check failed</span>' : '') +
+        '<button type="button" class="small" data-del-saved="' + esc(x.id) + '" title="Delete this saved screen">&times;</button></span>';
+    }).join('') : '<span class="muted small">Nothing saved yet.</span>';
+    $('sc-saved-note').hidden = SAVED.length > 0;
+  }
+  function loadSaved(cb) { postJSON('/api/screener/saved/list', {}).then(function (r) { SAVED = r.items || []; drawSaved(); if (typeof cb === 'function') { cb(); } }).catch(function () {}); }
+  function runSaved(id) {
+    var x = SAVED.filter(function (y) { return y.id === id; })[0]; if (!x) { return; }
+    fillForm(x.filters); $('sc-text').value = x.text || ''; showUnderstood(x.summary);
+    newSet = {}; (x.new || []).forEach(function (sym) { newSet[sym] = 1; }); currentScan = id; run(x.filters);
+  }
+  window.scSave = function () {
+    var name = $('sc-save-name').value.trim(), note = $('sc-save-note');
+    if (!name) { note.textContent = 'Type a name first.'; $('sc-save-name').focus(); return; }
+    postJSON('/api/screener/saved/save', {name: name, filters: readFilters(), text: $('sc-text').value.trim()}).then(function () {
+      note.textContent = 'Saved.'; $('sc-save-name').value = ''; loadSaved();
+    }).catch(function (e) { note.textContent = e.message; });
+  };
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest ? ev.target.closest('[data-run-saved],[data-del-saved]') : null; if (!t) { return; }
+    if (t.hasAttribute('data-run-saved')) { runSaved(t.getAttribute('data-run-saved')); return; }
+    if (confirm('Delete this saved screen?')) { postJSON('/api/screener/saved/delete', {id: t.getAttribute('data-del-saved')}).then(loadSaved); }
+  });
+  document.addEventListener('change', function (ev) {
+    var t = ev.target; if (!t || !t.getAttribute || t.getAttribute('data-watch-saved') == null) { return; }
+    postJSON('/api/screener/saved/watch', {id: t.getAttribute('data-watch-saved'), watch: t.checked}).then(loadSaved).catch(function (e) { t.checked = !t.checked; alert(e.message); });
+  });
+  loadSaved(function () { var id = new URLSearchParams(location.search).get('scan'); if (id) { runSaved(id); } });
 
   postJSON('/api/screener/config', {}).then(function (c) {
     CFG = c; $('sc-sources').textContent = c.sources + ' Scans ' + c.universe_size + ' stocks and ETFs.';

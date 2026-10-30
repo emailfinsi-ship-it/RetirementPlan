@@ -101,11 +101,10 @@ def _sell_cell(p: dict) -> str:
     """A Sell button that fills the order form below (the person then picks Market or a Limit price and
     previews it as usual -- nothing is sent from here). Whole shares only, as the form takes whole shares."""
     qty = p.get("qty") or 0
-    if qty < 1:
-        return "<td></td>"
     sym = html.escape(p["symbol"], quote=True)
-    return (f'<td class="num"><button type="button" class="sell-btn" title="Fill in the order form to sell {sym}" '
-            f'onclick="sellPosition(\'{sym}\', {qty:g})">Sell</button></td>')
+    return (f'<td class="num"><button type="button" class="trade-btn" data-sym="{sym}" data-qty="{qty:g}" '
+            f'title="Buy or sell {sym}: fills in the order form below; nothing is sent until you preview and confirm" '
+            f'onclick="tradeMenu(this)">Trade &#9662;</button></td>')
 
 
 def _positions_html(positions: list[dict]) -> str:
@@ -235,6 +234,16 @@ _TICKET_FORM = """
 """
 
 _TICKET_JS = """
+<style>
+.trade-btn { cursor:pointer; padding:3px 12px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid var(--brand); background:transparent; color:var(--brand); white-space:nowrap; }
+.trade-btn:hover, .trade-btn.open { background:var(--brand-soft); }
+#trade-menu { position:fixed; z-index:60; min-width:170px; padding:6px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.25); display:none; flex-direction:column; font-size:13px; }
+#trade-menu button { text-align:left; border:0; background:transparent; padding:7px 10px; border-radius:6px; font-weight:600; cursor:pointer; }
+#trade-menu button:hover { background:var(--brand-soft); }
+.tk-check { margin:6px 0 0; padding:6px 10px; border-radius:8px; border:1px solid var(--border); font-size:13px; }
+.tk-check.warn { border-color:var(--warn); font-weight:600; }
+#trade-menu .tm-buy { color:var(--success); } #trade-menu .tm-sell { color:var(--danger); }
+</style>
 <script>
 var TRADE_MODE = '__MODE__';
 var pendingToken = null;
@@ -296,15 +305,19 @@ function previewOrder(form) {
     var summary = '<strong>' + esc(o.side.toUpperCase()) + ' ' + o.qty + ' ' + esc(o.symbol) + '</strong> as a ' +
       esc(o.type) + ' order' + (o.limit_price ? ' at $' + o.limit_price.toFixed(2) : '') + (o.session && o.session !== 'regular' ? ' <strong>for extended hours</strong>' : '') + ', about <strong>$' +
       r.estimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong> (at about $' + r.price.toFixed(2) + ' a share).';
+    if (r.pct_of_account != null) { summary += ' That is ' + (r.pct_of_account * 100 >= 10 ? Math.round(r.pct_of_account * 100) : (r.pct_of_account * 100).toFixed(1)) + '% of this account.'; }
+    var checks = (r.checks || []).map(function (c) {
+      return '<div class="tk-check ' + esc(c.level) + '">' + (c.level === 'warn' ? '&#9888; ' : '&#9432; ') + esc(c.text) + '</div>';
+    }).join('');
     if (live) {
       box.innerHTML = '<div class="status-line" style="border:2px solid #c94a4a; padding:10px; border-radius:10px;">' +
-        '<div style="color:#c94a4a; font-weight:700;">REAL MONEY</div>' + summary +
+        '<div style="color:#c94a4a; font-weight:700;">REAL MONEY</div>' + summary + checks +
         '<div style="margin-top:8px;"><label>Type the symbol (<strong>' + esc(o.symbol) + '</strong>) to confirm ' +
         '<input id="confirm-symbol" autocomplete="off" style="width:90px; text-transform:uppercase;"></label></div></div>' +
         '<button type="button" class="primary" style="background:#c94a4a;" onclick="confirmOrder()">Send REAL order</button> ' +
         '<button type="button" onclick="clearPreview()">Cancel</button>';
     } else {
-      box.innerHTML = '<div class="status-line">' + summary + ' Practice account, no real money.</div>' +
+      box.innerHTML = '<div class="status-line">' + summary + ' Practice account, no real money.' + checks + '</div>' +
         '<button type="button" class="primary" onclick="confirmOrder()">Place practice order</button> ' +
         '<button type="button" onclick="clearPreview()">Cancel</button>';
     }
@@ -312,6 +325,37 @@ function previewOrder(form) {
 }
 // The Sell button beside a position: fill the order form with a sale of that stock (all the whole shares
 // held -- change the number to sell fewer), market type by default; the person picks Market or Limit and previews.
+// One Trade button per position: a small menu with Buy more and Sell (fixed-position so the table cannot clip it).
+var tradeMenuBox = null;
+function closeTradeMenu() { if (tradeMenuBox) { tradeMenuBox.style.display = 'none'; } Array.prototype.forEach.call(document.querySelectorAll('.trade-btn.open'), function (b) { b.classList.remove('open'); }); }
+function tradeMenu(btn) {
+  var was = btn.classList.contains('open'); closeTradeMenu(); if (was) { return; }
+  if (!tradeMenuBox) {
+    tradeMenuBox = document.createElement('div'); tradeMenuBox.id = 'trade-menu'; document.body.appendChild(tradeMenuBox);
+    document.addEventListener('click', function (ev) { if (!(ev.target.closest && (ev.target.closest('.trade-btn') || ev.target.closest('#trade-menu')))) { closeTradeMenu(); } });
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeTradeMenu(); } });
+    window.addEventListener('scroll', closeTradeMenu, true);
+  }
+  var sym = btn.getAttribute('data-sym'), qty = Number(btn.getAttribute('data-qty') || 0);
+  tradeMenuBox.innerHTML = '<button type="button" class="tm-buy" onclick="closeTradeMenu(); buyPosition(\\'' + sym + '\\')">Buy ' + esc(sym) + '</button>' +
+    (qty >= 1 ? '<button type="button" class="tm-sell" onclick="closeTradeMenu(); sellPosition(\\'' + sym + '\\', ' + qty + ')">Sell ' + qty + ' (all)</button>' : '<span class="muted small" style="padding:6px 10px;">No whole shares to sell</span>');
+  tradeMenuBox.style.display = 'flex'; btn.classList.add('open');
+  var r = btn.getBoundingClientRect(), w = tradeMenuBox.offsetWidth, h = tradeMenuBox.offsetHeight;
+  tradeMenuBox.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  tradeMenuBox.style.top = (r.bottom + h + 8 > window.innerHeight && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4) + 'px';
+}
+function buyPosition(sym) {
+  var f = document.getElementById('ticket');
+  if (!f) {
+    var h = document.getElementById('ticket-hint');
+    if (h) { h.style.display = ''; h.textContent = 'To buy ' + sym + ', turn live trading on above; this page then opens the order form with it filled in.'; h.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+    return;
+  }
+  f.side.value = 'buy'; f.symbol.value = sym; f.qty.value = 1; setMarket();
+  var note = document.getElementById('ticket-note');
+  if (note) { note.textContent = 'Buying ' + sym + ': set to 1 share. Change the number, then choose Market or a Limit price (buy only at that price or lower) and press Preview.'; }
+  f.scrollIntoView({behavior: 'smooth', block: 'center'}); loadPrice(sym); f.qty.focus();
+}
 function sellPosition(sym, held) {
   var f = document.getElementById('ticket');
   if (!f) {

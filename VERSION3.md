@@ -392,4 +392,24 @@ are not touched.
     set up) with the symbol and side filled in (`?symbol=XYZ&side=buy|sell`, now read by `pages/trading.py` and `pages/broker_page.py`);
     nothing is sent until you preview and confirm there.
     "Why it matched" is the last column. Results can be sorted by rating, strongest first (Strong Buy, Buy, Hold, Sell, Strong Sell): click the Rating column, pick "Rating: Strong Buy first" under Sort by, or say "sorted by rating".
+    Saved screens: name a screen and save it (up to 20); tick "tell me about new matches" and the app re-checks it once a day while it is
+    open, then lists new names in the alerts bell (and as a Mac notification when those are on). Looking at a saved screen clears its
+    new matches. Code: `screener/saved.py`, routes `/api/screener/saved/*`, `reporting/alerts.py` (`evaluate` adds `saved.alert_items()`),
+    `webapp/dashboard.py` (the daily loop calls `saved.run_due()`). Results can be ticked and added to the watchlist in bulk, downloaded
+    as CSV (selected rows or all), and columns can be hidden (remembered in the browser). Rating shows as the same green / amber / red
+    pill as the positions tables. "My holdings" also covers what the Alpaca (live), IBKR and E*TRADE tabs last showed
+    (`universe.remember_broker_positions`).
     The PyInstaller build bundles `source/screener/data`.
+63. **One Trade menu per position** on the Alpaca, IBKR and E*TRADE tabs: the separate Buy and Sell buttons are now one "Trade ▾" button whose
+    menu offers Buy and Sell (all shares); expanded tax-lot rows keep their own Sell (the account's lot method decides which lot is sold).
+64. **Portfolio risk card** at the top of Stock Analysis: biggest holdings, sectors and firms as bars across Plaid-linked accounts plus
+    what the Alpaca / IBKR / E*TRADE tabs last showed (a broker that is also linked through Plaid is counted once, from the broker), flags
+    for one stock over 15% or a sector over 40%, and a heads-up for big holdings reporting earnings within a week. Code:
+    `reporting/position_risk.py`, `pages/risk_card.py`.
+65. **Order preview safety checks** on all three brokers: size as a share of the account, a buy that would make one stock more than 15% of the
+    account, selling more than held or the whole position, a sale below cost with a wash-sale reminder, buying back something sold from the app in
+    the last 30 days, extended-hours note, wide bid/ask gap (Alpaca), and a limit price far from the market. Heads-ups only; the size limits still
+    do the blocking. Code: `collector/trade_checks.py`, `webapp/trade_context.py`.
+66. **Orders tab** (Trading row, after Screener): every real-money order sent from the app across the three brokers, filter by days / broker / side,
+    today's total against the daily limit, CSV download. Alpaca statuses are refreshed from Alpaca; IBKR / E*TRADE show the status reported when sent.
+    Code: `pages/orders_page.py`, `/api/orders/history` in `trading_api.py`.

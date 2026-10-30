@@ -11,6 +11,7 @@ from __future__ import annotations
 from source.common import secrets_store
 from source.webapp.pages.earnings_panel import earnings_week_card_html
 from source.webapp.pages.quote_panel import quote_panel_html
+from source.webapp.pages.risk_card import risk_card_html
 from source.webapp.pages.watchlist import watchlist_card_html
 from source.webapp.render_helpers import _shell
 
@@ -28,5 +29,5 @@ def _render_stock_analysis_page() -> str:
             '<p class="muted">Prices come from Alpaca&rsquo;s free market data. Save a free practice (paper) account&rsquo;s keys, '
             'or your live keys, on the Trading tab and this page fills in. Your saved watchlist is kept below meanwhile.</p>'
             '<p><a href="/trading-live.html" class="pill-link"><button type="button" class="primary">Connect on the Trading tab</button></a></p></div>'
-        ) + watchlist_card_html() + earnings_week_card_html())
-    return _shell(title="Stock Analysis", active="stock-analysis.html", body=intro + watchlist_card_html() + earnings_week_card_html() + quote_panel_html())
+        ) + risk_card_html() + watchlist_card_html() + earnings_week_card_html())
+    return _shell(title="Stock Analysis", active="stock-analysis.html", body=intro + risk_card_html() + watchlist_card_html() + earnings_week_card_html() + quote_panel_html())

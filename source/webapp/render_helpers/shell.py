@@ -43,7 +43,7 @@ NAV_GROUPS = (
     ),
     (
         ("trading-live.html", "Alpaca"), ("ibkr.html", "IBKR"), ("etrade.html", "E*TRADE"),
-        ("stock-analysis.html", "Stock Analysis"), ("screener.html", "Screener"),
+        ("stock-analysis.html", "Stock Analysis"), ("screener.html", "Screener"), ("orders.html", "Orders"),
     ),
 )
 
