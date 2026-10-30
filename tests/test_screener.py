@@ -423,55 +423,85 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestPortfolioRisk(TempConfigTestCase):
-    def rows(self):
-        mk = lambda sym, value, kind="stock", sector="Information Technology", firm="Morgan Stanley": {
-            "symbol": sym, "name": sym, "value": value, "kind": kind, "sector": sector, "firm": firm}
-        return [mk("AAPL", 600), mk("MSFT", 150, firm="E*TRADE"), mk("JNJ", 100, sector="Health Care"), mk("VTI", 100, "etf", "Broad market"),
-                mk("CASH", 50, "cash", "Cash")]
+def _row(sym, rating="Hold", rsi=50.0, **kw):
+    base = {"symbol": sym, "name": sym, "rating": rating, "rsi": rsi, "macd_state": "bullish", "macd_cross": None, "macd_ago": None,
+            "move_1m": 0.0, "from_high_pct": 5.0, "price": 100.0}
+    base.update(kw)
+    return base
 
-    def test_a_big_stock_and_a_big_sector_are_flagged_and_funds_are_not(self):
-        from source.reporting import position_risk
-        res = position_risk.analyze(self.rows())
-        self.assertAlmostEqual(res["total"], 1000.0)
-        self.assertEqual(res["positions"][0]["symbol"], "AAPL")
-        self.assertEqual(res["positions"][0]["flag"], "big")
-        self.assertEqual([p["flag"] for p in res["positions"] if p["symbol"] == "VTI"], [""])     # a fund is already spread out
-        text = " ".join(f["text"] for f in res["findings"])
-        self.assertIn("AAPL is 60%", text)
-        self.assertIn("Information Technology is 75%", text)
-        self.assertNotIn("cash", text.lower().replace("cash.", ""))                                # 5% cash is fine
 
-    def test_a_balanced_book_gets_the_all_clear_and_empty_is_empty(self):
-        from source.reporting import position_risk
-        rows = [{"symbol": f"S{i}", "name": "", "value": 100.0, "kind": "stock", "sector": s, "firm": "A"}
-                for i, s in enumerate(["Energy", "Health Care", "Financials", "Utilities", "Materials", "Industrials", "Real Estate", "Energy", "Financials", "Health Care"])]
-        self.assertEqual(position_risk.analyze(rows)["findings"][0]["level"], "ok")
-        self.assertEqual(position_risk.analyze([])["total"], 0.0)
+def _held(sym, value, cost=0.0, kind="stock", taxable=0.0):
+    return {"symbol": sym, "name": sym, "value": value, "cost": cost, "value_known": value if cost else 0.0, "kind": kind,
+            "taxable_value": taxable, "firms": ["Test"]}
 
-    def test_collect_counts_a_broker_once_when_it_is_also_linked_through_plaid(self):
-        from source.reporting import position_risk
-        plaid = [{"institution": "E*TRADE", "ticker": "AAPL", "security_name": "Apple", "security_type": "Equity", "market_value": 500.0, "industry": "", "manual_sector": ""},
-                 {"institution": "Fidelity", "ticker": "MSFT", "security_name": "Microsoft", "security_type": "Equity", "market_value": 300.0, "industry": "", "manual_sector": ""}]
+
+class TestHoldingsReview(TempConfigTestCase):
+    def test_each_kind_of_note(self):
+        from source.reporting import holdings_review as hr
+        held = {s["symbol"]: s for s in [_held("BIG", 400), _held("DOWN", 100), _held("UP", 100), _held("FLAT", 100), _held("NODATA", 50),
+                                          _held("FUND", 200, kind="etf")]}
+        rows = [_row("BIG", "Sell", rsi=75), _row("DOWN", "Strong Sell", macd_cross="bearish", macd_ago=3, move_1m=-12),
+                _row("UP", "Buy"), _row("FLAT", "Hold"), _row("FUND", "Buy")]
+        out = hr.review(held, rows)
+        level = {n["symbol"]: n["level"] for n in out["items"]}
+        self.assertEqual(level["BIG"], "trim")
+        self.assertEqual(level["DOWN"], "review")
+        self.assertEqual(level["UP"], "strong")
+        self.assertEqual(level["FLAT"], "ok")
+        self.assertEqual(level["NODATA"], "nodata")
+        self.assertEqual(level["FUND"], "strong")                                   # 200 of 1,000 is under the 40% fund limit
+        self.assertEqual([n["symbol"] for n in out["items"]][:2], ["BIG", "DOWN"])      # most worth a look first
+        self.assertEqual(out["total"], 950.0)
+        self.assertEqual(out["counts"]["trim"], 1)
+
+    def test_gain_uses_only_the_part_with_a_known_cost(self):
+        from source.reporting import holdings_review as hr
+        n = hr._note(_held("AAA", 150.0, cost=100.0), _row("AAA"), 10.0)
+        self.assertEqual(n["gain_pct"], 50.0)
+        self.assertIsNone(hr._note(_held("BBB", 150.0), _row("BBB"), 10.0)["gain_pct"])
+
+    def test_collect_counts_a_broker_once_and_skips_cash(self):
         from source.common import linked_data
+        from source.reporting import holdings_review as hr
+        plaid = [{"institution": "Fidelity", "ticker": "VTI", "security_name": "Vanguard Total", "market_value": 500, "cost_basis": 400,
+                  "security_type": "etf", "tax_treatment": "taxable"},
+                 {"institution": "Fidelity", "ticker": "VTI", "security_name": "Vanguard Total", "market_value": 100, "cost_basis": 0,
+                  "security_type": "etf", "tax_treatment": "tax_deferred"},
+                 {"institution": "Fidelity", "ticker": "CUR:USD", "market_value": 90, "security_type": "cash"},
+                 {"institution": "Alpaca Securities", "ticker": "AAPL", "market_value": 999, "cost_basis": 1, "security_type": "equity"}]
+        universe.remember_broker_positions("alpaca", [{"symbol": "AAPL", "qty": 2, "market_value": 300, "avg_cost": 100}])
         with patch.object(linked_data, "read_linked_portfolio_positions", return_value=plaid):
-            universe.remember_broker_positions("etrade", [{"symbol": "AAPL", "market_value": 700, "qty": 3}, {"symbol": "NVDA", "market_value": 100, "qty": 1}])
-            got = position_risk.collect()
-        by = {r["symbol"]: r for r in got["rows"]}
-        self.assertEqual(by["AAPL"]["value"], 700.0)           # the broker's own number, not Plaid's 500 as well
-        self.assertEqual(by["AAPL"]["firm"], "E*TRADE")
-        self.assertEqual(by["MSFT"]["firm"], "Fidelity")
-        self.assertEqual(by["AAPL"]["sector"], "Information Technology")
-        self.assertEqual(len([r for r in got["rows"] if r["symbol"] == "AAPL"]), 1)
+            held = hr.collect_held()
+        self.assertEqual(sorted(held), ["AAPL", "VTI"])
+        self.assertEqual(held["AAPL"]["value"], 300)                                # from the broker tab, not also from the linked copy
+        self.assertEqual(held["VTI"]["value"], 600)
+        self.assertEqual(held["VTI"]["cost"], 400)
+        self.assertEqual(held["VTI"]["value_known"], 500)
+        self.assertEqual(held["VTI"]["taxable_value"], 500)
 
-    def test_the_card_renders_on_stock_analysis(self):
-        from source.reporting import position_risk
-        from source.webapp.pages import risk_card
-        with patch.object(position_risk, "collect", return_value={"rows": self.rows(), "sources": [{"name": "E*TRADE", "value": 150, "seen": "2026-10-06T09:00"}]}):
-            page = risk_card.risk_card_html()
-        self.assertIn("Portfolio risk", page)
-        self.assertIn("AAPL is 60%", page)
-        self.assertIn("E*TRADE (as of 2026-10-06 09:00)", page)
-        self.assertIn("/api/earnings/week", page)
-        with patch.object(position_risk, "collect", return_value={"rows": [], "sources": []}):
-            self.assertIn("Nothing to look at yet", risk_card.risk_card_html())
+    def test_the_routes_review_the_same_snapshot(self):
+        from source.reporting import holdings_review as hr
+        held = {"AAA": _held("AAA", 100.0), "BBB": _held("BBB", 900.0)}
+        fake = lambda f, progress=None, cancelled=lambda: False: {"rows": [_row("AAA", "Buy"), _row("BBB", "Hold")], "scanned": 2, "no_data": 0, "matched": 1}
+        with patch.object(hr, "collect_held", return_value=held), patch.object(engine, "scan", fake):
+            started = screener_api.handle("/api/holdings/review/start", {})
+            for _ in range(200):
+                st = screener_api.handle("/api/holdings/review/result", {"job": started["job"]})
+                if st["state"] != "running":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(started["count"], 2)
+        self.assertEqual(st["state"], "done")
+        self.assertEqual({n["symbol"]: n["level"] for n in st["review"]["items"]}, {"AAA": "strong", "BBB": "watch"})   # BBB is 90%
+        with self.assertRaises(ValueError):
+            screener_api.handle("/api/holdings/review/result", {"job": "nope"})
+        with patch.object(hr, "collect_held", return_value={}), self.assertRaises(ValueError):
+            screener_api.handle("/api/holdings/review/start", {})
+
+    def test_the_card_is_on_the_linked_positions_page(self):
+        from source.webapp.pages.holdings_review_card import holdings_review_card_html
+        html = holdings_review_card_html()
+        self.assertIn("hrRun", html)
+        self.assertIn("/api/holdings/review/start", html)
+        import source.webapp.pages.linked_positions as lp
+        self.assertIn("holdings_review_card_html()", open(lp.__file__, encoding="utf-8").read())

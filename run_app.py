@@ -36,8 +36,31 @@ if __name__ == "__main__":
         if getattr(sys, _name) is None:
             setattr(sys, _name, open(os.devnull, "w"))
     if "--selftest" in sys.argv:
-        # Everything imported fine (the import at the top would have failed
-        # otherwise); the build script uses this to catch a broken bundle.
+        # The import at the top proves the dashboard loads; this also checks the
+        # things the stock screener needs at run time (its data file and the
+        # price libraries), so a build that dropped any of them fails here and
+        # the build script stops instead of shipping a broken app.
+        problems = []
+        try:
+            from source.screener import universe
+
+            if len(universe.market_entries()) < 400:
+                problems.append("screener list (sp500.csv) is missing or too short")
+        except Exception as exc:        # noqa: BLE001
+            problems.append(f"screener: {exc}")
+        for mod in ("pandas", "numpy", "yfinance", "requests", "cryptography"):
+            try:
+                __import__(mod)
+            except Exception as exc:    # noqa: BLE001
+                problems.append(f"{mod}: {exc}")
+        try:
+            from source.screener import engine, filters, jobs, parser, saved  # noqa: F401
+            from source.reporting import holdings_review  # noqa: F401
+        except Exception as exc:        # noqa: BLE001
+            problems.append(f"screener modules: {exc}")
+        if problems:
+            print("selftest FAILED: " + "; ".join(problems), file=sys.stderr)
+            sys.exit(1)
         print("selftest ok")
         sys.exit(0)
     try:
