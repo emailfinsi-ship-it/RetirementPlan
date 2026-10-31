@@ -449,5 +449,8 @@ are not touched.
     view-only login), `pages/earliest_card.py`. Tests: `TestEarliestRetirement`. The guide mentions it.
 77. **Download PDF** on the plan report. The report page's Save as PDF / Print relied on the browser's print dialog, which came out blank for one person. A new
     **Download PDF** button saves a real PDF file (`/report.pdf`, made by `source/reporting/report_pdf.py` with reportlab, added to requirements.txt) with the same
-    five report pages: headings, tables, goals, scenarios, income and tax, assumptions and disclosures. Charts are pictures drawn by the browser and are left out; every
-    number and table is kept. **Print** stays beside it. The build self-test checks a PDF can be made, so a build without reportlab stops. Tests: `tests/test_report_pdf.py`.
+    five report pages: headings, tables, goals, scenarios, income and tax, assumptions and disclosures, in the report's colors: a tinted summary card with the
+    dial, tinted tiles, green / amber / red status words, colored scenario headings, and the charts redrawn from the page's own drawings. **Print** stays beside it. The build self-test checks a PDF can be made, so a build without reportlab stops. Tests: `tests/test_report_pdf.py`.
+78. **Report Download did not open in Safari.** The buttons on the top bar and report page are written as a button inside a link, and Safari lets the button swallow the
+    click, so the link never opened. One style rule (`a > button { pointer-events: none; }` in the page styles) lets the click reach the link in every browser. This also
+    fixes Download PDF, Back to Summary, Sign in to IBKR, the setup wizard buttons and the other buttons written the same way.

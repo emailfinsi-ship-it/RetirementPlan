@@ -86,8 +86,35 @@ class TestReportPdfDownload(DashboardTestCase):
         self.assertIn("Your plan at a glance", pages[0].extract_text())
         self.assertTrue(all(len(p.extract_text().strip()) > 50 for p in pages))   # none of them blank
 
+    def test_the_pdf_keeps_the_colors_and_draws_the_charts(self):
+        try:
+            pages = _pages(self._get("/report.pdf").read())
+        except ImportError:
+            self.skipTest("pypdf is not installed here")
+        import re
+
+        coloured = 0
+        for page in pages:
+            stream = page.get_contents().get_data().decode("latin-1")
+            for r, g, b in re.findall(r"([\d.]+) ([\d.]+) ([\d.]+) (?:rg|RG)", stream):
+                if not (r == g == b):
+                    coloured += 1
+        self.assertGreater(coloured, 20)                                     # tinted summary card, colored words, chart lines
+        everything = " ".join(p.extract_text() for p in pages)
+        self.assertIn("Typical", everything)                                 # a chart's own labels are in the file now
+        if "g-ring" in self._get("/report.html").read().decode("utf-8"):    # this version's summary card has a dial
+            self.assertRegex(pages[0].extract_text(), r"\d+%")                  # and the number that goes with it
+
     def test_a_missing_pdf_library_gives_a_message_and_the_print_button_still_works(self):
         with patch("source.reporting.report_pdf.report_pdf", side_effect=report_pdf.ReportPdfUnavailable("PDF download needs the reportlab package.")):
             resp = self._get("/report.pdf")
         self.assertEqual(resp.status, 503)
         self.assertIn("choose Save as PDF", resp.read().decode("utf-8"))
+
+
+class TestButtonsInsideLinks(unittest.TestCase):
+    def test_a_button_inside_a_link_lets_the_click_reach_the_link(self):
+        """Safari lets a <button> inside an <a> swallow the click, so Report Download, Download PDF and the like never opened."""
+        from source.webapp.render_helpers.styles import PAGE_CSS
+
+        self.assertIn("a > button { pointer-events: none; }", PAGE_CSS)
