@@ -545,6 +545,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(_render_wizard_page())
             elif path == "/report.html":
                 self._send_html(wording.plain_html(_render_report_page()))
+            elif path == "/report.pdf":
+                from source.reporting import report_pdf
+
+                try:
+                    body = report_pdf.report_pdf(wording.plain_html(_render_report_page()), brand=branding.PRODUCT_NAME,
+                                                 title=f"{branding.PRODUCT_NAME} plan report")
+                except report_pdf.ReportPdfUnavailable as exc:
+                    self._send_html(f"<h1>PDF download is not available</h1><p>{html.escape(str(exc))} Press Print on the "
+                                    f"<a href=\"/report.html\">report page</a> and choose Save as PDF instead.</p>", status=503)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{branding.INTERNAL_ID}-plan-report-{date.today().isoformat()}.pdf"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
             elif path == "/account-balances.html":
                 self._send_export_html(config.account_balances_html_path())
             elif path == "/portfolio-positions.html":

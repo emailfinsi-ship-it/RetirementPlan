@@ -3,9 +3,8 @@ the way an adviser hands one over -- a one-page summary with the top
 recommendations, goals and where you stand, good / expected / bad market
 scenarios, the income and tax picture, then the assumptions and disclosures.
 
-"Report Download" opens it and uses the browser's own Save as PDF
-(window.print) -- no PDF library needed, so it works on every machine the app
-already runs on. Numbers come from build_plan_views(), the same source the
+"Report Download" opens it. The page has a Download PDF button (a file made by source.reporting.report_pdf, so it does not depend on
+the browser's print dialog) and a Print button that uses the browser's own print. Numbers come from build_plan_views(), the same source the
 Summary uses, so the two can never disagree."""
 
 from __future__ import annotations
@@ -364,7 +363,8 @@ def _render_report_page() -> str:
 </head>
 <body class="report">
 <div class="report-bar">
-  <button type="button" class="primary" onclick="window.print()">Save as PDF / Print</button>
+  <a href="/report.pdf" download><button type="button" class="primary">Download PDF</button></a>
+  <button type="button" onclick="window.print()">Print</button>
   <a href="/summary.html"><button type="button">Back to Summary</button></a>
 </div>
 <div class="report-head">
