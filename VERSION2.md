@@ -164,4 +164,5 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Alpaca tab: key form shown right under a keys-rejected message. See VERSION3.md item 74.
 - IBKR positions: live price, Change $, Change % and Day's gain from the gateway snapshot. See VERSION3.md item 75.
 - Explore: How early could I stop working? card (earliest retirement year that keeps the chosen chance of lasting). See VERSION3.md item 76.
-- Plan report: Download PDF button (a real PDF file, not the print dialog); reportlab added to requirements. See VERSION3.md item 77.
+- Plan report: Download PDF button (a real PDF file, not the print dialog); reportlab added to requirements; the PDF keeps the report's colors and charts. See VERSION3.md item 77.
+- Safari: a button written inside a link (Download, Sign in to IBKR, wizard buttons) now opens the link. See VERSION3.md item 78.
