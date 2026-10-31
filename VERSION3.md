@@ -447,3 +447,7 @@ are not touched.
     your saved retirement year marked. Same market paths for every year, so it only rises with later years; bisection keeps it to about 2 seconds. Income lines are not
     changed (a salary ending in a fixed year is not moved) and the card says so. `what_if.find_earliest_retirement`, `/api/earliest-retirement` (also allowed for the
     view-only login), `pages/earliest_card.py`. Tests: `TestEarliestRetirement`. The guide mentions it.
+77. **Download PDF** on the plan report. The report page's Save as PDF / Print relied on the browser's print dialog, which came out blank for one person. A new
+    **Download PDF** button saves a real PDF file (`/report.pdf`, made by `source/reporting/report_pdf.py` with reportlab, added to requirements.txt) with the same
+    five report pages: headings, tables, goals, scenarios, income and tax, assumptions and disclosures. Charts are pictures drawn by the browser and are left out; every
+    number and table is kept. **Print** stays beside it. The build self-test checks a PDF can be made, so a build without reportlab stops. Tests: `tests/test_report_pdf.py`.

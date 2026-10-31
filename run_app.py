@@ -68,6 +68,13 @@ if __name__ == "__main__":
                 problems.append("tutorial guide is missing from the bundle")
         except Exception as exc:        # noqa: BLE001
             problems.append(f"tutorial: {exc}")
+        try:
+            from source.reporting import report_pdf
+
+            if not report_pdf.report_pdf("<html><body><h2>Selftest</h2><p>ok</p></body></html>").startswith(b"%PDF"):
+                problems.append("report PDF did not come out as a PDF")
+        except Exception as exc:        # noqa: BLE001
+            problems.append(f"report PDF: {exc}")
         if problems:
             print("selftest FAILED: " + "; ".join(problems), file=sys.stderr)
             sys.exit(1)
