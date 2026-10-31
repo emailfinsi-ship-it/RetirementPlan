@@ -319,6 +319,10 @@ PAGE_CSS = """
   #hide-toggle { padding: 6px 8px; line-height: 0; display: inline-flex; align-items: center; }
   #hide-toggle .eye-off { display: none; } html.hide-money #hide-toggle .eye { display: none; } html.hide-money #hide-toggle .eye-off { display: inline; }
   #report-link { text-decoration: none; }
+  /* A button written inside a link: Safari lets the button swallow the click, so the link never opens (Report Download, Download PDF,
+     Sign in to IBKR and others). Letting the click fall through to the link works in every browser. */
+  a > button { pointer-events: none; }
+  a:hover > button:not(:disabled) { filter: brightness(0.96); }
   .standing { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 8px; }
   .standing .box { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
   .standing h3 { margin: 0 0 6px; font-size: 13px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
