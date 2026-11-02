@@ -127,6 +127,28 @@ class TestOnSampleHousehold(DashboardTestCase):
         status, _ = self._post("/api/drawdown-conversion", {"key": ""})
         self.assertNotIn("Roth conversion</th>", self._get("/drawdown-planning.html").read().decode())
 
+    def test_the_report_includes_the_chosen_strategys_table_only_when_one_is_chosen(self):
+        db.set_assumption("early_tax_deferred_age", "60")
+        self.assertNotIn("Withdrawals with Roth conversions", self._get("/report.html").read().decode())
+        db.set_drawdown_conversion("window_24")
+        page = self._get("/report.html").read().decode()
+        self.assertIn("Withdrawals with Roth conversions", page)
+        self.assertIn("only from age 62 to 70", page)
+        self.assertIn("<th class=\"num\">Roth conversion</th>", page)
+        self.assertIn("conversion tax", page)
+        self.assertIn("The rest of this report shows the plan without conversions", page)
+        pdf = self._get("/report.pdf").read()
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        try:
+            from pypdf import PdfReader
+            import io
+
+            text = " ".join(p_.extract_text() for p_ in PdfReader(io.BytesIO(pdf)).pages)
+            self.assertIn("Withdrawals with Roth conversions", text)
+            self.assertIn("Roth conversion", text)
+        except ImportError:
+            pass
+
     def test_an_unknown_strategy_is_refused(self):
         status, out = self._post("/api/drawdown-conversion", {"key": "nope"})
         self.assertEqual(status, 400)

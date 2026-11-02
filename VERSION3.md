@@ -473,3 +473,13 @@ are not touched.
     or a "Show on Drawdown" button on each Legacy row) and the year-by-year table adds Roth conversion and Conversion tax columns, "Your plan for <year>" says how much to convert, and
     the totals follow. One shared conversion step (`apply_conversion_step`) is used by both tabs so they cannot disagree. Only the Drawdown tab uses the choice; the Summary, report
     and Will my money last? are unchanged. Tests: `tests/test_conversion_drawdown.py`.
+82. **Report includes the drawdown table with conversions.** When a Roth conversion strategy is chosen on the Drawdown tab, the plan report's "Income and tax picture" page (and
+    the PDF) gains **Withdrawals with Roth conversions**: the strategy name, how much moves to Roth and the conversion tax, the estimated tax with and without conversions, the first
+    required withdrawal with and without them, the ending Roth and Tax-deferred balances, and a year-by-year table (spending, taken from savings, required withdrawal, Roth
+    conversion, conversion tax, tax on withdrawals; every conversion year plus the milestone years). Nothing is added when no strategy is chosen, and the rest of the report still
+    shows the plan without conversions. The Drawdown tab and the report share one lookup (`conversion_choice`). Tests: `tests/test_conversion_drawdown.py`.
+83. **Report numbers check: healthcare and spending by category.** The report's "Yearly spending, by category" added every row's base amount whatever its years, so Healthcare showed
+    only $14,110 (two Medicare rows that have not started and are in 2026 dollars) while a $30,000 "Medical Insurance" row sat under Insurance. It now shows spending in the first
+    retirement year and ten and twenty years later: each row counts only in the years it applies, grown by inflation, in the report's dollar basis, with a Total that matches the income
+    table's Spending, and every health-care row (medical, Medicare, dental, ACA...) grouped as Healthcare. New data check: a hand-entered health insurance row that keeps running after the
+    planner's Medicare premiums start is flagged as counted twice, with the extra dollars. Tests: `tests/test_report_checks.py`.

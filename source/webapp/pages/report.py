@@ -20,7 +20,10 @@ from source.reporting import advice, data_check, progress
 from source.reporting import presentation as pres
 from source.reporting.monte_carlo import _SP500_ANNUAL_RETURNS, run_historical_stress_test, run_simulation, stable_simulation_seed
 from source.reporting.plan_health import plan_health_items
+from source.reporting.monte_carlo import deterministic_drawdown_schedule
+from source.reporting.monte_carlo.withdrawal import _amount_in_year
 from source.webapp.pages import summary_blocks as blocks
+from source.webapp.pages.drawdown_planning import conversion_choice
 from source.webapp.pages.summary import build_plan_views
 from source.webapp.render_helpers import _money, _pct
 from source.webapp.render_helpers.styles import PAGE_CSS
@@ -311,6 +314,134 @@ def _income_tax_html(s: dict, v: dict, mode: str) -> str:
     return tax_line + watch + table + reinvest + income
 
 
+def _conversion_html(s: dict, v: dict, mode: str) -> str:
+    """The Drawdown tab's year-by-year table with the chosen Roth conversion strategy, when one is chosen there (nothing when not).
+    Same schedule, same conversion step as the Drawdown tab; the rest of the report stays the plan without conversions."""
+    base = v["schedule"]
+    if not base:
+        return ""
+    a = s["assumptions"]
+    sched_assumptions = {**a, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
+    configs, key, chosen, run_assumptions = conversion_choice(sched_assumptions)
+    if chosen is None:
+        return ""
+    label = next((c["label"] for c in configs if c["key"] == key), key)
+    try:
+        sched = deterministic_drawdown_schedule(
+            pools=s["drawdown_pools"], expenses=s["expenses"], income=s["income_for_simulation"], assumptions=run_assumptions,
+            conversion=chosen,
+        )
+    except Exception:    # a report must still open if this schedule cannot run
+        return ""
+    retire = sched.get("retirement_year")
+    all_rows = sched["rows"]
+    rows = [r for r in all_rows if retire is None or r["year"] >= retire] or all_rows
+    if not rows:
+        return ""
+    convert = _converter(mode, a, s["this_year"])
+    by_year = {r["year"]: r for r in rows}
+    first_rmd = next((r["year"] for r in rows if r["rmd"] > 0), None)
+    picks = set(_milestone_years(sorted(by_year), retire))
+    picks.update(y for y, r in by_year.items() if r.get("conversion", 0.0) > 0.5)
+    if first_rmd is not None:
+        picks.add(first_rmd)
+    table_rows = []
+    for y in sorted(picks):
+        r = by_year[y]
+        t = blocks._trim_reinvested(r)
+        drawn = convert(sum(t.get(k, 0.0) for k in ("drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate")), y)
+        table_rows.append([
+            str(y), str(r["age"]) if r.get("age") is not None else "--",
+            _money(convert(r.get("expenses", 0.0), y)), _money(drawn), _money(convert(r["rmd"], y)),
+            _money(convert(r.get("conversion", 0.0), y)), _money(convert(r.get("conversion_tax", 0.0), y)),
+            _money(convert(r.get("tax", 0.0), y)),
+        ])
+    total_conv = sum(convert(r.get("conversion", 0.0), r["year"]) for r in rows)
+    conv_tax = sum(convert(r.get("conversion_tax", 0.0), r["year"]) for r in rows)
+    withdraw_tax = sum(convert(r.get("tax", 0.0), r["year"]) for r in rows)
+    base_rows = [r for r in (base.get("rows") or []) if retire is None or r["year"] >= retire] or (base.get("rows") or [])
+    base_tax = sum(convert(r.get("tax", 0.0), r["year"]) for r in base_rows)
+    base_rmd = next((r for r in base_rows if r["rmd"] > 0), None)
+    mine_rmd = by_year.get(first_rmd) if first_rmd is not None else None
+    last = rows[-1]
+    sentences = [
+        f"With this strategy {_money(total_conv)} is moved from Tax-deferred to Roth, at about {_money(conv_tax)} of conversion tax. "
+        f"Estimated tax over the whole projection is {_money(withdraw_tax + conv_tax)} ({_money(withdraw_tax)} on withdrawals plus the "
+        f"conversion tax), against {_money(base_tax)} without conversions."
+    ]
+    if mine_rmd is not None and base_rmd is not None:
+        sentences.append(
+            f"The first required withdrawal is {_money(convert(mine_rmd['rmd'], mine_rmd['year']))} in {mine_rmd['year']}, against "
+            f"{_money(convert(base_rmd['rmd'], base_rmd['year']))} in {base_rmd['year']} without conversions."
+        )
+    elif base_rmd is not None and mine_rmd is None:
+        sentences.append(f"Without conversions required withdrawals would start in {base_rmd['year']}; with them none are needed because the Tax-deferred money has been moved.")
+    sentences.append(
+        f"At the end ({last['year']}) about {_money(convert(last['roth'], last['year']))} is in Roth and "
+        f"{_money(convert(last['tax_deferred'], last['year']))} is still in Tax-deferred ({html.escape(pres.dollars_caption(mode))})."
+    )
+    table = _table(
+        ["Year", "Age", "Spending", "Taken from savings", "Required withdrawal", "Roth conversion", "Conversion tax", "Tax on withdrawals"],
+        table_rows, (2, 3, 4, 5, 6, 7),
+    )
+    note = _reinvested_note(rows, convert)
+    return (
+        '<h3 class="rep">Withdrawals with Roth conversions</h3>'
+        f'<p class="rep-lead">Strategy chosen on the Drawdown tab: <strong>{html.escape(label)}</strong>. '
+        "The rest of this report shows the plan without conversions.</p>"
+        + "".join(f'<p class="rep-lead">{x}</p>' for x in sentences) + table + note
+    )
+
+
+_HEALTH_WORDS = re.compile(r"\b(health|healthcare|medical|medicare|medigap|dental|vision|aca|cobra)\b", re.I)
+
+
+def _spending_category(expense: dict) -> str:
+    """The category a spending row is grouped under in the report. Rows that are about health care (named medical, Medicare, dental,
+    ACA...) are all grouped as Healthcare, whatever category they were entered under, so the health care total is one number."""
+    if _HEALTH_WORDS.search(f"{expense.get('name') or ''} {expense.get('category') or ''}"):
+        return "Healthcare"
+    return str(expense.get("category") or "Other")
+
+
+def _spending_by_category_html(s: dict, a: dict, mode: str, v: dict) -> str:
+    """Spending by category in three years (the first retirement year and ten and twenty years later), each row counted only in the years it
+    applies and grown by inflation, in the report's dollar basis, so the columns add up to the Spending figures in the income table
+    (a cost that has not started or has ended is not listed as if it were paid every year)."""
+    expenses = s["expenses"]
+    if not expenses:
+        return "<p class='muted'>No spending entered.</p>"
+    infl = pres.inflation_rate(a)
+    base_year = s["this_year"]
+    retire = v.get("retirement_year")
+    first = retire if retire is not None and retire > base_year else base_year + 1
+    horizon = int(float(a.get("plan_horizon_years") or 40))
+    last_year = base_year + horizon - 1
+    years = [y for y in (first, first + 10, first + 20) if y <= last_year] or [first]
+    convert = _converter(mode, a, base_year)
+    totals: dict[str, list[float]] = {}
+    members: dict[str, list[str]] = {}
+    for e in expenses:
+        cat = _spending_category(e)
+        vals = totals.setdefault(cat, [0.0] * len(years))
+        for i, y in enumerate(years):
+            vals[i] += convert(_amount_in_year(e, y, infl), y)
+        if cat == "Healthcare" and str(e.get("name") or "") not in members.setdefault(cat, []):
+            members[cat].append(str(e.get("name") or ""))
+    ordered = sorted(((c, vals) for c, vals in totals.items() if any(x > 0.5 for x in vals)), key=lambda kv: -max(kv[1]))
+    rows = [[html.escape(c)] + [_money(x) if x > 0.5 else "&ndash;" for x in vals] for c, vals in ordered]
+    sums = [sum(vals[i] for _c, vals in ordered) for i in range(len(years))]
+    rows.append(["<strong>Total</strong>"] + [f"<strong>{_money(x)}</strong>" for x in sums])
+    health_note = (
+        f'<p class="muted small" style="margin:6px 0 0">Healthcare adds up every row that is about health care ({html.escape(", ".join(members["Healthcare"]))}), '
+        "whatever category it was entered under. A cost that starts or ends in a later year is counted only in the years it applies.</p>"
+        if members.get("Healthcare") else ""
+    )
+    lead = (f'<p class="muted small" style="margin:0 0 6px">Per year, {html.escape(pres.dollars_caption(mode).replace("ending balances in ", ""))}, '
+            "in the first retirement year and later, so costs that start or end along the way show up.</p>")
+    return lead + _table(["Category"] + [str(y) for y in years], rows, tuple(range(1, len(years) + 1))) + health_note
+
+
 def _disclosures_html() -> str:
     name = html.escape(branding.PRODUCT_NAME)
     notes = [
@@ -368,17 +499,14 @@ def _render_report_page() -> str:
         proj = _unlink(blocks.projection_card_html(s, result, mode, v["retirement_year"]))
         scenarios = proj + _scenarios_html(s, v, result, mode)
 
-        income_tax = _income_tax_html(s, v, mode)
+        income_tax = _income_tax_html(s, v, mode) + _conversion_html(s, v, mode)
 
         checks = (
             "<ul>" + "".join(f"<li>{html.escape(i['text'])}</li>" for i in items) + "</ul>"
             if items else "<p>Nothing missing &mdash; every input the plan relies on is filled in.</p>"
         )
         cat_rows = [[html.escape(str(c)), f'<span class="mny">{_money(amt)}</span>'] for c, amt in s["asset_category_subtotals"] if amt]
-        exp_rows = {}
-        for e in s["expenses"]:
-            exp_rows[e.get("category") or "Other"] = exp_rows.get(e.get("category") or "Other", 0.0) + float(e.get("annual_amount") or 0)
-        expense_rows = [[html.escape(str(c)), _money(v_)] for c, v_ in sorted(exp_rows.items(), key=lambda kv: -kv[1])]
+        spending_html = _spending_by_category_html(s, a, mode, v)
         assumption_rows = [
             ["Average yearly growth", f"{_pct(a, 'expected_return', 0.06)}%"],
             ["Yearly ups and downs (volatility)", f"{_pct(a, 'return_volatility', 0.12)}%"],
@@ -393,7 +521,7 @@ def _render_report_page() -> str:
             + '<h3 class="rep">What you own, by type</h3>'
             + (_table(["Category", "Balance"], cat_rows, (1,)) if cat_rows else "<p class='muted'>No accounts entered.</p>")
             + '<h3 class="rep">Yearly spending, by category</h3>'
-            + (_table(["Category", "Per year"], expense_rows, (1,)) if expense_rows else "<p class='muted'>No spending entered.</p>")
+            + spending_html
             + '<h2 class="rep">Assumptions used</h2>'
             + _table(["Assumption", "Value"], assumption_rows, (1,))
             + _disclosures_html()
