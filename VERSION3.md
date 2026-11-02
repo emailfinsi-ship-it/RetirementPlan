@@ -466,3 +466,10 @@ are not touched.
     (c) The "Taken from savings" column of the income and tax table now shows only what pays for spending and tax; a required withdrawal bigger than that (for example
     $773k against $294k of spending) is reinvested in the taxable pool by the engine, so a note under the table names the biggest such year and says the tax is figured on the
     whole required withdrawal. Tests: `tests/test_report_checks.py`.
+81. **Roth conversions in the drawdown, and why they were small.** (a) Legacy Planning: a "Why so little converted between 62 and 70?" card says, from the engine's own
+    numbers, how many of those years have no bracket room and why (your "Start drawing Tax-deferred at age" spending draws, rent and Social Security already fill the cheap
+    brackets), and what the same strategy would convert if spending came from Taxable first. New strategy row "Convert up to the 24% bracket only from age 62 to 70, spending
+    Taxable first"; the "Try your own" form gains **Start converting at age**. (b) **Include Roth conversions** on the Drawdown tab: choose any Legacy Planning strategy (saved, `/api/drawdown-conversion`,
+    or a "Show on Drawdown" button on each Legacy row) and the year-by-year table adds Roth conversion and Conversion tax columns, "Your plan for <year>" says how much to convert, and
+    the totals follow. One shared conversion step (`apply_conversion_step`) is used by both tabs so they cannot disagree. Only the Drawdown tab uses the choice; the Summary, report
+    and Will my money last? are unchanged. Tests: `tests/test_conversion_drawdown.py`.

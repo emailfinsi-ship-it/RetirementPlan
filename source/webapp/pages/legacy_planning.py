@@ -32,6 +32,7 @@ from source.reporting.monte_carlo import (
     _resolve_retirement_year,
     compare_roth_conversion_strategies,
     normalize_custom_strategy,
+    window_diagnosis,
 )
 from source.webapp.render_helpers import (
     _money,
@@ -300,6 +301,52 @@ against each other, not as a forecast of exact dollars -- and check with a tax p
 """
 
 
+def _use_in_drawdown_html(strategy: dict) -> str:
+    """A small button that makes the Drawdown tab's table include this strategy's conversions (only strategies that convert)."""
+    if (strategy.get("config") or {}).get("target_rate") is None:
+        return ""
+    return (
+        f' <button type="button" class="small" onclick="postJSON(\'/api/drawdown-conversion\', {{key: \'{html.escape(strategy["key"])}\'}})'
+        '.then(function() { location.href = \'/drawdown-planning.html#conversion-choice\'; }).catch(function(e) { alert(e.message); });">'
+        'Show on Drawdown</button>'
+    )
+
+
+def _why_small_card_html(top: dict, diag: dict | None) -> str:
+    """Why the recommended strategy converts little in the low-income years (62-70), from the engine's own numbers:
+    other income, spending withdrawals and Social Security already fill the cheap brackets."""
+    if not diag or not diag["no_room_years"]:
+        return ""
+    lo, hi = diag["first_age"], diag["last_age"]
+    parts = [
+        f"In {diag['no_room_years']} of the {diag['years']} years from age {lo} to {hi} the bracket is already full before any conversion, "
+        f"so there is nothing to convert. This strategy converts {_money(diag['converted'])} in total across those years."
+    ]
+    if diag["spend_draw"] > 1 and diag["plan_early_age"] is not None:
+        parts.append(
+            f"The main reason: your plan starts spending from Tax-deferred at age {diag['plan_early_age']}, about {_money(diag['spend_draw'])} a year "
+            "in these years. Those withdrawals are ordinary income too, so together with rent they use up the same cheaper brackets a conversion "
+            "would use."
+        )
+    if diag["alt_converted"] is not None:
+        parts.append(
+            f"If spending came from Taxable first instead, the same strategy could convert about {_money(diag['alt_converted'])} between "
+            f"{lo} and {hi}. That is what the &ldquo;only from age 62 to 70&rdquo; row in the table below tries."
+        )
+    parts.append(
+        "Social Security also uses room (85% of it counts as income once it starts), and it lowers what you must withdraw for spending, "
+        "so starting it later usually leaves more room in the early years."
+    )
+    body = "".join(f"<p style='margin:6px 0'>{p}</p>" for p in parts)
+    return f"""
+<div class="card" id="why-small">
+<h3 style="margin:0 0 4px 0;">Why so little converted between {lo} and {hi}?</h3>
+{body}
+<p class="muted small" style="margin:6px 0 0">Medicare premium surcharges (IRMAA) and the extra Social Security that conversions can make taxable are not modeled, and both matter for conversions at 63 and later.</p>
+</div>
+"""
+
+
 def _whatif_card_html(result: dict) -> str:
     """The "Try your own" form: one extra strategy row, saved with the plan."""
     custom = result.get("custom")
@@ -312,6 +359,7 @@ def _whatif_card_html(result: dict) -> str:
     ) + f'<option value="none"{" selected" if custom and bracket == "none" else ""}>No bracket limit (use the yearly cap)</option>'
     cap_value = f"{custom['annual_cap']:.0f}" if custom and custom.get("annual_cap") else ""
     stop_value = str(custom["stop_age"]) if custom and custom.get("stop_age") else ""
+    start_value = str(custom["start_age"]) if custom and custom.get("start_age") else ""
     status_html = ""
     if custom:
         mine = next((s for s in strategies if s.get("is_custom")), None)
@@ -338,10 +386,11 @@ and 37% (there is no 25% bracket -- 24% is the closest), so to land between two 
 fill the 24% bracket but never convert more than $200,000 a year. The cap is in today's dollars and grows with inflation.</p>
 <form class="inline" onsubmit="event.preventDefault();
   var f = this;
-  postJSON('/api/legacy-whatif', {{bracket: f.bracket.value, annual_cap: f.annual_cap.value, stop_age: f.stop_age.value}})
+  postJSON('/api/legacy-whatif', {{bracket: f.bracket.value, annual_cap: f.annual_cap.value, start_age: f.start_age.value, stop_age: f.stop_age.value}})
     .then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
   <label>Convert up to<select name="bracket">{options}</select></label>
   <label>Yearly cap (optional)<input name="annual_cap" type="number" min="1" step="1000" placeholder="no cap" value="{cap_value}"></label>
+  <label>Start converting at age (optional)<input name="start_age" type="number" min="30" max="120" step="1" placeholder="right away" value="{start_value}"></label>
   <label>Stop converting after age (optional)<input name="stop_age" type="number" min="30" max="120" step="1" placeholder="no stop" value="{stop_value}"></label>
   <button type="submit" class="primary">Add to comparison</button>
   {clear_btn}
@@ -365,6 +414,7 @@ def _comparison_table_html(result: dict) -> str:
         + (' <span class="badge-whatif">Your what-if</span>' if s.get("is_custom") else "")
         + (f' <span class="muted">({_baseline_phrase(result)})</span>' if s["key"] == baseline_key else "")
         + (' <span class="status-warn">Depleted</span>' if s["depletes"] else "")
+        + _use_in_drawdown_html(s)
         + '</td>'
         f'<td class="num">{_money(s["total_converted"])}</td>'
         f'<td class="num">{_money(s["total_lifetime_tax"])}</td>'
@@ -454,6 +504,12 @@ def _render_legacy_planning_page() -> str:
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions, custom=custom,
     )
     total_pool = sum(pools.values())
+    why_small_html = ""
+    if result["strategies"]:
+        top = result["strategies"][0]
+        why_small_html = _why_small_card_html(top, window_diagnosis(
+            top, pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=assumptions,
+        ))
     sale_card = (
         '<p class="muted small" style="margin:10px 0"><strong>Thinking of selling your real estate?</strong> '
         'The side-by-side keep-vs-sell comparison is on the <a href="/monte-carlo.html#sell-real-estate">'
@@ -483,6 +539,7 @@ then, is compared below too, alongside the Roth-conversion strategies. The table
 plan (starting from {_money(total_pool)} across Taxable/Tax-deferred/Roth/Real estate, same starting point as the
 Drawdown Planning tab) rather than assuming any one answer.{retirement_year_note}</p></details>
 {_this_years_plan_html(result, retirement_year)}
+{why_small_html}
 <h2>Strategy comparison</h2>
 <details class="how-it-works"><summary>How this works</summary><p class="muted">Each row replays your plan's own deterministic projection (same engine as Drawdown Planning, no
 randomness) once per strategy, converting Tax-deferred to Roth every year up to that strategy's target -- capped so the

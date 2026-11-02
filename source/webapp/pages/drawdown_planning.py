@@ -32,7 +32,7 @@ import html
 from source.common import db
 from source.reporting.aggregate import build_summary
 from source.reporting.rmd import rmd_age_for_birth_year
-from source.reporting.monte_carlo import deterministic_drawdown_schedule
+from source.reporting.monte_carlo import deterministic_drawdown_schedule, strategy_configs
 from source.webapp.pages.summary_blocks import fold_html
 from source.webapp.render_helpers import (
     _donut_chart_html,
@@ -336,10 +336,16 @@ def _this_years_plan_html(rows: list[dict]) -> str:
         plan_text = "Nothing needs to come out of the portfolio this year -- Income rows (Income &amp; Expenses tab) are assumed to cover spending on their own."
     else:
         plan_text = "Withdraw " + ", plus ".join(parts) + f".{tax_clause}"
+    conversion_text = ""
+    if r.get("conversion", 0.0) > 0.01:
+        conversion_text = (f" Also convert {_money(r['conversion'])} from Tax-deferred to Roth "
+                           f"(about {_money(r['conversion_tax'])} of tax, paid from Taxable).")
+    elif "conversion" in r:
+        conversion_text = " No Roth conversion this year."
     return f"""
 <div class="card" style="border: 2px solid #2a78d6;">
 <h2 style="margin-top:0">Your plan for {r['year']}</h2>
-<p style="font-size:15px; margin-bottom:0;">{plan_text}</p>
+<p style="font-size:15px; margin-bottom:0;">{plan_text}{conversion_text}</p>
 </div>
 """
 
@@ -448,6 +454,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
         + ('<th class="num">Other income</th>' if show_other_income else "")
     )
     columns = _visible_withdrawn_ending_columns(visible_rows)
+    has_conversion = schedule.get("conversion") is not None
     rows_html = "".join(
         f'<tr><td>{r["year"]}</td>'
         f'<td>{r["age"] if r["age"] is not None else "--"}</td>'
@@ -459,6 +466,8 @@ def _year_by_year_table_html(schedule: dict) -> str:
         + f'<td class="num">{_money(r["need"])}</td>'
         f'<td class="num">{_money(r["rmd"])}</td>'
         f'<td class="num">{_money(r["tax"])}</td>'
+        + (f'<td class="num">{_money(r.get("conversion", 0.0))}</td><td class="num">{_money(r.get("conversion_tax", 0.0))}</td>'
+           if has_conversion else "")
         + _withdrawn_ending_cells_html(r, columns)
         + f'<td class="num">{_money(r["total"])}</td>'
         + ('<td class="status-warn">Depleted</td>' if r["shortfall"] > 1e-6 else '<td></td>')
@@ -466,7 +475,7 @@ def _year_by_year_table_html(schedule: dict) -> str:
         for r in visible_rows
     )
     start = schedule.get("starting_pools")
-    leading_cols = 2 + (3 if has_spouse else 0) + 1 + show_rental + show_ss + show_other_income + 3
+    leading_cols = 2 + (3 if has_spouse else 0) + 1 + show_rental + show_ss + show_other_income + 3 + (2 if has_conversion else 0)
     today_row_html = (
         f'<tr style="background:var(--surface-alt); font-style:italic;"><td colspan="{leading_cols}">'
         "Today (starting balances, before any growth)</td>"
@@ -477,15 +486,46 @@ def _year_by_year_table_html(schedule: dict) -> str:
         + f'<td class="num">{_money(sum(start.values()))}</td><td></td></tr>'
         if start else ""
     )
+    conversion_header = '<th class="num">Roth conversion</th><th class="num">Conversion tax</th>' if has_conversion else ""
     return f"""
 {hidden_years_note_html}
 <div style="overflow-x:auto">
 <table class="sortable">
-<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th>{income_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>
+<thead><tr><th>Year</th><th>Age</th>{spouse_header}<th class="num">Expenses</th>{income_header}<th class="num">Need</th><th class="num">RMD</th><th class="num">Tax</th>{conversion_header}
 {_withdrawn_ending_header_html(columns)}
 <th class="num">Total</th><th></th></tr>{today_row_html}</thead>
 <tbody>{rows_html}</tbody>
 </table>
+</div>
+"""
+
+
+def _conversion_choice_card_html(configs: list[dict], key: str, schedule: dict) -> str:
+    """Pick which Legacy Planning conversion strategy the table below includes ("None" = the plan as it stands). Saved, so the
+    Drawdown tab keeps showing it; only this tab uses it (Summary, the report and Will my money last? are unchanged)."""
+    options = '<option value="">None -- the plan as it stands (no conversions)</option>' + "".join(
+        f'<option value="{html.escape(c["key"])}"{" selected" if c["key"] == key else ""}>{html.escape(c["label"])}</option>'
+        for c in configs if c["target_rate"] is not None
+    )
+    note = ""
+    rows = schedule["rows"]
+    if schedule.get("conversion") is not None:
+        total = sum(r.get("conversion", 0.0) for r in rows)
+        tax = sum(r.get("conversion_tax", 0.0) for r in rows)
+        note = (f'<p class="status-line" style="margin:8px 0 0">With this strategy the table below converts {_money(total)} to Roth over the '
+                f'projection and pays about {_money(tax)} in conversion tax. The Conversion columns show each year; Tax stays the tax on '
+                "withdrawals alone, so a year's full tax bill is Tax plus Conversion tax.</p>")
+    return f"""
+<div class="card" id="conversion-choice">
+<h3 style="margin:0 0 4px 0;">Include Roth conversions</h3>
+<p class="muted small" style="margin:0 0 8px">Add one of the <a href="/legacy-planning.html">Legacy Planning</a> strategies to the table below, so the withdrawals,
+conversions, RMDs and taxes are all in one place. Only this tab uses it; the Summary, the report and Will my money last? still show the plan without conversions.</p>
+<form class="inline" onsubmit="event.preventDefault();
+  postJSON('/api/drawdown-conversion', {{key: this.key.value}}).then(function() {{ location.reload(); }}).catch(function(e) {{ alert(e.message); }});">
+  <label>Strategy<select name="key" style="max-width:520px">{options}</select></label>
+  <button type="submit" class="primary">Show in the table</button>
+</form>
+{note}
 </div>
 """
 
@@ -526,8 +566,23 @@ def _render_drawdown_planning_page() -> str:
     # drawdown-wide one, not the Asset-rows-only figure build_summary put
     # in `assumptions` for the Will my money last? tab.
     schedule_assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
+    try:
+        from source.reporting.monte_carlo import normalize_custom_strategy
+
+        custom_spec = normalize_custom_strategy(db.legacy_whatif())
+    except ValueError:
+        custom_spec = None
+    configs = strategy_configs(schedule_assumptions, custom_spec)
+    conversion_key = db.drawdown_conversion()
+    chosen = next((c for c in configs if c["key"] == conversion_key and c["target_rate"] is not None), None)
+    run_assumptions = schedule_assumptions
+    if chosen is not None:
+        # the strategy decides when spending starts coming from Tax-deferred (the window strategies spend Taxable first)
+        early = chosen["early_spend_from_age"]
+        run_assumptions = {**schedule_assumptions, "early_tax_deferred_age": "" if early is None else str(early)}
     schedule = deterministic_drawdown_schedule(
-        pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=schedule_assumptions,
+        pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=run_assumptions,
+        conversion=chosen,
     )
     rental_tax_note = (
         '<p class="muted">Rental income is treated as sheltered by mortgage interest and depreciation until each '
@@ -579,8 +634,9 @@ pool once you reach RMD age.{rmd_note}{retirement_year_note}{early_tax_deferred_
 (brokerage, taxed on gains as you withdraw), Tax-deferred (401k/Traditional IRA, taxed as ordinary income and
 subject to RMDs), Roth (already taxed, grows and withdraws tax-free, never forces an RMD), and Real estate equity
 opted in on the Real Estate tab (drawn last of all, untaxed here).{unlinked_note}</p></details>
+{_conversion_choice_card_html(configs, conversion_key if chosen else '', schedule)}
 {_this_years_plan_html(_visible_schedule_rows(schedule))}
-{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule))}
+{_best_order_card_html(s, schedule_assumptions, _visible_schedule_rows(schedule)) if chosen is None else ''}
 {sequence_html}
 <h2 id="where-the-money-is">Where your money sits, by tax bucket</h2>
 <div class="tiles">{tiles}</div>

@@ -90,6 +90,15 @@ EARLY_TAX_DEFERRED_SPENDING_STRATEGIES: tuple[tuple[str, str, int], ...] = (
     ("tax_deferred_from_60", "Spend Tax-deferred first starting at age 60", 60),
 )
 
+# Strategies that convert only inside the low-income "bridge" years -- after work stops and before Social Security and required
+# withdrawals (RMDs) push income up -- and, unlike the rows above, do NOT use the plan's own "Start drawing Tax-deferred at age"
+# setting: spending comes from Taxable first, so the 401(k)/IRA is left for conversion instead of being drawn for spending (spending
+# draws are ordinary income too, and fill the same cheap brackets a conversion would use).
+# (key, label, target federal bracket, first age, last age)
+WINDOW_CONVERSION_STRATEGIES: tuple[tuple[str, str, float, int, int], ...] = (
+    ("window_24", "Convert up to the 24% bracket only from age 62 to 70, spending Taxable first", 0.24, 62, 70),
+)
+
 _HEIR_TYPES = ("non_spouse", "spouse")
 
 # The "Try your own" what-if row on the Legacy Planning page. The federal
@@ -141,7 +150,13 @@ def normalize_custom_strategy(raw: dict | None) -> dict | None:
     stop = number("stop_age", "Stop age")
     if stop is not None and not 30 <= stop <= 120:
         raise ValueError("Stop age must be between 30 and 120 (leave it blank for no stop age).")
-    return {"bracket": bracket, "annual_cap": cap, "stop_age": int(stop) if stop is not None else None}
+    start = number("start_age", "Start age")
+    if start is not None and not 30 <= start <= 120:
+        raise ValueError("Start age must be between 30 and 120 (leave it blank to start right away).")
+    if start is not None and stop is not None and start > stop:
+        raise ValueError("Start age cannot be after the stop age.")
+    return {"bracket": bracket, "annual_cap": cap, "stop_age": int(stop) if stop is not None else None,
+            "start_age": int(start) if start is not None else None}
 
 
 def custom_strategy_label(spec: dict) -> str:
@@ -152,6 +167,8 @@ def custom_strategy_label(spec: dict) -> str:
         text = f"Your what-if: convert up to the {bracket * 100:g}% federal bracket each year"
     if spec.get("annual_cap"):
         text += f", at most ${spec['annual_cap']:,.0f} a year (today's dollars)"
+    if spec.get("start_age"):
+        text += f", starting at age {spec['start_age']}"
     if spec.get("stop_age"):
         text += f", stopping after age {spec['stop_age']}"
     return text
@@ -337,9 +354,46 @@ def _cap_conversion_by_affordability(
     return lo
 
 
+def apply_conversion_step(
+    *, path_pools: dict, target_rate: float | str | None, other_ordinary_income: float, year: int, current_year: int,
+    inflation_rate: float, age: int | None, annual_cap: float | None = None, start_age: int | None = None,
+    stop_age: int | None = None,
+) -> dict:
+    """One year's Roth conversion, shared by the Legacy Planning comparison and the Drawdown tab's year-by-year table so the two
+    can never disagree. Converts up to `target_rate`'s federal bracket ceiling ("aggressive": as much as can be afforded), limited
+    by `annual_cap` (today's dollars, grown by inflation), by the ages `start_age` .. `stop_age`, and by what the Taxable pool can
+    pay in tax. Moves the money in `path_pools` (Tax-deferred -> Roth, tax out of Taxable) and returns {"conversion",
+    "conversion_tax", "room"}; `room` is the amount the bracket and caps allowed before the Taxable pool's ability to pay the
+    tax cut it down (0 when the year's other income already fills the bracket)."""
+    none = {"conversion": 0.0, "conversion_tax": 0.0, "room": 0.0}
+    allowed = (stop_age is None or age is None or age <= stop_age) and (start_age is None or age is None or age >= start_age)
+    if target_rate is None or not allowed or path_pools["tax_deferred"] <= 0:
+        return none
+    if target_rate == "aggressive":
+        candidate = path_pools["tax_deferred"]
+    else:
+        ceiling = _federal_bracket_ceiling(target_rate, year, inflation_rate)
+        fed_deduction = FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * ((1.0 + inflation_rate) ** (year - _TAX_BRACKET_BASE_YEAR))
+        room = ceiling - fed_deduction - other_ordinary_income
+        candidate = max(0.0, min(room, path_pools["tax_deferred"]))
+    if annual_cap is not None:
+        candidate = min(candidate, annual_cap * ((1.0 + inflation_rate) ** (year - current_year)))
+    conversion = _cap_conversion_by_affordability(
+        candidate, other_ordinary_income, max(0.0, path_pools["taxable"]), year, inflation_rate,
+    )
+    conversion_tax = 0.0
+    if conversion > 0:
+        conversion_tax = _stacked_tax_on_amount(other_ordinary_income, conversion, year, inflation_rate)
+        path_pools["tax_deferred"] -= conversion
+        path_pools["roth"] += conversion
+        path_pools["taxable"] = max(0.0, path_pools["taxable"] - conversion_tax)
+    return {"conversion": conversion, "conversion_tax": conversion_tax, "room": candidate}
+
+
 def _run_conversion_schedule(
     *, pools: dict, expenses: list, income: list, assumptions: dict, target_rate: float | str | None,
     early_spend_from_age: int | None = None, annual_cap: float | None = None, stop_age: int | None = None,
+    start_age: int | None = None,
 ) -> dict:
     """Walks one Roth-conversion strategy forward year by year, exactly
     like drawdown_schedule.deterministic_drawdown_schedule, with one
@@ -424,29 +478,15 @@ def _run_conversion_schedule(
         # withdrawal itself pulled out.
         other_ordinary_income = taxable_income + result["rmd"] + result["withdrawn"].get("tax_deferred", 0.0)
 
-        conversion = 0.0
-        conversion_tax = 0.0
-        conversions_allowed = stop_age is None or age is None or age <= stop_age
-        if target_rate is not None and conversions_allowed and path_pools["tax_deferred"] > 0:
-            if target_rate == "aggressive":
-                candidate = path_pools["tax_deferred"]
-            else:
-                ceiling = _federal_bracket_ceiling(target_rate, year, inflation_rate)
-                fed_deduction = FEDERAL_STANDARD_DEDUCTION_MFJ_2026 * ((1.0 + inflation_rate) ** (year - _TAX_BRACKET_BASE_YEAR))
-                room = ceiling - fed_deduction - other_ordinary_income
-                candidate = max(0.0, min(room, path_pools["tax_deferred"]))
-            if annual_cap is not None:
-                candidate = min(candidate, annual_cap * ((1.0 + inflation_rate) ** (year - current_year)))
-            conversion = _cap_conversion_by_affordability(
-                candidate, other_ordinary_income, max(0.0, path_pools["taxable"]), year, inflation_rate,
-            )
-            if conversion > 0:
-                conversion_tax = _stacked_tax_on_amount(other_ordinary_income, conversion, year, inflation_rate)
-                path_pools["tax_deferred"] -= conversion
-                path_pools["roth"] += conversion
-                path_pools["taxable"] = max(0.0, path_pools["taxable"] - conversion_tax)
-                total_lifetime_tax += conversion_tax
-                total_converted += conversion
+        step = apply_conversion_step(
+            path_pools=path_pools, target_rate=target_rate, other_ordinary_income=other_ordinary_income, year=year,
+            current_year=current_year, inflation_rate=inflation_rate, age=age, annual_cap=annual_cap, start_age=start_age,
+            stop_age=stop_age,
+        )
+        conversion, conversion_tax = step["conversion"], step["conversion_tax"]
+        if conversion > 0:
+            total_lifetime_tax += conversion_tax
+            total_converted += conversion
 
         withdrawn = result["withdrawn"]
         rows.append({
@@ -457,6 +497,8 @@ def _run_conversion_schedule(
             "tax": result["tax"],
             "conversion": conversion,
             "conversion_tax": conversion_tax,
+            "conversion_room": step["room"],
+            "other_ordinary_income": other_ordinary_income,
             "shortfall": result["shortfall"],
             # Same "what actually came out of each pool this year" shape
             # as deterministic_drawdown_schedule's own rows -- see that
@@ -485,6 +527,44 @@ def _run_conversion_schedule(
         "ending_total": sum(path_pools.values()),
         "depletes": depletes,
     }
+
+
+def strategy_configs(assumptions: dict, custom: dict | None) -> list[dict]:
+    """Every strategy the comparison runs, as {"key", "label", "target_rate", "early_spend_from_age", and optionally "annual_cap",
+    "start_age", "stop_age"}. Shared with the Drawdown tab, which looks a saved choice up by key."""
+    custom = normalize_custom_strategy(custom)
+    # The plan's own "Start drawing Tax-deferred at age" setting (the Drawdown
+    # Planning tab already follows it) applies to the baseline AND to every
+    # conversion row -- otherwise "no conversions" would not be the plan
+    # you're actually running, and every comparison would be against a
+    # strawman. A fixed-age early-draw alternative is only listed when it
+    # differs from that setting (it would just repeat the baseline).
+    plan_early_age = _resolve_early_tax_deferred_age(assumptions)
+    strategy_configs = [
+        {"key": key, "label": label, "target_rate": target_rate, "early_spend_from_age": plan_early_age}
+        for key, label, target_rate in ROTH_CONVERSION_STRATEGIES
+    ] + [
+        {"key": key, "label": label, "target_rate": None, "early_spend_from_age": early_spend_from_age}
+        for key, label, early_spend_from_age in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES
+        if early_spend_from_age != plan_early_age
+    ] + [
+        {"key": key, "label": label, "target_rate": rate, "early_spend_from_age": None, "start_age": first, "stop_age": last}
+        for key, label, rate, first, last in WINDOW_CONVERSION_STRATEGIES
+    ]
+    if custom is not None:
+        strategy_configs.append({
+            "key": CUSTOM_STRATEGY_KEY, "label": custom_strategy_label(custom),
+            "target_rate": "aggressive" if custom["bracket"] == "none" else custom["bracket"],
+            "early_spend_from_age": plan_early_age, "annual_cap": custom["annual_cap"], "stop_age": custom["stop_age"],
+            "start_age": custom.get("start_age"),
+        })
+    if plan_early_age is not None:
+        for config in strategy_configs:
+            if config["key"] == "no_conversions":
+                config["label"] = (
+                    f"Your current plan: spend Tax-deferred first from age {plan_early_age}, no conversions"
+                )
+    return strategy_configs
 
 
 def compare_roth_conversion_strategies(
@@ -516,41 +596,15 @@ def compare_roth_conversion_strategies(
     heir_spread_years = _resolve_heir_spread_years(assumptions, heir_type)
     inflation_rate = float(assumptions.get("inflation_rate") or 0.0)
 
-    # The plan's own "Start drawing Tax-deferred at age" setting (the Drawdown
-    # Planning tab already follows it) applies to the baseline AND to every
-    # conversion row -- otherwise "no conversions" would not be the plan
-    # you're actually running, and every comparison would be against a
-    # strawman. A fixed-age early-draw alternative is only listed when it
-    # differs from that setting (it would just repeat the baseline).
     plan_early_age = _resolve_early_tax_deferred_age(assumptions)
-    strategy_configs = [
-        {"key": key, "label": label, "target_rate": target_rate, "early_spend_from_age": plan_early_age}
-        for key, label, target_rate in ROTH_CONVERSION_STRATEGIES
-    ] + [
-        {"key": key, "label": label, "target_rate": None, "early_spend_from_age": early_spend_from_age}
-        for key, label, early_spend_from_age in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES
-        if early_spend_from_age != plan_early_age
-    ]
-    if custom is not None:
-        strategy_configs.append({
-            "key": CUSTOM_STRATEGY_KEY, "label": custom_strategy_label(custom),
-            "target_rate": "aggressive" if custom["bracket"] == "none" else custom["bracket"],
-            "early_spend_from_age": plan_early_age, "annual_cap": custom["annual_cap"], "stop_age": custom["stop_age"],
-        })
-    if plan_early_age is not None:
-        for config in strategy_configs:
-            if config["key"] == "no_conversions":
-                config["label"] = (
-                    f"Your current plan: spend Tax-deferred first from age {plan_early_age}, no conversions"
-                )
-
+    strategy_configs_ = strategy_configs(assumptions, custom)
     results = []
-    for config in strategy_configs:
+    for config in strategy_configs_:
         key, label = config["key"], config["label"]
         schedule = _run_conversion_schedule(
             pools=pools, expenses=expenses, income=income, assumptions=assumptions,
             target_rate=config["target_rate"], early_spend_from_age=config["early_spend_from_age"],
-            annual_cap=config.get("annual_cap"), stop_age=config.get("stop_age"),
+            annual_cap=config.get("annual_cap"), stop_age=config.get("stop_age"), start_age=config.get("start_age"),
         )
         death_year = schedule["years"][-1] if schedule["years"] else _current_year(assumptions)
         heir_tax = estimate_heir_tax_on_tax_deferred(
@@ -578,6 +632,7 @@ def compare_roth_conversion_strategies(
             # ending balance) -- shown in the "how we arrived" sum.
             "tax_deferred_after_heir_tax": max(0.0, schedule["ending_tax_deferred"] - heir_tax),
             "is_custom": key == CUSTOM_STRATEGY_KEY,
+            "config": {k: v for k, v in config.items() if k not in ("key", "label")},
             "net_after_tax_legacy": net_legacy,
             "depletes": schedule["depletes"],
             "rows": schedule["rows"],
@@ -603,4 +658,40 @@ def compare_roth_conversion_strategies(
         "custom": custom,
         "death_year": results[0]["rows"][-1]["year"] if results and results[0]["rows"] else _current_year(assumptions),
         "strategies": results,
+    }
+
+
+def window_diagnosis(
+    top: dict, *, pools: dict, expenses: list, income: list, assumptions: dict, first_age: int = 62, last_age: int = 70,
+) -> dict | None:
+    """Why a strategy converts little between `first_age` and `last_age` (the years after work stops and before Social Security /
+    required withdrawals push income up). Returns None when the strategy converts nothing by design (no conversions) or there are
+    no rows in that age window. Otherwise {"years", "no_room_years", "converted", "spend_draw", "plan_early_age", "alt_converted"}:
+    how many window years had no room left in the bracket, how much was converted in them, how much a year was drawn from
+    Tax-deferred for spending (when the plan's early-draw age applies), and -- when that early draw is what is using the room --
+    what the same strategy would convert in the window if spending came from Taxable first instead."""
+    config = top.get("config") or {}
+    if config.get("target_rate") is None:
+        return None
+    rows = [r for r in top["rows"] if r["age"] is not None and first_age <= r["age"] <= last_age]
+    if not rows:
+        return None
+    no_room = [r for r in rows if r.get("conversion_room", 0.0) <= 1.0]
+    plan_early = config.get("early_spend_from_age")
+    spend_draw = [
+        max(0.0, r["drawn_tax_deferred"] - r["rmd"]) for r in rows
+        if plan_early is not None and r["age"] >= plan_early
+    ]
+    alt_converted = None
+    if plan_early is not None and no_room:
+        alt = _run_conversion_schedule(
+            pools=pools, expenses=expenses, income=income, assumptions=assumptions, target_rate=config["target_rate"],
+            early_spend_from_age=None, annual_cap=config.get("annual_cap"), stop_age=config.get("stop_age"),
+            start_age=config.get("start_age"),
+        )
+        alt_converted = sum(r["conversion"] for r in alt["rows"] if r["age"] is not None and first_age <= r["age"] <= last_age)
+    return {
+        "years": len(rows), "no_room_years": len(no_room), "converted": sum(r["conversion"] for r in rows),
+        "spend_draw": (sum(spend_draw) / len(spend_draw)) if spend_draw else 0.0, "plan_early_age": plan_early,
+        "alt_converted": alt_converted, "first_age": first_age, "last_age": last_age,
     }
