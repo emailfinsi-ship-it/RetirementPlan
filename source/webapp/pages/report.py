@@ -10,13 +10,15 @@ Summary uses, so the two can never disagree."""
 from __future__ import annotations
 
 import html
+import random
 import re
+import statistics
 from datetime import date
 
 from source.common import backup, branding, db, linked_data
 from source.reporting import advice, data_check, progress
 from source.reporting import presentation as pres
-from source.reporting.monte_carlo import run_historical_stress_test
+from source.reporting.monte_carlo import _SP500_ANNUAL_RETURNS, run_historical_stress_test, run_simulation, stable_simulation_seed
 from source.reporting.plan_health import plan_health_items
 from source.webapp.pages import summary_blocks as blocks
 from source.webapp.pages.summary import build_plan_views
@@ -207,7 +209,57 @@ def _scenarios_html(s: dict, v: dict, result: dict, mode: str) -> str:
         )
     except Exception:  # a report must still open if the stress replay cannot run
         stress_html = ""
-    return lead + table + stress_html
+    return lead + table + _volatility_check_html(s, result) + stress_html
+
+
+def _volatility_check_html(s: dict, result: dict) -> str:
+    """A plain warning under the scenarios when the assumed yearly ups and downs (volatility) are below what markets have done,
+    with the chance re-run at a more typical figure. Nothing is shown when the figure is already 15% or more."""
+    a = s["assumptions"]
+    try:
+        vol = float(a.get("return_volatility") or 0.12)
+        if vol >= 0.15:
+            return ""
+        history = statistics.pstdev(list(_SP500_ANNUAL_RETURNS.values()))
+        rerun = None
+        try:
+            stressed = {**a, "return_volatility": 0.16}
+            seed = stable_simulation_seed(
+                starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income_for_simulation"],
+                assumptions=stressed, pools=s["retirement_pools"],
+            )
+            rerun = run_simulation(
+                starting_balance=s["net_liquid_asset"], expenses=s["expenses"], income=s["income_for_simulation"],
+                assumptions=stressed, pools=s["retirement_pools"], rng=random.Random(seed),
+            )["success_rate"]
+        except Exception:    # the warning still helps without the re-run number
+            rerun = None
+        text = pres.volatility_note(vol, history, result["success_rate"], rerun)
+    except Exception:    # a report must still open if this check cannot run
+        return ""
+    return f'<p class="rep-lead"><strong>{html.escape(text)}</strong></p>' if text else ""
+
+
+def _reinvested_note(rows: list[dict], convert) -> str:
+    """When the IRS-required withdrawal is bigger than a year's spending plus tax, the table shows only what pays for spending;
+    this says so and gives the biggest such year, so the table is not read as the whole withdrawal."""
+    best = None
+    for r in rows:
+        gross = sum(r.get(k, 0.0) for k in ("drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate"))
+        t = blocks._trim_reinvested(r)
+        kept = sum(t.get(k, 0.0) for k in ("drawn_taxable", "drawn_tax_deferred", "drawn_roth", "drawn_real_estate"))
+        extra = convert(gross - kept, r["year"])
+        if extra > 1000 and (best is None or extra > best[0]):
+            best = (extra, r, convert(gross, r["year"]), convert(kept, r["year"]))
+    if best is None:
+        return ""
+    extra, r, gross, kept = best
+    return (
+        f'<p class="muted small" style="margin:6px 0 0">Required withdrawals from retirement accounts can be bigger than a year\'s spending. '
+        f'The most is in {r["year"]}: {_money(gross)} must be withdrawn but only {_money(kept)} is needed for spending and tax. '
+        f'The extra {_money(extra)} is moved into a regular (taxable) account and keeps growing, so the table shows only what pays '
+        'for spending. Tax is figured on the whole required withdrawal.</p>'
+    )
 
 
 def _income_tax_html(s: dict, v: dict, mode: str) -> str:
@@ -224,9 +276,10 @@ def _income_tax_html(s: dict, v: dict, mode: str) -> str:
         r = by_year[y]
         social = convert(r.get("income_social_security", 0.0), y)
         other = convert(r.get("income_rental", 0.0) + r.get("income_other", 0.0), y)
+        t = blocks._trim_reinvested(r)       # required withdrawals beyond spending are reinvested, so they are not "taken from savings"
         drawn = convert(
-            r.get("drawn_taxable", 0.0) + r.get("drawn_tax_deferred", 0.0)
-            + r.get("drawn_roth", 0.0) + r.get("drawn_real_estate", 0.0), y)
+            t.get("drawn_taxable", 0.0) + t.get("drawn_tax_deferred", 0.0)
+            + t.get("drawn_roth", 0.0) + t.get("drawn_real_estate", 0.0), y)
         table_rows.append([
             str(y), str(r["age"]) if r.get("age") is not None else "--",
             _money(convert(r.get("expenses", 0.0), y)), _money(social), _money(other),
@@ -249,12 +302,13 @@ def _income_tax_html(s: dict, v: dict, mode: str) -> str:
         sentence = pres.watch_sentence(rows_ret, _money, convert_row)
         if sentence:
             watch = f'<p class="rep-lead"><strong>{html.escape(sentence)}</strong></p>'
+    reinvest = _reinvested_note(rows_ret, convert)
     table = _table(
         ["Year", "Age", "Spending", "Social Security", "Rent and other income", "Taken from savings", "Est. tax"],
         table_rows, (2, 3, 4, 5, 6),
     ) if table_rows else "<p class='muted'>No retirement years to show yet.</p>"
     income = _unlink(blocks.income_sources_card_html(v["schedule"], a, mode, s["this_year"])) if v["schedule"] else ""
-    return tax_line + watch + table + income
+    return tax_line + watch + table + reinvest + income
 
 
 def _disclosures_html() -> str:

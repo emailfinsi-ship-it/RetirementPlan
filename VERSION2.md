@@ -167,3 +167,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Plan report: Download PDF button (a real PDF file, not the print dialog); reportlab added to requirements; the PDF keeps the report's colors and charts. See VERSION3.md item 77.
 - Safari: a button written inside a link (Download, Sign in to IBKR, wizard buttons) now opens the link. See VERSION3.md item 78.
 - Trading tab: Market news card (broader-market headlines by topic from Alpaca / Yahoo, refreshed every hour). See VERSION3.md item 79.
+- Plan report: low-volatility warning with a 16% re-run, accurate 'one thing to watch' wording for required withdrawals, and Taken-from-savings shows only what pays for spending (reinvested required withdrawals explained). See VERSION3.md item 80.
