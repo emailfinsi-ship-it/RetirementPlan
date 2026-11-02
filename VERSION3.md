@@ -454,3 +454,8 @@ are not touched.
 78. **Report Download did not open in Safari.** The buttons on the top bar and report page are written as a button inside a link, and Safari lets the button swallow the
     click, so the link never opened. One style rule (`a > button { pointer-events: none; }` in the page styles) lets the click reach the link in every browser. This also
     fixes Download PDF, Back to Summary, Sign in to IBKR, the setup wizard buttons and the other buttons written the same way.
+79. **Market news** card on the Trading tab (practice and live pages). Headlines about the broader market, not one company: stocks and bonds overall, the Fed and interest
+    rates, inflation and jobs, oil, trade and world events, each with a topic label and a topic filter. Alpaca's news feed (broad index funds SPY, QQQ, DIA, IWM, TLT) is used
+    when keys are saved, with Yahoo Finance (S&P 500, Dow, Nasdaq, 10-year yield, oil) filling in or taking over, so it also works with no keys. The list is kept for about
+    55 minutes and the page asks again **every hour** while it is open; a Refresh button forces a new fetch (at most once a minute); if a refresh fails the last list stays
+    with a note. Route `/api/market-news`; code in `source/collector/market_news.py` and `source/webapp/pages/market_news_card.py`. Tests: `tests/test_market_news.py`.

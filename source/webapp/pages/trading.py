@@ -13,6 +13,7 @@ from datetime import datetime
 from source.collector import alpaca, alpaca_view
 from source.common import db, secrets_store
 from source.webapp.pages import position_ratings
+from source.webapp.pages.market_news_card import market_news_card_html
 from source.webapp.render_helpers import _money, _shell
 
 _OPEN_STATUSES = {"new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding", "pending_replace"}
@@ -462,6 +463,7 @@ def _render_trading_page(mode: str = "paper") -> str:
         body += _live_controls_html()
     if acct is not None:
         body += _account_card_html(acct, mode)
+        body += market_news_card_html()
         body += f"<h3>Positions</h3>{_positions_html(positions)}"
         if positions:
             body += position_ratings.block()
