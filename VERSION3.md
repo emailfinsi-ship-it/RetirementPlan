@@ -459,3 +459,10 @@ are not touched.
     when keys are saved, with Yahoo Finance (S&P 500, Dow, Nasdaq, 10-year yield, oil) filling in or taking over, so it also works with no keys. The list is kept for about
     55 minutes and the page asks again **every hour** while it is open; a Refresh button forces a new fetch (at most once a minute); if a refresh fails the last list stays
     with a note. Route `/api/market-news`; code in `source/collector/market_news.py` and `source/webapp/pages/market_news_card.py`. Tests: `tests/test_market_news.py`.
+80. **Report accuracy checks** (from a review of a real report). (a) A low-volatility warning under the scenarios table: when the yearly ups and downs assumption is under
+    15% it says the U.S. stock market has actually swung about 20% a year since 1928, that a stock-heavy or concentrated portfolio usually swings 15% or more, and shows the
+    chance your money lasts re-run at 16%, so a figure like ">99%" is not read as certain. (b) "One thing to watch" no longer calls a later jump "the IRS starts requiring
+    withdrawals": it says so only for the first year; when a spouse's required withdrawals begin years after the plan owner's it says that, and a plain step-up otherwise.
+    (c) The "Taken from savings" column of the income and tax table now shows only what pays for spending and tax; a required withdrawal bigger than that (for example
+    $773k against $294k of spending) is reinvested in the taxable pool by the engine, so a note under the table names the biggest such year and says the tax is figured on the
+    whole required withdrawal. Tests: `tests/test_report_checks.py`.

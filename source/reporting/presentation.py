@@ -107,11 +107,33 @@ def watch_sentence(rows: list[dict], money, convert=None) -> str:
     if best is None:
         return ""
     _gain, prev, cur, before, after = best
-    required = cur.get("rmd", 0) > 2 * max(prev.get("rmd", 0), 1)
-    cause = ("the IRS starts requiring withdrawals from your retirement accounts, and they are taxed"
-             if required else "your spending and taxes step up")
+    first_rmd = next((r for r in rows if r.get("rmd", 0) > 0), None)
+    if first_rmd is cur or (first_rmd is not None and cur.get("rmd", 0) > 0 and prev.get("rmd", 0) <= 0):
+        cause = "the IRS starts requiring withdrawals from your retirement accounts, and they are taxed"
+    elif cur.get("rmd_spouse", 0) > 0 and prev.get("rmd_spouse", 0) <= 0:
+        # one person's required withdrawals began earlier; this is the year the other person's start too
+        cause = "the IRS also starts requiring withdrawals from your spouse's retirement accounts, and they are taxed"
+    elif cur.get("rmd", 0) > 1.25 * max(prev.get("rmd", 0), 1) and prev.get("rmd", 0) > 0:
+        cause = "required withdrawals from your retirement accounts keep growing, and they are taxed"
+    else:
+        cause = "your spending and taxes step up"
     return (f"One thing to watch: in {cur['year']} yearly spending plus taxes jumps from "
             f"{money(before)} to {money(after)} because {cause}.")
+
+
+def volatility_note(volatility: float, history_volatility: float, rate: float, rate_at_history: float | None) -> str:
+    """A plain warning when the plan's assumed yearly ups and downs are well below what markets have actually done, since a
+    low figure makes the chance your money lasts look better than history supports. "" when the figure is in a normal range.
+    `rate` is the plan's own chance; `rate_at_history` the chance re-run at a more typical figure (None when not run)."""
+    if volatility >= 0.15:
+        return ""
+    text = (f"A check on the {volatility * 100:.1f}% yearly ups and downs. That number sets how bumpy the simulated markets are. "
+            f"The U.S. stock market has actually swung about {history_volatility * 100:.0f}% a year since 1928, and a portfolio that is mostly "
+            "stocks, or held in only a few companies, usually swings 15% or more. A low number makes the plan look safer than history suggests.")
+    if rate_at_history is not None:
+        text += (f" Re-run at 16%, the chance your money lasts is {percent_display(rate_at_history)} "
+                 f"(instead of {percent_display(rate)}).")
+    return text
 
 
 # One set of plain-language labels used on every page that shows simulation
