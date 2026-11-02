@@ -169,3 +169,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Trading tab: Market news card (broader-market headlines by topic from Alpaca / Yahoo, refreshed every hour). See VERSION3.md item 79.
 - Plan report: low-volatility warning with a 16% re-run, accurate 'one thing to watch' wording for required withdrawals, and Taken-from-savings shows only what pays for spending (reinvested required withdrawals explained). See VERSION3.md item 80.
 - Legacy Planning: 'Why so little converted between 62 and 70?' card, an 'only age 62 to 70' strategy row and a Start-converting-at-age what-if field. Drawdown: 'Include Roth conversions' choice adds conversion columns to the year-by-year table. See VERSION3.md item 81.
+- Report: when no Roth conversion strategy is chosen on the Drawdown tab, the "Withdrawals with Roth conversions" section now says so and points to the Drawdown tab (it used to add nothing).
