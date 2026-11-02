@@ -180,6 +180,29 @@ def get_news(symbol: str, *, limit: int = 8) -> list[dict]:
     return items[: int(limit)]
 
 
+def get_topic_news(symbols: list[str], *, limit: int = 20) -> list[dict]:
+    """Headlines from Yahoo for market-wide symbols (index ^GSPC, oil CL=F, ...), newest first, duplicates removed.
+    A symbol that cannot be read is skipped; it is an error only when none could be."""
+    seen, out, failed = set(), [], 0
+    for sym in symbols:
+        try:
+            raw = _ticker(str(sym)).news or []
+        except MarketDataError:
+            raise
+        except Exception:    # noqa: BLE001
+            failed += 1
+            continue
+        for item in raw:
+            n = _news_item(item) if isinstance(item, dict) else None
+            if n and n["url"] not in seen:
+                seen.add(n["url"])
+                out.append(n)
+    if not out and failed == len(symbols) and symbols:
+        raise MarketDataError("Couldn't read market headlines from Yahoo Finance.")
+    out.sort(key=lambda n: n.get("time") or "", reverse=True)
+    return out[: int(limit)]
+
+
 _SESSION_OF_STATE = {"PRE": "pre", "PREPRE": "pre", "POST": "post", "POSTPOST": "post", "CLOSED": "post"}
 
 

@@ -6383,6 +6383,8 @@ class TestTradingTab(DashboardTestCase):
         self.assertIn("BND", body)
         self.assertIn('data-order-id="61e69015-8549-4bfd-b9c3-01e75843f47d"', body)  # open order can be cancelled
         self.assertIn("Place a practice order", body)
+        self.assertIn('id="market-news"', body)                        # the market news card, which asks again every hour
+        self.assertIn("/api/market-news", body)
         self.assertNotIn("S3", body)             # the secret is never shown
 
     def test_the_trading_pages_no_longer_hold_the_quote_card_but_point_to_stock_analysis(self):
