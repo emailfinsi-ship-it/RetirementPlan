@@ -111,7 +111,16 @@ def _health_overlap(summary: dict) -> list[dict]:
         if e.get("source") == benefits.BENEFITS_SOURCE or not _HEALTH_ROW.search(f"{e.get('name') or ''} {e.get('category') or ''}"):
             continue
         end = e.get("end_year")
-        first = min((m["start_year"] for m in medicare if end is None or end >= m["start_year"]), default=None)
+        # A row that names one person (medical-Anupama) is compared with that person's Medicare rows only; otherwise with everyone's.
+        text = str(e.get("name") or "").lower()
+        mine = []
+        for m in medicare:
+            who = re.search(r"\(([^)]+)\)", m["name"])
+            first_name = who.group(1).strip().lower().split()[0] if who and who.group(1).strip() else ""
+            if first_name and re.search(rf"(?<![a-z0-9]){re.escape(first_name)}(?![a-z0-9])", text):
+                mine.append(m)
+        pool = mine or medicare
+        first = min((m["start_year"] for m in pool if end is None or end >= m["start_year"]), default=None)
         if first is None:
             continue
         year = max(int(first), int(e.get("start_year") or first))
@@ -122,7 +131,7 @@ def _health_overlap(summary: dict) -> list[dict]:
         out.append({
             "id": f"health-overlap-{e.get('id', e.get('name'))}", "level": "warn",
             "title": f"{e['name']} may be counted on top of Medicare ({when})",
-            "detail": f"Medicare premiums start in {first}, but {e['name']} keeps running {when}, so both are counted: about {_money(extra)} extra in {year} "
+            "detail": f"Medicare premiums start in {first}{' for the person named in this row' if mine else ''}, but {e['name']} keeps running {when}, so both are counted: about {_money(extra)} extra in {year} "
                       "(in that year's dollars). If it ends or shrinks when each of you moves to Medicare, change its end year, or split it into one row per person.",
             "href": "/expense.html", "fix": None,
         })

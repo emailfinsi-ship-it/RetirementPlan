@@ -131,8 +131,11 @@ def volatility_note(volatility: float, history_volatility: float, rate: float, r
             f"The U.S. stock market has actually swung about {history_volatility * 100:.0f}% a year since 1928, and a portfolio that is mostly "
             "stocks, or held in only a few companies, usually swings 15% or more. A low number makes the plan look safer than history suggests.")
     if rate_at_history is not None:
-        text += (f" Re-run at 16%, the chance your money lasts is {percent_display(rate_at_history)} "
-                 f"(instead of {percent_display(rate)}).")
+        if percent_display(rate_at_history) == percent_display(rate):
+            text += f" Re-run at 16%, the chance your money lasts is still {percent_display(rate_at_history)}, so the plan holds up to a bumpier market."
+        else:
+            text += (f" Re-run at 16%, the chance your money lasts is {percent_display(rate_at_history)} "
+                     f"(instead of {percent_display(rate)}).")
     return text
 
 

@@ -483,3 +483,6 @@ are not touched.
     retirement year and ten and twenty years later: each row counts only in the years it applies, grown by inflation, in the report's dollar basis, with a Total that matches the income
     table's Spending, and every health-care row (medical, Medicare, dental, ACA...) grouped as Healthcare. New data check: a hand-entered health insurance row that keeps running after the
     planner's Medicare premiums start is flagged as counted twice, with the extra dollars. Tests: `tests/test_report_checks.py`.
+84. **Report check follow-ups.** The Medicare double-count warning now compares a row that names one person (say "medical-Anupama") with that person's Medicare start, not the earliest
+    start of either of you, so splitting a private plan per person clears the warning once each row ends before its owner's Medicare begins. The 16% volatility re-run reads "is still
+    >99%" instead of "(instead of >99%)" when the two figures display the same. Tests: `tests/test_report_checks.py`.
