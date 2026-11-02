@@ -17,7 +17,7 @@ from datetime import date
 
 from source.collector import alpaca, alpaca_view, market_data
 from source.common import db, secrets_store
-from source.collector import earnings
+from source.collector import earnings, market_news
 from source.webapp import broker_api, screener_api, trade_context
 from source.webapp.pages import earnings_panel, quote_chart, watchlist
 
@@ -25,7 +25,7 @@ ROUTES = (
     "/api/alpaca-keys", "/api/alpaca-keys/delete", "/api/alpaca/preview", "/api/alpaca/order", "/api/alpaca/cancel",
     "/api/alpaca/live/arm", "/api/alpaca/live/disarm", "/api/alpaca/live/limits", "/api/alpaca/quote", "/api/alpaca/price",
     "/api/watchlist/data", "/api/watchlist/add", "/api/watchlist/remove", "/api/watchlist/note",
-    "/api/earnings", "/api/earnings/week", "/api/ratings", "/api/extended", "/api/orders/history",
+    "/api/earnings", "/api/earnings/week", "/api/market-news", "/api/ratings", "/api/extended", "/api/orders/history",
 ) + broker_api.ROUTES + screener_api.ROUTES
 
 
@@ -167,6 +167,12 @@ def _handle(path: str, payload: dict) -> dict:
                 continue
         found = earnings.lookup(syms)
         return {"items": list(found["items"].values()), "pending": found["pending"], "error": found["error"]}
+    if path == "/api/market-news":
+        try:
+            keys, _mode_used = quote_chart.market_data_source(None)
+        except ValueError:
+            keys = None      # no Alpaca keys (and Yahoo off, as under the tests): the news module says what it could not read
+        return market_news.get(keys, force=bool(payload.get("force")))
     if path == "/api/earnings/week":
         out = earnings_panel.build_week()
         out["today"] = date.today().isoformat()

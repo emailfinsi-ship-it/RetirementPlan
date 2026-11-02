@@ -255,6 +255,16 @@ def get_news(symbol: str, keys: tuple[str, str], *, limit: int = 8, **kw) -> lis
     return [n for n in (_news_item(x) for x in (items or []) if isinstance(x, dict)) if n]
 
 
+def get_news_for(symbols: list[str], keys: tuple[str, str], *, limit: int = 20, **kw) -> list[dict]:
+    """The latest headlines tagged with ANY of several tickers (used with broad index funds for market-wide news),
+    newest first. Same shape as get_news. Read-only."""
+    syms = ",".join(_symbol(s) for s in symbols)
+    query = urllib.parse.urlencode({"symbols": syms, "limit": int(limit), "sort": "desc", "include_content": "false"})
+    raw = _request("GET", f"{DATA_URL}/v1beta1/news?{query}", keys, **kw)
+    items = (raw or {}).get("news") if isinstance(raw, dict) else None
+    return [n for n in (_news_item(x) for x in (items or []) if isinstance(x, dict)) if n]
+
+
 def get_bars_multi(symbols: list[str], keys: tuple[str, str], *, start: str, max_pages: int = 8, **kw) -> dict[str, list[dict]]:
     """Daily bars for several symbols in as few calls as possible (the watchlist).
     Returns {symbol: bars oldest first}; a symbol Alpaca has no bars for is simply

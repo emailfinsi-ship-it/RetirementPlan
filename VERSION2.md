@@ -166,3 +166,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Explore: How early could I stop working? card (earliest retirement year that keeps the chosen chance of lasting). See VERSION3.md item 76.
 - Plan report: Download PDF button (a real PDF file, not the print dialog); reportlab added to requirements; the PDF keeps the report's colors and charts. See VERSION3.md item 77.
 - Safari: a button written inside a link (Download, Sign in to IBKR, wizard buttons) now opens the link. See VERSION3.md item 78.
+- Trading tab: Market news card (broader-market headlines by topic from Alpaca / Yahoo, refreshed every hour). See VERSION3.md item 79.
