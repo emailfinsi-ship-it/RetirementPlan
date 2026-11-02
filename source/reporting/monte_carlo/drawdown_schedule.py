@@ -30,6 +30,7 @@ from source.reporting.monte_carlo.assumptions import (
     _resolve_spouse_birth_year,
     _truthy_assumption,
 )
+from source.reporting.monte_carlo.legacy_planning import apply_conversion_step
 from source.reporting.monte_carlo.pools import _TAX_DEFERRED_FIRST_ORDER, _apply_year_withdrawal, new_owner_state
 from source.reporting.monte_carlo.withdrawal import (
     annual_expense_need,
@@ -41,6 +42,7 @@ from source.reporting.monte_carlo.withdrawal import (
 
 def deterministic_drawdown_schedule(
     *, pools: dict, expenses: list, assumptions: dict, income: list | None = None, horizon_years: int | None = None,
+    conversion: dict | None = None,
 ) -> dict:
     """Walks `pools` (a {"tax_deferred", "roth", "taxable", "real_estate"}
     dict -- e.g. build_summary's drawdown_pools) forward one year at a
@@ -56,6 +58,11 @@ def deterministic_drawdown_schedule(
     "taxable", "tax_deferred", "roth", "real_estate", "total"}, the pool
     balances AFTER that year's growth and withdrawal (so `rows[-1]` is
     the projection's ending balance by pool).
+
+    `conversion` (default None = no conversions, byte for byte the original) is a Legacy Planning strategy config -- {"target_rate",
+    "annual_cap", "start_age", "stop_age"} as strategy_configs() returns -- and adds one Roth conversion step per year after the
+    withdrawal, done by the same apply_conversion_step the Legacy Planning comparison uses. Rows then also carry "conversion",
+    "conversion_tax" and "conversion_room", and the result's "conversion" is the config.
 
     When some Tax-deferred money is assigned to the spouse (the derived
     `spouse_tax_deferred_share` assumption -- see assumptions.
@@ -119,6 +126,19 @@ def deterministic_drawdown_schedule(
                 income or [], year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year),
             ),
         )
+        step = None
+        if conversion is not None and conversion.get("target_rate") is not None:
+            # ordinary income already recognised this year: the taxable part of the Income tab, the RMD, and whatever more the
+            # spending withdrawal pulled out of Tax-deferred -- the conversion stacks on top (same as the Legacy Planning page)
+            other_ordinary_income = (
+                annual_taxable_income(income or [], year, inflation_rate, _resolve_rental_taxable_fraction(assumptions, year))
+                + result["rmd"] + result["withdrawn"].get("tax_deferred", 0.0)
+            )
+            step = apply_conversion_step(
+                path_pools=path_pools, target_rate=conversion["target_rate"], other_ordinary_income=other_ordinary_income,
+                year=year, current_year=current_year, inflation_rate=inflation_rate, age=age,
+                annual_cap=conversion.get("annual_cap"), start_age=conversion.get("start_age"), stop_age=conversion.get("stop_age"),
+            )
         withdrawn = result["withdrawn"]
         row = {
             "year": year,
@@ -150,6 +170,10 @@ def deterministic_drawdown_schedule(
             "real_estate": path_pools["real_estate"],
             "total": sum(path_pools.values()),
         }
+        if conversion is not None:
+            row["conversion"] = step["conversion"] if step else 0.0
+            row["conversion_tax"] = step["conversion_tax"] if step else 0.0
+            row["conversion_room"] = step["room"] if step else 0.0
         if owners is not None:
             row["spouse_age"] = (year - spouse_birth_year) if spouse_birth_year is not None else None
             row["rmd_self"] = result["rmd_by_owner"]["self"]
@@ -162,6 +186,7 @@ def deterministic_drawdown_schedule(
         "years": years, "rows": rows, "expected_return": expected_return,
         "retirement_year": retirement_year, "early_tax_deferred_age": early_tax_deferred_age,
         "has_spouse": owners is not None,
+        "conversion": conversion,
         # The pool balances the projection starts from (today's, before any
         # year's growth) -- the table's "Today" row.
         "starting_pools": starting_pools,

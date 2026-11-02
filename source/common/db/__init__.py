@@ -112,7 +112,7 @@ from source.common.db.owners import (
     spouse_name,
 )
 from source.common.db.meta import (
-    dollars_mode, get_meta, legacy_whatif, set_dollars_mode, set_legacy_whatif, set_meta, set_setup_complete,
+    dollars_mode, drawdown_conversion, get_meta, legacy_whatif, set_drawdown_conversion, set_dollars_mode, set_legacy_whatif, set_meta, set_setup_complete,
     safe_spend_target, set_safe_spend_target,
     setup_complete, setup_needed, set_tour_seen, set_view_mode, set_wording_mode, tour_seen, view_mode, wording_mode,
 )
@@ -202,6 +202,8 @@ __all__ = [
     "tour_seen",
     "view_mode",
     "legacy_whatif",
+    "drawdown_conversion",
+    "set_drawdown_conversion",
     "set_legacy_whatif",
     "set_setup_complete",
     "setup_complete",

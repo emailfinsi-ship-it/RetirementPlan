@@ -21,10 +21,10 @@ class TestNormalize(unittest.TestCase):
     def test_percent_forms_and_blank_fields(self):
         self.assertEqual(
             normalize_custom_strategy({"bracket": "24", "annual_cap": "", "stop_age": ""}),
-            {"bracket": 0.24, "annual_cap": None, "stop_age": None},
+            {"bracket": 0.24, "annual_cap": None, "stop_age": None, "start_age": None},
         )
         self.assertEqual(normalize_custom_strategy({"bracket": 0.22, "annual_cap": "$200,000", "stop_age": "72"}),
-                         {"bracket": 0.22, "annual_cap": 200000.0, "stop_age": 72})
+                         {"bracket": 0.22, "annual_cap": 200000.0, "stop_age": 72, "start_age": None})
         self.assertEqual(normalize_custom_strategy({"bracket": "none", "annual_cap": 1000})["bracket"], "none")
 
     def test_25_percent_is_not_a_bracket(self):
@@ -89,7 +89,7 @@ class TestEngine(TempConfigTestCase):
         result = compare_roth_conversion_strategies(**self.kw, custom={"bracket": 0.24, "annual_cap": 150_000, "stop_age": 72})
         ranked = [r["net_after_tax_legacy"] for r in result["strategies"]]
         self.assertEqual(ranked, sorted(ranked, reverse=True))
-        self.assertEqual(len(result["strategies"]), 8)
+        self.assertEqual(len(result["strategies"]), 9)        # the six conversion rows, the early-draw row, the 62-70 window row and the what-if
 
     def test_every_row_reports_its_tax_deferred_after_heir_tax(self):
         for r in compare_roth_conversion_strategies(**self.kw)["strategies"]:

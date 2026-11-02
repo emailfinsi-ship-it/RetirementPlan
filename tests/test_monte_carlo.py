@@ -27,6 +27,7 @@ from source.reporting.monte_carlo import (
     EARLY_TAX_DEFERRED_SPENDING_STRATEGIES,
     FEDERAL_LTCG_BRACKETS_MFJ_2026,
     ROTH_CONVERSION_STRATEGIES,
+    WINDOW_CONVERSION_STRATEGIES,
     _SP500_ANNUAL_RETURNS,
     _apply_year_withdrawal,
     _bracket_tax,
@@ -2222,10 +2223,11 @@ class TestCompareRothConversionStrategies(unittest.TestCase):
     def test_returns_one_result_per_named_strategy(self):
         pools = {"tax_deferred": 500_000, "roth": 0, "taxable": 300_000, "real_estate": 0}
         result = compare_roth_conversion_strategies(pools=pools, expenses=[], assumptions=self._assumptions())
-        expected_count = len(ROTH_CONVERSION_STRATEGIES) + len(EARLY_TAX_DEFERRED_SPENDING_STRATEGIES)
+        expected_count = len(ROTH_CONVERSION_STRATEGIES) + len(EARLY_TAX_DEFERRED_SPENDING_STRATEGIES) + len(WINDOW_CONVERSION_STRATEGIES)
         self.assertEqual(len(result["strategies"]), expected_count)
         keys = {s["key"] for s in result["strategies"]}
-        expected_keys = {key for key, _, _ in ROTH_CONVERSION_STRATEGIES} | {key for key, _, _ in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES}
+        expected_keys = ({key for key, _, _ in ROTH_CONVERSION_STRATEGIES} | {key for key, _, _ in EARLY_TAX_DEFERRED_SPENDING_STRATEGIES}
+                         | {key for key, *_ in WINDOW_CONVERSION_STRATEGIES})
         self.assertEqual(keys, expected_keys)
 
     def test_baseline_follows_the_plans_own_early_tax_deferred_draw_age(self):
