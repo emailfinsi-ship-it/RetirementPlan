@@ -4,7 +4,9 @@ savings versus reinvested required withdrawals, and the warning when the assumed
 import unittest
 
 from source.common import demo_data
+from source.reporting import benefits, data_check
 from source.reporting import presentation as pres
+from source.reporting.monte_carlo.withdrawal import annual_expense_need
 from source.webapp.pages import report
 from tests.test_dashboard import DashboardTestCase
 
@@ -65,6 +67,71 @@ class TestReinvestedNote(unittest.TestCase):
         rows = [{"year": 2050, "expenses": 100000.0, "tax": 0.0, "income_social_security": 0.0, "income_rental": 0.0, "income_other": 0.0,
                  "drawn_tax_deferred": 100000.0, "drawn_taxable": 0.0, "drawn_roth": 0.0, "drawn_real_estate": 0.0}]
         self.assertEqual(report._reinvested_note(rows, lambda value, year: value), "")
+
+
+def _exp(name, category, amount, start=None, end=None, base=2026, inflates=1):
+    return {"name": name, "category": category, "annual_amount": amount, "start_year": start, "end_year": end, "base_year": base, "inflates": inflates}
+
+
+class TestSpendingByCategory(unittest.TestCase):
+    EXPENSES = [
+        _exp("Medical Insurance", "Insurance", 30000.0, 2027, 2045, base=2027),
+        _exp("Medicare premiums (Sam)", "Healthcare", 7054.8, 2035),
+        _exp("House insurance", "Insurance", 7000.0, 2027, base=2027),
+        _exp("Moorpark loan", "House-Loan", 35400.0, None, 2040, base=2027, inflates=0),
+        _exp("Vacation fund", "Travel", 24000.0, 2027, base=2027),
+    ]
+
+    def test_health_care_rows_are_grouped_under_healthcare_whatever_their_category(self):
+        self.assertEqual(report._spending_category(self.EXPENSES[0]), "Healthcare")
+        self.assertEqual(report._spending_category(self.EXPENSES[1]), "Healthcare")
+        self.assertEqual(report._spending_category(self.EXPENSES[2]), "Insurance")
+        self.assertEqual(report._spending_category(self.EXPENSES[4]), "Travel")        # "vacation" is not "ACA"
+
+    def test_columns_follow_start_and_end_years_and_add_up_to_the_spending_figure(self):
+        s = {"expenses": self.EXPENSES, "this_year": 2026}
+        a = {"inflation_rate": "0.03", "plan_horizon_years": "45"}
+        out = report._spending_by_category_html(s, a, "future", {"retirement_year": 2027})
+        for year in (2027, 2037, 2047):
+            self.assertIn(f"<th class=\"num\">{year}</th>", out)
+        # healthcare in 2027 is only the medical insurance (Medicare has not started): $30,000, not the $37,000 of both rows' base amounts
+        self.assertIn("$30,000", out)
+        total_2037 = annual_expense_need(self.EXPENSES, 2037, 0.03)
+        self.assertIn(f"${total_2037:,.0f}", out)
+        self.assertIn("Medical Insurance, Medicare premiums (Sam)", out)
+
+    def test_a_cost_that_has_ended_shows_a_dash(self):
+        s = {"expenses": self.EXPENSES, "this_year": 2026}
+        out = report._spending_by_category_html(s, {"inflation_rate": "0.03", "plan_horizon_years": "45"}, "future", {"retirement_year": 2027})
+        self.assertIn('<td class="">House-Loan</td><td class="num">$35,400</td><td class="num">$35,400</td><td class="num">&ndash;</td>', out)   # paid in 2027 and 2037, over by 2047
+
+
+class TestHealthOverlap(unittest.TestCase):
+    def summary(self, private_end):
+        s = benefits.BENEFITS_SOURCE
+        return {"assumptions": {"inflation_rate": "0.03"}, "expenses": [
+            {"id": 1, "name": "Medical Insurance", "category": "Insurance", "annual_amount": 30000, "start_year": 2027, "end_year": private_end,
+             "base_year": 2027, "inflates": 1},
+            {"id": 2, "name": "Medicare premiums (A)", "category": "Healthcare", "annual_amount": 7054.8, "start_year": 2035, "base_year": 2026,
+             "inflates": 1, "source": s},
+            {"id": 3, "name": "Medicare premiums (B)", "category": "Healthcare", "annual_amount": 7054.8, "start_year": 2040, "base_year": 2026,
+             "inflates": 1, "source": s},
+        ]}
+
+    def test_a_private_plan_that_runs_past_the_first_medicare_start_is_flagged(self):
+        out = data_check._health_overlap(self.summary(2045))
+        self.assertEqual(len(out), 1)
+        self.assertIn("Medical Insurance", out[0]["title"])
+        self.assertIn("start in 2035", out[0]["detail"])
+        self.assertIn("extra in 2035", out[0]["detail"])
+
+    def test_a_private_plan_that_ends_before_medicare_is_fine(self):
+        self.assertEqual(data_check._health_overlap(self.summary(2034)), [])
+
+    def test_nothing_is_flagged_without_medicare_rows(self):
+        s = self.summary(2045)
+        s["expenses"] = s["expenses"][:1]
+        self.assertEqual(data_check._health_overlap(s), [])
 
 
 class TestReportPage(DashboardTestCase):

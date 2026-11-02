@@ -530,6 +530,26 @@ conversions, RMDs and taxes are all in one place. Only this tab uses it; the Sum
 """
 
 
+def conversion_choice(schedule_assumptions: dict) -> tuple[list[dict], str, dict | None, dict]:
+    """(strategy configs, the saved choice's key, the chosen strategy's config or None, the assumptions to run the schedule with).
+    Shared by the Drawdown tab and the plan report so both show the same strategy. The strategy decides when spending starts coming
+    from Tax-deferred (the window strategies spend Taxable first), so it overrides the plan's own start age for the run."""
+    from source.reporting.monte_carlo import normalize_custom_strategy
+
+    try:
+        custom_spec = normalize_custom_strategy(db.legacy_whatif())
+    except ValueError:
+        custom_spec = None
+    configs = strategy_configs(schedule_assumptions, custom_spec)
+    key = db.drawdown_conversion()
+    chosen = next((c for c in configs if c["key"] == key and c["target_rate"] is not None), None)
+    run_assumptions = schedule_assumptions
+    if chosen is not None:
+        early = chosen["early_spend_from_age"]
+        run_assumptions = {**schedule_assumptions, "early_tax_deferred_age": "" if early is None else str(early)}
+    return configs, key, chosen, run_assumptions
+
+
 def _render_drawdown_planning_page() -> str:
     s = build_summary()
     assumptions = s["assumptions"]
@@ -566,20 +586,7 @@ def _render_drawdown_planning_page() -> str:
     # drawdown-wide one, not the Asset-rows-only figure build_summary put
     # in `assumptions` for the Will my money last? tab.
     schedule_assumptions = {**assumptions, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
-    try:
-        from source.reporting.monte_carlo import normalize_custom_strategy
-
-        custom_spec = normalize_custom_strategy(db.legacy_whatif())
-    except ValueError:
-        custom_spec = None
-    configs = strategy_configs(schedule_assumptions, custom_spec)
-    conversion_key = db.drawdown_conversion()
-    chosen = next((c for c in configs if c["key"] == conversion_key and c["target_rate"] is not None), None)
-    run_assumptions = schedule_assumptions
-    if chosen is not None:
-        # the strategy decides when spending starts coming from Tax-deferred (the window strategies spend Taxable first)
-        early = chosen["early_spend_from_age"]
-        run_assumptions = {**schedule_assumptions, "early_tax_deferred_age": "" if early is None else str(early)}
+    configs, conversion_key, chosen, run_assumptions = conversion_choice(schedule_assumptions)
     schedule = deterministic_drawdown_schedule(
         pools=pools, expenses=s["expenses"], income=s["income_for_simulation"], assumptions=run_assumptions,
         conversion=chosen,
