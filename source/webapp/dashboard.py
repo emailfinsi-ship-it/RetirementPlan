@@ -139,6 +139,14 @@ _VIEWER_POSTS = {
 _OWNER_ONLY_PAGES = {"/setup.html", "/setup-wizard.html", "/trading.html", "/trading-live.html", "/stock-analysis.html", "/screener.html", "/orders.html", "/ibkr.html", "/etrade.html"}
 
 
+def _conversion_strategy_configs() -> list[dict]:
+    """The Legacy Planning strategies (including a saved what-if) a Drawdown conversion choice may name."""
+    from source.reporting.aggregate import build_summary as _build_summary
+    from source.reporting.monte_carlo import strategy_configs as _strategy_configs
+
+    return _strategy_configs(_build_summary()["assumptions"], db.legacy_whatif())
+
+
 def _is_public_path(path: str) -> bool:
     return path in _PUBLIC_PATHS or path.startswith("/icons/")
 
@@ -927,6 +935,14 @@ class Handler(BaseHTTPRequestHandler):
                     spec = normalize_custom_strategy(payload)
                     db.set_legacy_whatif(spec)
                     self._send_json({"ok": True, "whatif": spec})
+            elif path == "/api/drawdown-conversion":
+                key = str(payload.get("key") or "").strip()
+                if key:
+                    known = {c["key"] for c in _conversion_strategy_configs() if c["target_rate"] is not None}
+                    if key not in known:
+                        raise ValueError("Pick one of the Roth conversion strategies on the Legacy Planning tab.")
+                db.set_drawdown_conversion(key)
+                self._send_json({"ok": True, "key": key})
             elif path == "/api/tour-seen":
                 db.set_tour_seen(True)
                 self._send_json({"ok": True})

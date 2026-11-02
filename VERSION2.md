@@ -168,3 +168,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Safari: a button written inside a link (Download, Sign in to IBKR, wizard buttons) now opens the link. See VERSION3.md item 78.
 - Trading tab: Market news card (broader-market headlines by topic from Alpaca / Yahoo, refreshed every hour). See VERSION3.md item 79.
 - Plan report: low-volatility warning with a 16% re-run, accurate 'one thing to watch' wording for required withdrawals, and Taken-from-savings shows only what pays for spending (reinvested required withdrawals explained). See VERSION3.md item 80.
+- Legacy Planning: 'Why so little converted between 62 and 70?' card, an 'only age 62 to 70' strategy row and a Start-converting-at-age what-if field. Drawdown: 'Include Roth conversions' choice adds conversion columns to the year-by-year table. See VERSION3.md item 81.

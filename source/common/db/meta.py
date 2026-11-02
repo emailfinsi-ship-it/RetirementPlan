@@ -155,3 +155,15 @@ def set_legacy_whatif(spec: dict | None) -> None:
     import json
 
     set_meta(_META_LEGACY_WHATIF, json.dumps(spec) if spec else "")
+
+
+_META_DRAWDOWN_CONVERSION = "drawdown_conversion"
+
+
+def drawdown_conversion() -> str:
+    """The Legacy Planning strategy key the Drawdown tab shows its Roth conversions for ("" = none, the plan as it stands)."""
+    return (get_meta(_META_DRAWDOWN_CONVERSION) or "").strip()
+
+
+def set_drawdown_conversion(key: str | None) -> None:
+    set_meta(_META_DRAWDOWN_CONVERSION, (key or "").strip())
