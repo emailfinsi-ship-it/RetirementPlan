@@ -106,6 +106,14 @@ class TestSpendingByCategory(unittest.TestCase):
         self.assertIn('<td class="">House-Loan</td><td class="num">$35,400</td><td class="num">$35,400</td><td class="num">&ndash;</td>', out)   # paid in 2027 and 2037, over by 2047
 
 
+class TestVolatilityWording(unittest.TestCase):
+    def test_same_display_reads_still(self):
+        t = pres.volatility_note(0.1157, 0.2, 0.999, 0.998)
+        self.assertIn("is still >99%", t)
+        self.assertNotIn("instead of", t)
+        self.assertIn("instead of", pres.volatility_note(0.1157, 0.2, 0.95, 0.80))
+
+
 class TestHealthOverlap(unittest.TestCase):
     def summary(self, private_end):
         s = benefits.BENEFITS_SOURCE
@@ -127,6 +135,16 @@ class TestHealthOverlap(unittest.TestCase):
 
     def test_a_private_plan_that_ends_before_medicare_is_fine(self):
         self.assertEqual(data_check._health_overlap(self.summary(2034)), [])
+
+    def test_a_row_naming_one_person_is_compared_with_that_persons_medicare(self):
+        s = self.summary(2034)
+        s["expenses"].append({"id": 4, "name": "medical-B", "category": "Healthcare", "annual_amount": 15000, "start_year": 2035, "end_year": 2039,
+                              "base_year": 2027, "inflates": 1})
+        self.assertEqual(data_check._health_overlap(s), [])    # B's Medicare starts in 2040, after this row ends
+        s["expenses"][-1]["end_year"] = 2040
+        out = data_check._health_overlap(s)
+        self.assertEqual(len(out), 1)
+        self.assertIn("start in 2040", out[0]["detail"])
 
     def test_nothing_is_flagged_without_medicare_rows(self):
         s = self.summary(2045)
