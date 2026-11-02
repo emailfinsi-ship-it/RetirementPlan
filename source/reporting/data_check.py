@@ -15,6 +15,7 @@ from datetime import datetime
 
 from source.reporting import rebalance
 
+_HEALTH_ROW = re.compile(r"\b(health|healthcare|medical|medicare|medigap|dental|vision|aca|cobra)\b", re.I)
 _US_INDEX = re.compile(r"\b(s&p|s and p|500|total stock|total market|russell|nasdaq|large cap)\b", re.I)
 STALE_SYNC_DAYS = 7
 STALE_BACKUP_DAYS = 3
@@ -93,6 +94,41 @@ def check_positions(positions: list[dict]) -> list[dict]:
     return issues
 
 
+def _health_overlap(summary: dict) -> list[dict]:
+    """A hand-entered health insurance row (say "Medical Insurance" to 2045) that keeps running after the planner's Medicare premium rows
+    start, so both are counted: health care then looks bigger than it should. Says which years overlap and how much it adds."""
+    from source.reporting import benefits
+    from source.reporting.monte_carlo.withdrawal import _amount_in_year
+
+    expenses = summary.get("expenses") or []
+    medicare = [e for e in expenses if e.get("source") == benefits.BENEFITS_SOURCE and str(e.get("name") or "").startswith("Medicare premiums")
+                and e.get("start_year")]
+    if not medicare:
+        return []
+    infl = float((summary.get("assumptions") or {}).get("inflation_rate") or 0.0)
+    out = []
+    for e in expenses:
+        if e.get("source") == benefits.BENEFITS_SOURCE or not _HEALTH_ROW.search(f"{e.get('name') or ''} {e.get('category') or ''}"):
+            continue
+        end = e.get("end_year")
+        first = min((m["start_year"] for m in medicare if end is None or end >= m["start_year"]), default=None)
+        if first is None:
+            continue
+        year = max(int(first), int(e.get("start_year") or first))
+        extra = _amount_in_year(e, year, infl)
+        if extra <= 0:
+            continue
+        when = f"to {end}" if end else "with no end year"
+        out.append({
+            "id": f"health-overlap-{e.get('id', e.get('name'))}", "level": "warn",
+            "title": f"{e['name']} may be counted on top of Medicare ({when})",
+            "detail": f"Medicare premiums start in {first}, but {e['name']} keeps running {when}, so both are counted: about {_money(extra)} extra in {year} "
+                      "(in that year's dollars). If it ends or shrinks when each of you moves to Medicare, change its end year, or split it into one row per person.",
+            "href": "/expense.html", "fix": None,
+        })
+    return out
+
+
 def check_plan(summary: dict, *, now: datetime | None = None) -> list[dict]:
     issues: list[dict] = []
     now = now or datetime.now()
@@ -134,6 +170,7 @@ def check_plan(summary: dict, *, now: datetime | None = None) -> list[dict]:
             "fix": {"label": "Remove the older rows", "url": "/api/line-item/delete-bulk",
                     "payload": {"items": [{"section": "income", "id": r["id"]} for r in older]}},
         })
+    issues.extend(_health_overlap(summary))
     # A lopsided 401(k)/IRA split decides whose age starts the required withdrawals.
     share = summary.get("drawdown_spouse_tax_deferred_share")
     deferred = float((summary.get("drawdown_pools") or {}).get("tax_deferred") or 0.0)
