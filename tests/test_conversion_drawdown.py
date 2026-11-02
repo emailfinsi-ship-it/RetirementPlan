@@ -129,7 +129,9 @@ class TestOnSampleHousehold(DashboardTestCase):
 
     def test_the_report_includes_the_chosen_strategys_table_only_when_one_is_chosen(self):
         db.set_assumption("early_tax_deferred_age", "60")
-        self.assertNotIn("Withdrawals with Roth conversions", self._get("/report.html").read().decode())
+        none_page = self._get("/report.html").read().decode()
+        self.assertIn("No Roth conversion strategy is chosen", none_page)
+        self.assertNotIn("Roth conversion</th>", none_page)
         db.set_drawdown_conversion("window_24")
         page = self._get("/report.html").read().decode()
         self.assertIn("Withdrawals with Roth conversions", page)

@@ -324,7 +324,12 @@ def _conversion_html(s: dict, v: dict, mode: str) -> str:
     sched_assumptions = {**a, "spouse_tax_deferred_share": s["drawdown_spouse_tax_deferred_share"]}
     configs, key, chosen, run_assumptions = conversion_choice(sched_assumptions)
     if chosen is None:
-        return ""
+        return (
+            '<h3 class="rep">Withdrawals with Roth conversions</h3>'
+            '<p class="rep-lead">No Roth conversion strategy is chosen, so this report shows the plan without conversions. '
+            'To see the year-by-year table with conversions here, open the Drawdown tab, pick a strategy under '
+            '"Roth conversions", and download the report again.</p>'
+        )
     label = next((c["label"] for c in configs if c["key"] == key), key)
     try:
         sched = deterministic_drawdown_schedule(

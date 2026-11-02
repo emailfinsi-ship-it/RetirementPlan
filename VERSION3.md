@@ -476,7 +476,7 @@ are not touched.
 82. **Report includes the drawdown table with conversions.** When a Roth conversion strategy is chosen on the Drawdown tab, the plan report's "Income and tax picture" page (and
     the PDF) gains **Withdrawals with Roth conversions**: the strategy name, how much moves to Roth and the conversion tax, the estimated tax with and without conversions, the first
     required withdrawal with and without them, the ending Roth and Tax-deferred balances, and a year-by-year table (spending, taken from savings, required withdrawal, Roth
-    conversion, conversion tax, tax on withdrawals; every conversion year plus the milestone years). Nothing is added when no strategy is chosen, and the rest of the report still
+    conversion, conversion tax, tax on withdrawals; every conversion year plus the milestone years). When no strategy is chosen the report says so and tells you to pick one on the Drawdown tab (it used to add nothing, which looked like the table was missing). The rest of the report still
     shows the plan without conversions. The Drawdown tab and the report share one lookup (`conversion_choice`). Tests: `tests/test_conversion_drawdown.py`.
 83. **Report numbers check: healthcare and spending by category.** The report's "Yearly spending, by category" added every row's base amount whatever its years, so Healthcare showed
     only $14,110 (two Medicare rows that have not started and are in 2026 dollars) while a $30,000 "Medical Insurance" row sat under Insurance. It now shows spending in the first
