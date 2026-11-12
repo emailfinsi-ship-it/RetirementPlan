@@ -7,6 +7,7 @@ Read-only: nothing here can place an order and none of it is advice."""
 
 from __future__ import annotations
 
+import inspect
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -232,11 +233,24 @@ def default_load_bars(symbols: list[str], progress=None) -> dict[str, list[dict]
     return out
 
 
-def default_load_options(symbols: list[str]) -> dict[str, dict]:
-    """Option volume: from E*TRADE when it is signed in (one symbol at a time; it is left off after three failures in a row),
-    from Yahoo Finance for the rest."""
+OPTION_TIME_BUDGET = 60.0        # seconds the option-volume step may take in all; names not read by then are left out
+OPTION_ETRADE_SHARE = 0.5        # share of that budget E*TRADE (one name at a time) may use before Yahoo takes the rest
+_OPTION_CHUNK = 6                # Yahoo names read side by side per round, so progress and Cancel are checked between rounds
+
+
+def default_load_options(symbols: list[str], progress=None, cancelled=lambda: False, *, budget: float | None = None) -> dict[str, dict]:
+    """Option volume: from E*TRADE when it is signed in (one symbol at a time, for at most half the time budget; it is left off after
+    three failures in a row), from Yahoo Finance for the rest. ``progress(done, total)`` is called as names are read, ``cancelled()``
+    is checked between names, and the whole step stops at the time budget, so the screen never sits on this step indefinitely.
+    Names not read are simply missing from the result (``LAST_OPTION_UNREAD`` says how many)."""
+    import time
     from source.collector import etrade, yahoo
     from source.collector.broker_common import BrokerError
+    global LAST_OPTION_UNREAD
+    budget = OPTION_TIME_BUDGET if budget is None else budget
+    start = time.monotonic()
+    total = len(symbols)
+    done = 0
     out: dict[str, dict] = {}
     rest = list(symbols)
     client = None
@@ -245,14 +259,27 @@ def default_load_options(symbols: list[str]) -> dict[str, dict]:
         client = broker_api._etrade_client()
     except Exception:    # noqa: BLE001 -- not connected: Yahoo it is
         client = None
+
+    def tick(n=1):
+        nonlocal done
+        done += n
+        if progress:
+            progress(min(done, total), total)
+
+    if progress:
+        progress(0, total)
     if client is not None:
         rest, misses = [], 0
+        etrade_until = start + budget * OPTION_ETRADE_SHARE
         for sym in symbols:
-            if misses >= 3:
+            if cancelled():
+                rest = []
+                break
+            if misses >= 3 or time.monotonic() > etrade_until:
                 rest.append(sym)
                 continue
             try:
-                got = etrade.option_volume(client, sym.replace(".", "/") if False else sym)
+                got = etrade.option_volume(client, sym)
                 misses = 0
             except BrokerError:
                 misses += 1
@@ -260,10 +287,24 @@ def default_load_options(symbols: list[str]) -> dict[str, dict]:
                 continue
             if got:
                 out[sym] = {**got, "source": "etrade"}
-    if rest:
-        for sym, got in yahoo.get_option_volumes(rest).items():
+            tick()
+    unread = 0
+    for i in range(0, len(rest), _OPTION_CHUNK):
+        if cancelled():
+            unread += len(rest) - i
+            break
+        if time.monotonic() - start > budget:
+            unread += len(rest) - i
+            break
+        chunk = rest[i:i + _OPTION_CHUNK]
+        for sym, got in yahoo.get_option_volumes(chunk).items():
             out[sym] = {**got, "source": "yahoo"}
+        tick(len(chunk))
+    LAST_OPTION_UNREAD = unread
     return out
+
+
+LAST_OPTION_UNREAD = 0           # names the last default_load_options run did not get to (time budget or Cancel)
 
 
 def _row(e: dict, m: dict, why: list[str]) -> dict:
@@ -315,13 +356,26 @@ def scan(f: dict, *, load_bars=None, load_options=None, progress=None, cancelled
             rows.append(_row(e, m, why))
     matched = len(rows)
     options_checked = 0
+    option_unread = 0
     pc = f["put_call"]
     if pc and rows and not cancelled():
-        if progress:
-            progress(total, total, "Reading option volume")
         rows.sort(key=lambda r: _sort_key(r, f["sort"] if f["sort"] != "putcall" else "change"))
         pool = rows[:OPTION_CANDIDATE_CAP]
-        got = load_options([r["symbol"] for r in pool])
+        if progress:
+            progress(0, len(pool), "Reading option volume")
+        kwargs = {}
+        try:
+            names = inspect.signature(load_options).parameters
+        except (TypeError, ValueError):
+            names = {}
+        if "progress" in names:
+            kwargs["progress"] = (lambda n, t: progress(n, t, "Reading option volume")) if progress else None
+        if "cancelled" in names:
+            kwargs["cancelled"] = cancelled
+        global LAST_OPTION_UNREAD
+        LAST_OPTION_UNREAD = 0
+        got = load_options([r["symbol"] for r in pool], **kwargs)
+        option_unread = LAST_OPTION_UNREAD
         options_checked = len(pool)
         kept = []
         for r in pool:
@@ -338,4 +392,4 @@ def scan(f: dict, *, load_bars=None, load_options=None, progress=None, cancelled
     rows.sort(key=lambda r: _sort_key(r, f["sort"]))
     return {"rows": rows[:f["limit"]], "sources": dict(SOURCES), "scanned": total, "no_data": no_data, "matched": len(rows),
             "options_checked": options_checked, "truncated": len(rows) > f["limit"],
-            "options_capped": bool(pc) and matched > OPTION_CANDIDATE_CAP}
+            "options_capped": bool(pc) and matched > OPTION_CANDIDATE_CAP, "options_unread": option_unread}

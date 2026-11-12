@@ -171,3 +171,4 @@ All calculations, saved data and the Plaid connection. The tutorial video was no
 - Legacy Planning: 'Why so little converted between 62 and 70?' card, an 'only age 62 to 70' strategy row and a Start-converting-at-age what-if field. Drawdown: 'Include Roth conversions' choice adds conversion columns to the year-by-year table. See VERSION3.md item 81.
 - Report: when no Roth conversion strategy is chosen on the Drawdown tab, the "Withdrawals with Roth conversions" section now says so and points to the Drawdown tab (it used to add nothing).
 - Report checks: the Medicare double-count warning compares a row naming one person with that person's Medicare start; the 16% volatility re-run reads "is still" when both figures display the same.
+- Screener: the option-volume step shows a real count, honors Cancel and stops at a 60-second budget (names not read are left out and the summary says how many).
