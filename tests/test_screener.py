@@ -143,6 +143,45 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(sorted(seen[0]), ["AAA", "BBB"])                       # option chains are read only for names that passed
         self.assertIn("put/call volume 0.33", res["rows"][0]["why"])
 
+    def test_option_step_reports_progress_and_stops_at_the_time_budget(self):
+        from source.collector import yahoo
+        calls = []
+
+        def fake_volumes(syms):
+            calls.append(list(syms))
+            return {s: {"call_volume": 10.0, "put_volume": 5.0, "ratio": 0.5} for s in syms}
+        real = yahoo.get_option_volumes
+        yahoo.get_option_volumes = fake_volumes
+        try:
+            seen = []
+            names = [f"S{i}" for i in range(20)]
+            out = engine.default_load_options(names, progress=lambda n, t: seen.append((n, t)))
+            self.assertEqual(len(out), 20)
+            self.assertEqual(seen[-1], (20, 20))
+            self.assertTrue(len(seen) > 2)                                   # real progress, not one jump
+            self.assertEqual(engine.LAST_OPTION_UNREAD, 0)
+            calls.clear()
+            out = engine.default_load_options(names, budget=-1)              # out of time at once: nothing read, and it says so
+            self.assertEqual((out, calls, engine.LAST_OPTION_UNREAD), ({}, [], 20))
+            out = engine.default_load_options(names, cancelled=lambda: True)  # Cancel is honored between rounds
+            self.assertEqual((out, engine.LAST_OPTION_UNREAD), ({}, 20))
+        finally:
+            yahoo.get_option_volumes = real
+
+    def test_scan_passes_progress_and_cancel_to_a_reader_that_takes_them(self):
+        f = filters.normalize({"tickers": ["AAA"], "universe": ["custom"], "put_call": {"max": 0.7}, "rsi": {"min": 0, "max": 100}})
+        got = {}
+
+        def reader(syms, progress=None, cancelled=None):
+            got["progress"], got["cancelled"] = progress, cancelled
+            progress(1, 1)
+            return {}
+        stages = []
+        engine.scan(f, load_bars=lambda syms, progress=None: {s: rising_then_cross() for s in syms}, load_options=reader,
+                    progress=lambda n, t, stage: stages.append((n, t, stage)))
+        self.assertIn((1, 1, "Reading option volume"), stages)
+        self.assertTrue(callable(got["cancelled"]))
+
     def test_themes_pull_in_named_tickers_and_industry_words(self):
         f = filters.normalize({"theme": "semiconductors"})
         syms = {e["symbol"] for e in engine.candidates(f)}

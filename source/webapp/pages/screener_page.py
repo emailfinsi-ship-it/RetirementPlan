@@ -258,7 +258,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var src = res.sources || {}, from = Object.keys(src).map(function (k) { return src[k] + ' from ' + (k === 'alpaca' ? 'Alpaca' : 'Yahoo Finance'); }).join(', ');
     $('sc-summary').innerHTML = (cancelled ? 'Stopped. ' : '') + '<strong>' + res.matched + '</strong> match' + (res.matched === 1 ? '' : 'es') + ' out of ' + res.scanned + ' scanned' +
       (res.no_data ? ' (' + res.no_data + ' had too little price history)' : '') + (res.truncated ? '; showing the first ' + rows.length : '') + (from ? '. Prices: ' + from : '') +
-      (res.options_capped ? '. Put/call was read for the best ' + res.options_checked + ' matches only.' : '') + '.';
+      (res.options_capped ? '. Put/call was read for the best ' + res.options_checked + ' matches only.' : '') +
+      (res.options_unread ? '. Option data was slow, so ' + res.options_unread + ' names were left out; run it again or tighten the filters.' : '') + '.';
     $('sc-actions').hidden = !rows.length || rows.some(function (r) { return r.put_call; });
     $('sc-opt-note').textContent = '';
     draw();
