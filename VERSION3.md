@@ -486,3 +486,7 @@ are not touched.
 84. **Report check follow-ups.** The Medicare double-count warning now compares a row that names one person (say "medical-Anupama") with that person's Medicare start, not the earliest
     start of either of you, so splitting a private plan per person clears the warning once each row ends before its owner's Medicare begins. The 16% volatility re-run reads "is still
     >99%" instead of "(instead of >99%)" when the two figures display the same. Tests: `tests/test_report_checks.py`.
+85. **Screener: the option-volume step shows progress, can be cancelled and has a time limit.** With a put/call filter the screen read up to 60 option chains one at a time
+    (E*TRADE: up to four calls each) with a full progress bar, no count and a Cancel that did nothing, so it looked stuck for minutes. It now counts names as it goes
+    ("Reading option volume 24 of 60"), checks Cancel between names, gives E*TRADE at most half of a 60-second budget before Yahoo takes the rest, and stops at the budget; names not
+    read are left out and the summary says how many. Tests: `tests/test_screener.py`.
